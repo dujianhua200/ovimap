@@ -111,19 +111,36 @@ gh run download <RUN_ID> -n ovimap-android-X.Y.Z -D ~/Downloads
 
 ## 3. 计费与额度
 
-private 仓库 GitHub Actions 免费额度 **2000 分钟/月**，且带倍率：
+private 仓库 GitHub Actions 免费额度 **2000 分钟/月**，且带倍率。
+下表「实测」列都是 **2026-09-18 真实跑出来的**（`gh run view` 的 createdAt→updatedAt）：
 
-| runner | 倍率 | 本项目单次实测 | 计费消耗 |
+| runner | 倍率 | 本项目实测 | 计费消耗 |
 |---|---|---|---|
-| `ubuntu-latest` | ×1 | Windows / macOS 测试各跑一遍 ≈ 看门禁 < 20 分 | 1 倍 |
-| `windows-latest` | ×2 | ≈ 9 分钟（构建 + 测试） | ≈ 18 分钟 |
-| `macos-latest` | **×10** | ≈ 3 分钟（构建 + 测试） | **≈ 30 分钟** |
+| `ubuntu-latest` — `CI 门禁` | ×1 | **2 分 53 秒** | ≈ 3 分钟 |
+| `ubuntu-latest` — `Android 打包` | ×1 | **12 分 59 秒** | ≈ 13 分钟 |
+| `windows-latest` — `桌面端构建` | ×2 | ≈ 9 分 07 秒 | ≈ 18 分钟 |
+| `macos-latest` — `桌面端构建` | **×10** | ≈ 3 分钟 | **≈ 30 分钟** |
 
 **纪律：绝不在每次 push 上跑 macOS。**
 
-- 分支 / PR 门禁交给 `ci.yml`（ubuntu 1x），纯 Dart 单测不需要桌面工具链。
-- 桌面端只在**打 tag** 或**手动**时出包（`build-desktop.yml` 已改成 `on: push.tags + workflow_dispatch`）。
-- 旧版 `build-desktop.yml` 的 `on.push` 同时写了 `branches` 和 `tags`，一次发版 push 会跑两遍（main 一遍 + tag 一遍，不同 ref → concurrency 互不取消），实测白烧约 **48 计费分钟**，现已修正。
+- 分支 / PR 门禁交给 `ci.yml`（ubuntu 1x）。`flutter test` 是纯 Dart 单测，
+  不需要 Android SDK / JDK / Xcode / MSVC —— 所以本机也只需要装 Flutter 一个。
+- 桌面端只在**打 tag** 或**手动**时出包（`on: push.tags + workflow_dispatch`）。
+- Android 出包同样只在 tag / 手动时跑（ubuntu 1x，约 13 分钟一次）。
+
+各场景的计费分钟估算：
+
+| 场景 | 计费分钟 | 说明 |
+|---|---|---|
+| push 到 main（只跑门禁） | ≈ 3 | 一天推 20 次也才 60 分钟 |
+| 手动单出 Android | ≈ 13 | 最便宜的出包方式 |
+| 手动单出 Windows | ≈ 18 | |
+| 手动单出 macOS | ≈ 30 | 最贵，按需再用 |
+| 打 tag（全平台一起出） | ≈ 64 | 3 + 13 + 18 + 30 |
+
+对照：旧版配置下一次「push 到 main」就会烧 ≈ 48 计费分钟（Windows 18 + macOS 30），
+而一次「改完就发版」的 push 会因 `on.push` 同时写 `branches` 与 `tags` 而跑两遍 ——
+**≈ 96 计费分钟**。现在同样的动作是 3 分钟，降了一个数量级。
 
 ---
 
@@ -300,7 +317,28 @@ Error: The process '.../sdkmanager' failed with exit code 1
 
 ---
 
-## 6. 相关文件
+## 6. 实测验证记录（2026-09-18 首次全通）
+
+留档的是**证据**，不是「应该能行」：
+
+| 项 | 命令 / 位置 | 结果 |
+|---|---|---|
+| `CI 门禁` | run `35369608208`（commit `5a496ec`） | ✅ success，2 分 53 秒 |
+| `Android 打包` | run `35369620051`（commit `5a496ec`，手动 dispatch） | ✅ success，12 分 59 秒 |
+| 云端跑测试 | 上述两个 job 内 | 🎉 `505 tests passed, 2 skipped`（与 macOS 本机一致） |
+| APK 签名一致性 | `Android 打包` 的「校验 APK 签名」步骤 | 期望 `dfc826bb…41c3` ＝ 实际 `dfc826bb…41c3` ✅ |
+| 产物独立复核 | 下载后本机 `apksigner verify --print-certs` | `CN=Android Debug, O=Android, C=US`，SHA-1 同上 ✅ |
+| APK 包信息 | `aapt2 dump badging` | `com.dujianhua.ovimap` / `versionName=3.0.3` / `versionCode=9` / label「滑洲云图」 |
+| APK 体积 | `gh run download` | 63 MB（universal，含全 ABI） |
+| 触发面 | push 到 main 后 `gh run list` | **只**触发 `CI 门禁`；桌面 workflow 未被触发（双跑浪费已消除）✅ |
+
+**尚未实测的一项**（诚实标注）：还没打过 tag，所以「三个 job 并行写同一个 Release、三类资产都挂上」这件事
+只在结构上成立、未在真实 Release 上验证过。下次真发版时请确认 Release 页面同时有
+`ovimap-android-*.apk` + `ovimap-windows-x64-*.zip` + `ovimap-macos-universal-*.zip`。
+
+---
+
+## 7. 相关文件
 
 | 文件 | 作用 |
 |---|---|
