@@ -124,6 +124,7 @@ build/macos/Build/Products/Release/ovimap.app
 
 | 项 | 说明 |
 |---|---|
+| **⚠️ 界面壳是移动竖屏壳** | `lib/main.dart:87` 用 `Platform.isWindows ? WorkspacePage() : HomePage()` 决定顶层壳，**macOS 落到移动壳**。业务功能完整可用，但**没有**菜单栏 / 工具栏 / 快捷键 / 右键菜单 / 三栏布局。修复是一行改动：`Platform.isWindows` → `PlatformCaps.isDesktop`（该常量已含 macOS；`services/loc.dart` 也已按 `isDesktop` 降级）。同步还要改 `main.dart:16` 的竖屏锁（`if (!Platform.isWindows)` → `if (!PlatformCaps.isDesktop)`） |
 | **Flutter 版本敏感** | 基线 **3.47.2**。`file_picker` 固定在 `9.2.3`、`flutter_plugin_android_lifecycle` 经 `dependency_overrides` 钉在 `2.0.22`，升级 Flutter 时先确认这两处约束仍然成立 |
 | **移动端专属能力降级** | 桌面无 GPS / 无罗盘 / 无相机，能力判断统一走 `lib/services/platform_caps.dart`；macOS 上 `supportsFileSaveDialog` 为 **false**，导出走「分享/落地到数据目录」而非系统另存为对话框 |
 | **系统级拖放** | `WM_DROPFILES` 桥（`windows/runner/flutter_window.cpp`）是 **Windows 专属**，macOS 上不生效；应用内拖拽（左栏导入区）仍可用 |
@@ -268,6 +269,7 @@ A：Windows 上更常见（文件锁竞态），macOS 偶发。工程内已用 `
 
 | 项 | Windows | macOS |
 |---|---|---|
+| **界面壳** | ✅ 桌面三栏壳（菜单栏 / 工具栏 / 快捷键 / 右键菜单） | ⚠️ 移动竖屏壳（当前版本，见 §6） |
 | 工具链 | Visual Studio 2022 + C++ 工作负载（MSVC） | Xcode + CocoaPods |
 | 启用命令 | `flutter config --enable-windows-desktop` | `flutter config --enable-macos-desktop` |
 | 产物 | `build\windows\x64\runner\Release\` 整个目录 | `build\macos\Build\Products\Release\ovimap.app` |
