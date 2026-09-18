@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../geo/geo_util.dart';
 import '../../models/map_label.dart';
+import '../../services/platform_caps.dart';
 import '../../services/tile_cache.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
@@ -41,6 +42,7 @@ class MapCanvas extends StatefulWidget {
     this.onMapReady,
     this.onCameraChanged,
     this.onSecondaryTap,
+    this.onPointerGeo,
   });
 
   final AppState st;
@@ -80,6 +82,10 @@ class MapCanvas extends StatefulWidget {
 
   /// 右键（`MapOptions.onSecondaryTap`）回调，用于桌面右键菜单。
   final void Function(TapPosition tap, LatLng point)? onSecondaryTap;
+
+  /// 鼠标悬停位置回调（桌面）：回传 WGS-84 经纬度；移出地图时回传 (null, null)。
+  /// 供状态栏显示「鼠标所在经纬度」（奥维桌面版的状态栏口径）。
+  final void Function(double? lat, double? lon)? onPointerGeo;
 
   @override
   State<MapCanvas> createState() => _MapCanvasState();
@@ -278,11 +284,15 @@ class _MapCanvasState extends State<MapCanvas> {
         ),
     ];
 
-    final int flags = widget.interactionFlags ??
-        (InteractiveFlag.pinchZoom |
-            InteractiveFlag.drag |
-            InteractiveFlag.doubleTapZoom |
-            InteractiveFlag.rotate);
+    // 交互开关缺省值按平台给：
+    //
+    // - 桌面：必须有 `scrollWheelZoom`，否则鼠标滚轮完全不能缩放（本壳此前把它漏了，
+    //   是「地图缩放不管用」的根因之一）；不含 `rotate` —— 桌面出图要求正北朝上，
+    //   且旋转手势会与右键菜单/框选抢事件；不含 `doubleTapZoom` —— 开了它，
+    //   每次单击落点都要等 250ms 双击判定窗口（详见
+    //   [defaultFlagsForCurrentPlatform] 的「250ms 代价」）。
+    // - 移动：保持原口径（双指缩放 + 旋转）。
+    final int flags = widget.interactionFlags ?? defaultFlagsForCurrentPlatform();
 
     return Stack(
       children: [
@@ -305,7 +315,21 @@ class _MapCanvasState extends State<MapCanvas> {
             onTap: _onTap,
             onLongPress: _onLongPress,
             onSecondaryTap: widget.onSecondaryTap,
-            interactionOptions: InteractionOptions(flags: flags),
+            onPointerHover: (e, point) {
+              // 悬停点位的坐标系与其它回调一致（显示基准）；交回调用方前转成 WGS-84。
+              final w = st.toWgs(point.latitude, point.longitude);
+              widget.onPointerGeo?.call(w[0], w[1]);
+            },
+            interactionOptions: InteractionOptions(
+              flags: flags,
+              // ⚠️ 桌面必须关掉「按住 Ctrl 移动鼠标 = 旋转地图」：
+              // flutter_map 的 `CursorKeyboardRotationOptions` 默认把 Control 键当旋转触发键，
+              // 于是 Ctrl+Z / Ctrl+S / Ctrl+E 等桌面快捷键在鼠标移动时会顺带把地图转掉。
+              // 移动端无此冲突，保持默认。
+              cursorKeyboardRotationOptions: PlatformCaps.isDesktop
+                  ? CursorKeyboardRotationOptions.disabled()
+                  : const CursorKeyboardRotationOptions(),
+            ),
           ),
           children: [
             TileLayer(
@@ -405,6 +429,63 @@ class _MapCanvasState extends State<MapCanvas> {
       ],
     );
   }
+}
+
+// ================= 交互开关（两套壳共用一份口径） =================
+
+/// 当前平台的默认地图交互开关。
+///
+/// **桌面与移动的差别是刻意的，不是漏配**：
+///
+/// | 能力 | 移动 | 桌面 | 原因 |
+/// |---|---|---|---|
+/// | `drag` 平移 | ✅ | ✅ | 桌面为左键拖拽 |
+/// | `scrollWheelZoom` 滚轮缩放 | — | ✅ | **桌面缩放的主力入口**，缺了滚轮就没反应 |
+/// | `doubleTapZoom` 双击放大 | ✅ | — | 见下方「500ms 代价」说明 |
+/// | `pinchZoom` 双指缩放 | ✅ | — | 桌面无多指；触控板双指滚动已由 `scrollWheelZoom` 覆盖 |
+/// | `rotate` 旋转 | ✅ | — | 桌面出图要求正北朝上，且旋转会抢右键/框选事件 |
+/// | `flingAnimation` 惯性滑动 | — | — | 测绘场景要「停手即停」，惯性会让定点对不准 |
+///
+/// ### 桌面为何**不**开 `doubleTapZoom`：单击会被延迟 250ms
+///
+/// flutter_map 的点击判定在 `PositionedTapDetector2`（`gestures/
+/// positioned_tap_detector_2.dart`）里，它把「是否为双击」与「单击」放在同一个
+/// 判定流程上：
+///
+/// ```dart
+/// static const _defaultDelay = Duration(milliseconds: 250); // 双击判定窗口
+/// ...
+/// if (widget.onDoubleTap == null) {
+///   _postCallback(pending, widget.onTap);   // 立刻回调，零延迟
+/// } else {
+///   _sink.add(pending);                     // 进流，等 250ms 超时才算「单击」
+/// }
+/// ```
+///
+/// 而 `MapInteractiveViewer` 只在 `flags` 含 `doubleTapZoom` 时才会给
+/// `onDoubleTap` 传值（`InteractiveFlag.hasDoubleTapZoom(flags) ? ... : null`）。
+/// 结论：**开双击缩放 = 每一次单击落点都要等 250ms 才发生**。
+///
+/// 对本应用（现场打点，一条线要点几十上百下）这个延迟是硬伤，因此桌面端
+/// 主动关闭双击缩放，改用「滚轮 / Ctrl± / 工具栏 / 方向键」四条缩放通道。
+/// 移动端维持原有口径不动（改它会牵动既有手感与回归）。
+///
+/// ### 与奥维桌面版的有意差异
+///
+/// 奥维用「双击结束折线绘制」，本应用不采用：我们**没有**连续画线状态机 ——
+/// 每次单击独立落点，链是由点位自动串起来的，结束动作交给 `Esc`（以及各模式
+/// 提示栏里的「完成」按钮）。这样既省掉点击延迟，也不会和落点抢同一次手势。
+///
+/// 方向键平移由 flutter_map 的 `KeyboardOptions` 默认提供（`enableArrowKeysPanning`），
+/// 与奥维桌面版一致，无需额外配置。
+int defaultFlagsForCurrentPlatform() {
+  if (PlatformCaps.isDesktop) {
+    return InteractiveFlag.drag | InteractiveFlag.scrollWheelZoom;
+  }
+  return InteractiveFlag.pinchZoom |
+      InteractiveFlag.drag |
+      InteractiveFlag.doubleTapZoom |
+      InteractiveFlag.rotate;
 }
 
 // ================= 共享图层构建（两套壳复用） =================

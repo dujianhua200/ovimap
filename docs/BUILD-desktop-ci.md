@@ -101,33 +101,46 @@ CRT 拷进产物目录，做成真正双击即用的绿色版；该目录不存�
 
 ## 5. 已知边界（重要）
 
-### 5.1 macOS 端目前是「移动壳」界面
+### 5.1 ~~macOS 端是「移动壳」界面~~ → 已修复（v3.0.3）
 
-`lib/main.dart` 的顶层平台判断是：
+**历史缺陷（v3.0.2 及更早）**：`lib/main.dart` 的顶层平台判断是
 
 ```dart
 home: Platform.isWindows ? const WorkspacePage() : const HomePage(),
 ```
 
-macOS 不属于 `isWindows`，因此会落到移动竖屏壳（`HomePage`），并且
-`SystemChrome.setPreferredOrientations` 会按移动端约束方向。也就是说：
-**macOS 包能构建、能打开、能跑业务逻辑，但界面不是桌面三栏布局。**
+macOS 不属于 `isWindows`，于是落到移动竖屏壳（`HomePage`），并且
+`SystemChrome.setPreferredOrientations` 按移动端锁方向。症状：
+**宽窗口下界面变形、滚轮缩放完全没反应**（移动壳的 `MapCanvas` 默认交互开关不含
+`scrollWheelZoom`）。
 
-要改成真正的桌面版，把这两处判断换成 `PlatformCaps.isDesktop` 即可 ——
-`PlatformCaps.isDesktop` 已经包含 `Platform.isMacOS`，`lib/services/loc.dart`
-也早就按 `isDesktop` 做了无 GPS 降级。本次按「最小可运行」范围没有动它。
+**修复（已合入 main，随 v3.0.3 出包）**：
 
-### 5.2 macOS 端部分桌面能力仍是降级路径
+| 位置 | 改动 |
+|---|---|
+| `lib/main.dart` | 判据换成 `PlatformCaps.isDesktop`（含 macOS），竖屏锁改为 `!PlatformCaps.isDesktop` |
+| `macos/Runner/MainFlutterWindow.swift` | 窗口 1440×900 / 最小 1024×680（模板默认 800×600 会把三栏挤变形） |
+| `lib/ui/map/map_canvas.dart` | 默认交互开关收口到 `defaultFlagsForCurrentPlatform()`：桌面 `drag + scrollWheelZoom`；关闭「Ctrl+鼠标旋转」的默认绑定 |
+| `lib/services/platform_caps.dart` | `hasGps` 收紧为 `Android \|\| iOS`（原 `!isWindows` 把 macOS 误判为有 GPS）；`supportsFileSaveDialog` 纳入 macOS |
+| `lib/ui/desktop/*` | 新增模式提示栏 + 状态栏鼠标经纬度；快捷键补 `Ctrl±` / `Ctrl+0` / `Esc` / `Backspace` 与 macOS `⌘` 组合 |
 
-`PlatformCaps.supportsFileSaveDialog` 当前写死 `Platform.isWindows`（`file_picker`
-的 `saveFile` 在 macOS 上其实可用）。所以 macOS 里导出走的是「分享/落盘到数据目录」
-路径，而不是系统「另存为」对话框。同样归入 5.1 的待办。
+设计与取舍的完整说明见 **[DESKTOP-UI.md](DESKTOP-UI.md)**。
+
+### 5.2 macOS 端的桌面能力（已对齐）
+
+`PlatformCaps.supportsFileSaveDialog` 原先写死 `Platform.isWindows`，macOS 导出只能走
+「分享 / 落盘到数据目录」。现已纳入 macOS（`file_picker.saveFile` → 原生 NSSavePanel），
+依赖沙箱授权 `com.apple.security.files.user-selected.read-write`（`Release.entitlements`
+已声明）。
 
 ### 5.3 `flutter analyze` 现有 68 条 info
 
 不是本次引入的，是仓库既有状态（`drawer_panel.dart` 的
 `use_build_context_synchronously`、测试与 `tool/` 里的 `avoid_print` 等）。
 CI 里已放行 info 级，不影响出包。
+
+> 桌面壳改造涉及的文件（`main.dart` / `platform_caps.dart` / `ui/desktop/*` /
+> `ui/map/map_canvas.dart`）已做到 **0 error / 0 warning / 0 info**。
 
 ### 5.4 桌面构建与 Android 侧无关
 
@@ -137,6 +150,18 @@ CI 里已放行 info 级，不影响出包。
 > 提示：`android/.gitignore` 里忽略了 `gradle-wrapper.jar` 与 `gradlew`。
 > 如果以后想给 Android 也加云端构建，需要注意新克隆的仓库缺 wrapper，
 > 得先本地跑一次构建或把这些文件补进版本库。
+
+### 5.5 本地为什么不能出 macOS 包
+
+`xcode-select -p` 指向 `/Library/Developer/CommandLineTools`（只装了命令行工具）时：
+
+```
+ProcessException: Process exited abnormally with exit code 72:
+xcrun: error: unable to find utility "xcodebuild", not a developer tool or in PATH
+```
+
+装完整 Xcode.app 才能本地构建；否则 **macOS 产物只能由本 CI 出**。
+Windows 侧同理（需 VS2022 + C++ 工作负载）。这也是这套 CI 存在的理由。
 
 ### 5.5 Windows 与 macOS 的测试差异
 

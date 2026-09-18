@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'services/platform_caps.dart';
 import 'state/app_state.dart';
 import 'sync/sync_controller.dart';
 import 'ui/desktop/workspace_page.dart';
@@ -12,8 +12,13 @@ import 'ui/home_page.dart';
 
 void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
-  // 移动端保持竖屏；桌面端（Windows）不加方向约束，允许 1024×680 起的任意窗口尺寸。
-  if (!Platform.isWindows) {
+  // 移动端保持竖屏；桌面端（Windows / macOS / Linux）**不加方向约束**，
+  // 允许 1024×680 起的任意窗口尺寸 —— 桌面三栏壳在竖屏锁下会被压成一团。
+  //
+  // 判据用 [PlatformCaps.isDesktop] 而非 `Platform.isWindows`：
+  // 后者会把 macOS 判成"移动端"，正是此前 macOS 包跑移动竖屏壳、
+  // 界面变形且滚轮缩放失效的根因。
+  if (!PlatformCaps.isDesktop) {
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -82,9 +87,12 @@ class OviMapApp extends StatelessWidget {
             secondary: Color(0xFF69F0AE),
           ),
         ),
-        // 平台分支（架构文档 §3.1）：Windows → 桌面三栏壳；其余 → 移动竖屏壳。
+        // 平台分支（架构文档 §3.1）：桌面（Windows / macOS / Linux）→ 桌面三栏壳；
+        // 移动（Android / iOS）→ 移动竖屏壳。
         // 唯一顶层平台判断点；业务代码内平台能力一律走 PlatformCaps。
-        home: Platform.isWindows ? const WorkspacePage() : const HomePage(),
+        home: PlatformCaps.isDesktop
+            ? const WorkspacePage()
+            : const HomePage(),
       ),
     );
   }

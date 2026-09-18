@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../geo/geo_util.dart';
 import '../../state/app_state.dart';
@@ -10,7 +11,13 @@ import '../dialogs.dart';
 
 /// 桌面底部状态栏（架构文档 §3.2 / T11 / T17，高度 26）。
 ///
-/// 左起：设备名 · 同步状态 · 最后同步时间 · 当前显示坐标 · 图源 · 缩放 · 选中数。
+/// 左起：设备名 · 同步状态 · 最后同步时间 · **鼠标经纬度** · 视图中心 · 图源 ·
+/// 缩放 · 选中数；最右端固定显示坐标系。
+///
+/// 字段口径对齐奥维互动地图桌面版：奥维状态栏就是「鼠标指针处经纬度 + 当前地图
+/// 显示级别 + 当前坐标系」。本栏把「鼠标处」与「视图中心」两个字段分列，
+/// 因为出图时两者用途不同 —— 前者用来读点，后者用来核对构图。
+///
 /// 同步区取自 [SyncController]（可为 null：未接入同步 → 「本地模式」）。
 class StatusBar extends StatelessWidget {
   const StatusBar({
@@ -19,6 +26,7 @@ class StatusBar extends StatelessWidget {
     required this.centerText,
     required this.zoom,
     required this.selectedCount,
+    this.mouseGeo,
     this.sync,
   });
 
@@ -26,6 +34,13 @@ class StatusBar extends StatelessWidget {
   final String centerText;
   final double zoom;
   final int selectedCount;
+
+  /// 鼠标所在经纬度（WGS-84）。鼠标移出地图或尚未进入时为 null。
+  ///
+  /// 用 [ValueListenableBuilder] 局部监听而非整壳 `setState`：悬停回调在鼠标
+  /// 移动时每帧触发，若走本组件的入参（父级 setState）会把地图一起重建，
+  /// 直接拖垮滚轮缩放与拖拽平移的手感。
+  final ValueNotifier<LatLng?>? mouseGeo;
 
   /// 云同步编排器（可为 null）。
   final SyncController? sync;
@@ -39,6 +54,13 @@ class StatusBar extends StatelessWidget {
       if (n != null && n.trim().isNotEmpty) return n.trim();
     } catch (_) {}
     return '本机';
+  }
+
+  /// 把 WGS-84 悬停点换算成当前显示基准并格式化（与「视图中心」同一口径）。
+  String _mouseText(LatLng? g) {
+    if (g == null) return '—';
+    final d = st.toDisplay(g.latitude, g.longitude);
+    return GeoUtil.formatCoord(d[0], d[1], st.coordFmt);
   }
 
   @override
@@ -69,29 +91,53 @@ class StatusBar extends StatelessWidget {
         color: Color(0xFF11161B),
         border: Border(top: BorderSide(color: Colors.white12)),
       ),
+      // 窄窗口下字段会排不下（实测 776px 宽就溢出 79px，在 1024 最小宽度附近
+      // 一旦选中点变多、同步态变长同样会溢出）。故左侧信息区做成**横向可滚动**、
+      // 坐标系钉在右端常显 —— 比整栏裁剪（信息直接消失）和硬挤（文字压成一团）都稳。
       child: Row(
         children: [
-          _item(Icons.computer, device),
-          _divider(),
-          _item(statusIcon, statusText, color: statusColor),
-          _item(null, '最后同步：$syncTime'),
-          if (configured && (sc?.pendingCount ?? 0) > 0) ...[
-            _divider(),
-            _item(Icons.cloud_upload_outlined, '待上传 ${sc!.pendingCount}',
-                color: const Color(0xFFFFB74D)),
-          ],
-          _divider(),
-          _item(Icons.my_location, centerText),
-          _divider(),
-          _item(Icons.layers_outlined, st.curSource.name),
-          _divider(),
-          _item(null, '缩放 ${zoom.toStringAsFixed(1)}'),
-          if (selectedCount > 0) ...[
-            _divider(),
-            _item(Icons.check_circle_outline, '已选 $selectedCount 点',
-                color: kAccent),
-          ],
-          const Spacer(),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              // 反向：让滚动条停在起点，字段顺序与阅读顺序一致。
+              reverse: false,
+              child: Row(
+                children: [
+                  _item(Icons.computer, device),
+                  _divider(),
+                  _item(statusIcon, statusText, color: statusColor),
+                  _item(null, '最后同步：$syncTime'),
+                  if (configured && (sc?.pendingCount ?? 0) > 0) ...[
+                    _divider(),
+                    _item(Icons.cloud_upload_outlined, '待上传 ${sc!.pendingCount}',
+                        color: const Color(0xFFFFB74D)),
+                  ],
+                  _divider(),
+                  // 鼠标处经纬度（奥维口径）：鼠标未进入地图时显示「—」。
+                  if (mouseGeo != null)
+                    ValueListenableBuilder<LatLng?>(
+                      valueListenable: mouseGeo!,
+                      builder: (ctx, g, _) =>
+                          _item(Icons.mouse_outlined, '鼠标 ${_mouseText(g)}'),
+                    )
+                  else
+                    _item(Icons.mouse_outlined, '鼠标 —'),
+                  _divider(),
+                  _item(Icons.my_location, '中心 $centerText'),
+                  _divider(),
+                  _item(Icons.layers_outlined, st.curSource.name),
+                  _divider(),
+                  _item(null, '缩放 ${zoom.toStringAsFixed(1)}'),
+                  if (selectedCount > 0) ...[
+                    _divider(),
+                    _item(Icons.check_circle_outline, '已选 $selectedCount 点',
+                        color: kAccent),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
           Text('坐标系 ${GeoUtil.fmtName(st.coordFmt)}',
               style: const TextStyle(color: kTextSub, fontSize: 11)),
         ],

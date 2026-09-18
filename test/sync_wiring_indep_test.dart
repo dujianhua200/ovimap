@@ -24,11 +24,13 @@ void main() {
           reason: 'SyncController provider 必须 lazy:false（两端启动即起同步）');
       expect(s.contains('attachSyncController('), isTrue);
       expect(s.contains('sc.start'), isTrue);
-      // 平台分支保持不变。
-      expect(
-          s.contains(
-              'Platform.isWindows ? const WorkspacePage() : const HomePage()'),
-          isTrue);
+      // 平台分支：桌面三平台（含 macOS）→ WorkspacePage；移动 → HomePage。
+      // 判据必须是 PlatformCaps.isDesktop（曾写成 Platform.isWindows，
+      // 使 macOS 落进移动竖屏壳）。此处按行归一化后断言，避免缩进/换行影响。
+      final flat = s.replaceAll(RegExp(r'\s+'), ' ');
+      expect(flat.contains('PlatformCaps.isDesktop ? const WorkspacePage() : const HomePage()'),
+          isTrue,
+          reason: 'main.dart 的界面壳分支应改用 PlatformCaps.isDesktop');
     });
 
     test('AppState：保存/删除回调同步器，且 sync 可为 null（本地可用）', () {

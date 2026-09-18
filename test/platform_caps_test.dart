@@ -28,19 +28,32 @@ void main() {
     expect(PlatformCaps.hasCamera, expected);
   });
 
-  test('hasGps：桌面（Windows）为 false', () {
-    expect(PlatformCaps.hasGps, !Platform.isWindows);
-    if (Platform.isWindows) expect(PlatformCaps.hasGps, isFalse);
+  test('hasGps 仅 Android/iOS —— 桌面三平台（含 macOS/Linux）一律 false', () {
+    final expected = Platform.isAndroid || Platform.isIOS;
+    expect(PlatformCaps.hasGps, expected);
+    // 回归护栏：hasGps 曾写成 `!Platform.isWindows`，把 macOS/Linux 误判为「有 GPS」。
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      expect(PlatformCaps.hasGps, isFalse);
+    }
   });
 
-  test('supportsFileSaveDialog 仅 Windows（saveFile 对话框）', () {
-    expect(PlatformCaps.supportsFileSaveDialog, Platform.isWindows);
+  test('supportsFileSaveDialog = Windows/macOS（Linux 依赖 zenity 等外部程序，不开）', () {
+    final expected = Platform.isWindows || Platform.isMacOS;
+    expect(PlatformCaps.supportsFileSaveDialog, expected);
+    if (Platform.isMacOS) {
+      expect(PlatformCaps.supportsFileSaveDialog, isTrue,
+          reason: 'macOS 走原生 NSSavePanel，导出必须能弹「另存为」');
+    }
+    if (Platform.isLinux) {
+      expect(PlatformCaps.supportsFileSaveDialog, isFalse);
+    }
   });
 
-  test('桌面宿主（macOS/Linux）无罗盘、无相机', () {
+  test('桌面宿主（macOS/Linux）无罗盘、无相机、无 GPS', () {
     if (Platform.isMacOS || Platform.isLinux) {
       expect(PlatformCaps.hasCompass, isFalse);
       expect(PlatformCaps.hasCamera, isFalse);
+      expect(PlatformCaps.hasGps, isFalse);
       expect(PlatformCaps.isDesktop, isTrue);
     }
   });
