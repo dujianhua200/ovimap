@@ -33,22 +33,25 @@
 
 ## 2. 触发方式
 
+> 日常分支 / PR 门禁已交给 `.github/workflows/ci.yml`（ubuntu 1x，最便宜）。
+> 本桌面工作流**只负责出包**，不再在每次 push 上跑。详见 [`BUILD-cloud.md`](BUILD-cloud.md)。
+
 | 场景 | 做法 |
 |---|---|
-| 日常验证 | push 到 `main` / `master` |
-| 提 PR | 自动跑，作为合并前检查 |
+| 日常验证 / 提 PR | 交给 `CI 门禁`（push 到 `main`/`master` 或开 PR 自动跑） |
 | 不想改代码只想出包 | Actions → 左侧「桌面端构建（Windows / macOS）」→ Run workflow |
-| 发版 | 打 `v*` 标签（如 `v3.0.2`）→ 除 artifact 外，还会自动把两个 zip 挂到 GitHub Release |
+| 发版 | 打 `v*` 标签（如 `v3.0.2`）→ 两个 zip 挂到 GitHub Release，同时触发 Android 出包 |
 
 ```bash
 git tag v3.0.2
 git push origin v3.0.2
 ```
 
-**纯文档改动不触发构建**：`paths-ignore` 里配了 `docs/**` 与 `**/*.md`，
-避免为改一行 README 就烧掉一次 CI 额度（macOS runner 计费 ×10）。
-代价是：如果某个 tag 指向的提交只改了文档，那次不会自动出包，
-需要去 Actions 页面手动 Run workflow。
+> ⚠️ **触发条件已调整（2026-09-19）**：原 `on.push` 同时写了 `branches` 和 `tags`，
+> 一次发版 push 会跑两遍（main 一遍 + tag 一遍，不同 ref → concurrency 互不取消），
+> 实测白烧约 48 计费分钟。现已改为 `on: push.tags + workflow_dispatch`，
+> 分支门禁交给 `ci.yml`，桌面端只在**打 tag** 或**手动**时出包。
+> 因此本工作流不再有 `paths-ignore`——打了 tag 就是要出包，文档改动也照出。
 
 ---
 
@@ -174,7 +177,9 @@ Windows 侧同理（需 VS2022 + C++ 工作负载）。这也是这套 CI 存在
    `restore_confirm_indep_test` / `version_history_indep_test` / `sync_controller_test`。
 2. **`HOME` 环境变量**：Windows 上只有 `USERPROFILE`，没有 `HOME`。
    凡是靠 `Platform.environment['HOME']` 定位本机样本的用例，在 Windows 上会
-   落到「跳过」（`+500 ~2` 而 macOS 是 `+502 ~1`）。属预期行为，不是失败。
+   落到「跳过」。**两端的跳过集合可能不同，不要用一端的通过数去推断另一端。**
+   （截至 v3.0.3，Windows 与 macOS 恰好都是 `505 passed / 2 skipped`；
+   更早的 v3.0.2 上曾是 macOS `+502 ~1` / Windows `+500 ~2` 的差异。）属预期行为，不是失败。
 
 因此**不要用 macOS 本地全绿来推断 Windows 也会绿**，反之亦然。
 
@@ -233,7 +238,7 @@ GitHub 的 runner 没有代理，不需要这行。
 | macOS 可运行 | `open ovimap.app` → 进程稳定存活 13 秒以上，无新崩溃报告 |
 | macOS 体积 | .app 53 MB，zip 21 MB |
 | Windows 内容 | 20 个条目：`ovimap.exe` + `flutter_windows.dll` + `dartjni.dll` + 4 个插件 dll + `data/`；解压后 33.7 MB，zip 13 MB |
-| 本地测试 | `flutter test` 502 通过 / 1 跳过 / 0 失败 |
+| 本地测试 | `flutter test` 505 通过 / 2 跳过 / 0 失败（本机与 CI 双平台一致） |
 
 Windows 包的**真实启动**未在本机验证（本机没有 Windows），
 只核对了导入表与文件完整性；首次真机运行时如报缺 dll，请看 §3 的运行库说明。

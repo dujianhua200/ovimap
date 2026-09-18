@@ -1,0 +1,256 @@
+# 滑洲云图 ovimap —— 本地零安装出包手册（CI 接管一切）
+
+> 目标：本机只装 **Flutter SDK** 一个工具链，所有**构建 / 测试 / 出包**都搬到 GitHub Actions。
+> 本机只负责写代码 + 看门禁 + 打 tag + 下载成品。
+
+---
+
+## 0. 为什么本机不需要装环境
+
+实测本机（macOS）状态：
+
+| 维度 | 现状 | 结论 |
+|---|---|---|
+| Xcode | 只装了 CommandLineTools（`xcode-select -p` → `/Library/Developer/CommandLineTools`），**无完整 Xcode.app** | 本地**出不了 macOS 包**（缺 `xcodebuild`，报 `exit code 72`） |
+| Windows 工具链 | 本机是 macOS，**没有 VS2022 + C++ 工作负载** | 本地**出不了 Windows 包** |
+| Android 依赖 | 本机 shell 走 HTTP 代理，`maven.google.com` 被代理挡 **502**，`flutter doctor` 报依赖不可达 | 本地**Android 出包不可靠** |
+
+三条路全被本机环境堵死，所以 **出包只能上云**。本机的职责收缩到：
+
+- 写代码（只需 Flutter SDK：`flutter pub get` / `analyze` / `test`）
+- 推代码、开 PR、打 tag
+- 从 Release / Artifacts 下载成品
+
+> 例外：如果你仍想本地出 Android APK（绕过代理问题），可以参照 §5「工具链职责表」的例外条件，但**不推荐**——本手册默认一切上云。
+
+---
+
+## 1. 四条日常动线
+
+### ① 日常改代码（只需 Flutter SDK）
+
+```bash
+flutter pub get
+flutter analyze --no-fatal-infos        # info 级 lint 放行；error / warning 仍致命
+flutter test                            # 纯 Dart 单测，不需要 Android SDK / JDK
+```
+
+> 本机若走 HTTP 代理，必须加一行，否则 `flutter test` 的 localhost WebSocket 被劫持，
+> 所有用例报 `Invalid WebSocket upgrade request`：
+> ```bash
+> export NO_PROXY="127.0.0.1,localhost,::1"
+> ```
+> GitHub runner 无代理，不需要这行。
+
+### ② 看门禁
+
+推代码或开 PR 后，看 **`CI 门禁`** 这个 workflow（ubuntu 1x，最便宜）：
+
+- `push` 到 `main` / `master`（文档改动除外）会自动跑
+- 开 PR 会自动跑
+- 也可在 Actions 页面手动 `Run workflow`
+
+门禁只做 `flutter analyze --no-fatal-infos` + `flutter test`，不过就进不了 `main`。
+
+### ③ 出包
+
+**全平台（推荐）：**
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+打 `v*` 标签会同时触发两个出包 workflow（共 3 个 job）：
+
+- `Android 打包` → `ovimap-android-X.Y.Z.apk`
+- `桌面端构建（Windows / macOS）` → `ovimap-windows-x64-X.Y.Z.zip` + `ovimap-macos-universal-X.Y.Z.zip`
+
+三者（3 个 job 的产物）都会挂到同名的 GitHub Release 上。`CI 门禁` 不参与出包 —— 它的 `on:` 里没有 `tags`，只管分支与 PR。
+
+**单平台按需（不想全出，省额度）：**
+
+```bash
+# 只出 Android
+gh workflow run "Android 打包"
+# 只出 Windows + macOS
+gh workflow run "桌面端构建（Windows / macOS）"
+```
+
+> `gh workflow run` 默认跑在默认分支的最新提交上；如需指定 ref 加 `--ref <branch>`。
+
+### ④ 下载
+
+```bash
+# 从 Release 下载（已发布版本）
+gh release download vX.Y.Z -p 'ovimap-android-X.Y.Z.apk' -D ~/Downloads
+gh release download vX.Y.Z -p 'ovimap-windows-x64-X.Y.Z.zip' -D ~/Downloads
+gh release download vX.Y.Z -p 'ovimap-macos-universal-X.Y.Z.zip' -D ~/Downloads
+
+# 从某次运行（Run）的 Artifact 下载（还没打 Release / 只想拿某次构建）
+gh run download <RUN_ID> -n ovimap-android-X.Y.Z -D ~/Downloads
+```
+
+`<RUN_ID>` 在 Actions 页面对应运行的 URL 里：`.../actions/runs/<RUN_ID>`。
+
+---
+
+## 2. 工具链职责表
+
+| 工具链 | 现在还需要本机装吗 | 哪个 CI job 接管 | 例外条件（仍想本地出） |
+|---|---|---|---|
+| **Xcode**（含 `xcodebuild`） | ❌ 不需要 | `桌面端构建` 的 `build-macos` job（`macos-latest`） | 本机装**完整 Xcode.app** + `sudo xcodebuild -license accept`，可本地 `flutter build macos` |
+| **MSVC**（VS2022 + C++ 负载） | ❌ 不需要 | `桌面端构建` 的 `build-windows` job（`windows-latest`，自带 VC++ Redist 拷贝逻辑） | 本机装 Windows + VS2022 C++ 工作负载，可本地 `flutter build windows` |
+| **独立 JDK** | ❌ 不需要 | `Android 打包` 用 `actions/setup-java@v4`（temurin 17）；桌面端 Flutter 自带 | 本项目锁死 **Java 17**（compileOptions / kotlin jvmTarget / AGP 9.1.0 / Gradle 9.3.1），本地若装 JDK 也必须是 17，别用 21 |
+| **Android SDK** | ❌ 不需要 | `Android 打包` 用 `android-actions/setup-android@v3` 补齐 | 本机装 Android SDK 且**能直连 `maven.google.com`**（绕过代理 502）后，可本地 `flutter build apk` |
+| **Flutter SDK** | ✅ **必须本机装**（写代码 / 跑门禁用） | 三个 workflow 都用 `subosito/flutter-action@v2`（3.47.2 stable） | 无 |
+
+核心结论：**本机唯一长期依赖 = Flutter SDK**。出包相关的重型工具链全部上云。
+
+---
+
+## 3. 计费与额度
+
+private 仓库 GitHub Actions 免费额度 **2000 分钟/月**，且带倍率：
+
+| runner | 倍率 | 本项目单次实测 | 计费消耗 |
+|---|---|---|---|
+| `ubuntu-latest` | ×1 | Windows / macOS 测试各跑一遍 ≈ 看门禁 < 20 分 | 1 倍 |
+| `windows-latest` | ×2 | ≈ 9 分钟（构建 + 测试） | ≈ 18 分钟 |
+| `macos-latest` | **×10** | ≈ 3 分钟（构建 + 测试） | **≈ 30 分钟** |
+
+**纪律：绝不在每次 push 上跑 macOS。**
+
+- 分支 / PR 门禁交给 `ci.yml`（ubuntu 1x），纯 Dart 单测不需要桌面工具链。
+- 桌面端只在**打 tag** 或**手动**时出包（`build-desktop.yml` 已改成 `on: push.tags + workflow_dispatch`）。
+- 旧版 `build-desktop.yml` 的 `on.push` 同时写了 `branches` 和 `tags`，一次发版 push 会跑两遍（main 一遍 + tag 一遍，不同 ref → concurrency 互不取消），实测白烧约 **48 计费分钟**，现已修正。
+
+---
+
+## 4. 签名与覆盖安装（重要）
+
+### 为什么必须用同一个 keystore
+
+Android 应用靠 **签名证书** 标识身份。真机上已装旧版时，新包若签名不同，系统直接拒绝覆盖安装：
+
+```
+INSTALL_FAILED_UPDATE_INCOMPATIBLE
+```
+
+**卸载重装会丢现场数据**（工程文件、缓存等）。所以 CI 出包必须用**和本机发布同一个 keystore**。
+
+### 三级签名解析（见 `android/app/build.gradle.kts`）
+
+优先级从高到低：
+
+1. **`android/key.properties`**（CI 由 Secret 还原；本机也可自建）—— 存放 keystore 引用与口令。
+2. **本机旧工程绝对路径** `/Users/dujianhua200/Doubao/滑洲云图/outputs/ManualApp/debug.keystore`
+   （历史遗留，口令 `android` / 别名 `androiddebugkey` / 口令 `android`），保持「能覆盖安装」。
+3. **都没有 → 退回 AGP 内置 debug 签名**（`~/.android/debug.keystore`，AGP 自动生成）。
+   能保证「任何环境都能出一个可安装包」，但**签名与手机旧版不同**，覆盖安装会报
+   `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，需先卸载——仅用于临时调试，**不能当发布包**。
+
+### 4 个 Secret（仓库 Settings → Secrets → Actions）
+
+| Secret 名 | 内容 | 来源 |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64` | 本机发布 keystore 的 **base64 全文（单行）** | `openssl base64 -A -in debug.keystore` 的输出 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 口令（storePassword） | 发布时用的口令 |
+| `ANDROID_KEY_ALIAS` | 别名（keyAlias） | 通常为 `androiddebugkey` 或自定义 |
+| `ANDROID_KEY_PASSWORD` | 密钥口令（keyPassword） | 通常与 storePassword 相同 |
+
+CI 流程：`ANDROID_KEYSTORE_BASE64` → `base64 -d` → `android/ovimap.keystore`；
+同时生成 `android/key.properties`（含四个字段），Gradle 据此还原 `ovimap` signingConfig。
+
+> `key.properties` 与 `*.keystore` 已被 `android/.gitignore` 忽略，**绝不进仓库**。
+> 本地自建 `key.properties` 的字段示例（**不要写进仓库**）：
+> ```
+> storeFile=ovimap.keystore
+> storePassword=android
+> keyAlias=androiddebugkey
+> keyPassword=android
+> ```
+
+**无密钥 / fork 场景**：若 `ANDROID_KEYSTORE_BASE64` 为空，还原步骤被 `if: env.KS_B64 != ''` 守卫跳过，
+构建会回退到 AGP 内置 debug 签名——**这个回退会让构建成功、门禁变绿、Release 照挂包**，
+而包却与手机上的旧版不同签名。为了不让它静默发生，见 §4.4。
+
+### 4.4 签名一致性校验（防「静默错签」）
+
+`Android 打包` 在重命名 APK 之后、上传之前，有一道**签名校验**：
+
+1. 从注入的 `android/ovimap.keystore` 取期望 SHA1；
+2. 从产出的 APK 取实际签名 SHA1（用 `apksigner verify --print-certs`，
+   不是 `keytool -printcert -jarfile` —— 后者只能看 v1/JAR 签名，新版 AGP 可能只签 v2/v3，会误判）；
+3. 两者不一致 → `::error` + `exit 1`；`ANDROID_KEYSTORE_BASE64` 为空 → 直接失败。
+
+**为什么值得加这一步**：签名错签是本项目最贵的失效模式 —— 用户现场勘察的数据全在手机上，
+一旦侧载报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，卸载重装就把数据丢了。
+而错签在加这道校验之前是**完全静默**的。
+
+当前命令查到的期望指纹（本机 keystore，标准 Android debug 证书）：
+
+```
+SHA1: DF:C8:26:BB:88:E0:42:6E:DA:78:75:0D:0A:B8:5C:F3:00:EE:41:C3
+```
+
+**人工复核方式**（想自己再确认一次时）：
+
+```bash
+gh release download vX.Y.Z -p 'ovimap-android-*.apk' -D /tmp
+keytool -printcert -jarfile /tmp/ovimap-android-X.Y.Z.apk   # 若只签了 v2/v3，改用：
+$ANDROID_HOME/build-tools/*/apksigner verify --print-certs /tmp/ovimap-android-X.Y.Z.apk
+```
+
+---
+
+## 5. 排障
+
+### 5.1 `flutter.sdk not set in local.properties`
+
+- **现象**：裸跑 `./gradlew` 或某些 Gradle 命令时报。
+- **原因**：`android/settings.gradle.kts` 强制要求 `local.properties` 里有 `flutter.sdk`，
+  而该文件只有 `flutter build` 自动生成。
+- **对策**：**不要用裸 `./gradlew` 出 Android 包**，统一用 `flutter build apk`。CI 的 `Android 打包` 也是这么做的。
+
+### 5.2 `maven.google.com` 不可达（502）
+
+- **现象**：`flutter doctor` / 依赖解析阶段报 502，Google Maven 仓库拉不下来。
+- **原因**：本机 HTTP 代理把 `maven.google.com` 当外网劫持。
+- **对策**：出包上云（GitHub runner 无代理）。本地若一定要试，需让代理放行 `maven.google.com`，
+  或配置 `ANDROID_SDK_ROOT` 走国内镜像——但**不推荐**，容易引入不一致。
+
+### 5.3 NDK 缺失
+
+- **现象**：构建报找不到 NDK（`ndkVersion` 未安装）。
+- **对策**：`Android 打包` 用 `android-actions/setup-android@v3` 按需补齐；本机可用
+  `sdkmanager "ndk;<version>"` 安装与 `flutter.ndkVersion` 一致的版本。
+
+### 5.4 JVM OOM（内存溢出）
+
+- **现象**：Gradle 构建中途 `Java heap space` / `OutOfMemoryError`。
+- **原因**：`android/gradle.properties` 写死 `-Xmx8G -XX:MaxMetaspaceSize=4G`，
+  那是给本机 8G 内存机器调的；CI runner 内存有限，按 8G 起 JVM 会挤爆。
+- **对策**：`Android 打包` 在构建前用 `sed` 把工作区副本降到 `-Xmx4G` / `-XX:MaxMetaspaceSize=2G`
+  （**只改检出副本，不落库**）。本机 8G 机器保留原值即可。
+
+### 5.5 其它
+
+- **门禁红了但只是 info**：确认 `analyze` 带了 `--no-fatal-infos`；error / warning 仍致命。
+- **Release 挂不上（Resource not accessible by integration）**：检查 workflow 顶层是否声明了
+  `permissions: contents: write`（本仓库默认工作流权限是 read）。两个出包 workflow 都已声明。
+- **Android 包签名校验失败**：`Android 打包` 末尾会比对「注入 keystore 的 SHA1」与「APK 实际签名 SHA1」，
+  不一致就 `exit 1`。见 §4.4。
+
+---
+
+## 6. 相关文件
+
+| 文件 | 作用 |
+|---|---|
+| `.github/workflows/ci.yml` | 日常门禁（ubuntu，analyze + test） |
+| `.github/workflows/build-android.yml` | Android 出包（tag / 手动） |
+| `.github/workflows/build-desktop.yml` | Windows + macOS 出包（tag / 手动） |
+| `android/app/build.gradle.kts` | 三级签名解析 |
+| `docs/BUILD-desktop-ci.md` | 桌面端 CI 详细说明 + 版本发布流程 |
+| `docs/BUILD-windows.md` / `docs/BUILD-macos.md` | 本地构建完整指南（如需本地出） |

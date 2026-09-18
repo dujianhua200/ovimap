@@ -3,9 +3,11 @@
 > 通信线路工程 **勘察采集 → 自动成图 → 一键出图** 的桌面 / 移动一体化工具。
 > 现场打点，自动连成杆路并算距离，直接导出 CAD 能打开的 DXF 路由图与全套竣工资料。
 
+[![CI 门禁](https://github.com/dujianhua200/ovimap/actions/workflows/ci.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/ci.yml)
+[![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.0.2**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.0.3**（Windows x64 / macOS Universal / Android）
 **技术栈：** Flutter 3.47.2 · flutter_map 8 · Provider · DXF(R12/R2000) · Cloudflare Workers + D1 + R2
 
 ---
@@ -477,21 +479,24 @@ flutter test                       # 66 个测试文件
 
 ## 10. CI 自动构建
 
-工作流：[`.github/workflows/build-desktop.yml`](.github/workflows/build-desktop.yml)
+> 本地零安装出包完整手册见 [`docs/BUILD-cloud.md`](docs/BUILD-cloud.md)；
+> 桌面端 CI 详解见 [`docs/BUILD-desktop-ci.md`](docs/BUILD-desktop-ci.md)。
 
-| 任务 | 环境 | 流程 | 产物 |
+三个工作流分工：
+
+| 工作流 | 职责 | 触发 | 环境 |
 |---|---|---|---|
-| `build-windows` | `windows-latest` | analyze + test 门禁 → `flutter build windows` → 补 VC++ dll → zip | `ovimap-windows-x64-<版本>.zip` |
-| `build-macos` | `macos-latest` | analyze + test 门禁 → `flutter build macos` → 校验签名与架构 → ditto 打包 | `ovimap-macos-universal-<版本>.zip` |
+| [`ci.yml`](.github/workflows/ci.yml) `CI 门禁` | 静态分析 + 单元测试（analyze + test） | push 到 `main`/`master`（文档除外）+ PR + 手动 | `ubuntu-latest`（1x，最便宜） |
+| [`build-android.yml`](.github/workflows/build-android.yml) `Android 打包` | 出 universal APK + 挂 Release | 打 `v*` 标签 + 手动 | `ubuntu-latest`（1x） |
+| [`build-desktop.yml`](.github/workflows/build-desktop.yml) `桌面端构建` | Windows + macOS 出包 + 挂 Release | 打 `v*` 标签 + 手动 | `windows-latest` / `macos-latest` |
 
-**触发方式**
+**日常动线**
 
-| 场景 | 做法 |
-|---|---|
-| 日常验证 | push 到 `main` / `master` |
-| PR 检查 | 提 PR 自动跑 |
-| 只出包不改代码 | Actions → 左侧选本工作流 → **Run workflow** |
-| 发版 | 打 `v*` 标签，除 Artifact 外自动把两个 zip 挂到 GitHub Release |
+- **改代码 / 提 PR**：交给 `CI 门禁`（ubuntu 1x，纯 Dart 单测不需要桌面工具链），不过就进不了 `main`。
+- **出包**：`git tag vX.Y.Z && git push origin vX.Y.Z` 全平台出；或
+  `gh workflow run "Android 打包"` / `gh workflow run "桌面端构建（Windows / macOS）"` 单平台按需。
+- **下载**：`gh release download vX.Y.Z -p '<文件名>' -D ~/Downloads`
+  （或 `gh run download <RUN_ID> -n <artifact 名> -D ~/Downloads`）。
 
 ```bash
 git tag v3.0.2
@@ -500,11 +505,12 @@ git push origin v3.0.2
 
 **设计要点**
 
-- **两个平台各自跑测试**，不共用一个 Linux 测试任务：`test/platform_caps_test.dart` 等用例的断言是
+- 分支 / PR 门禁只在 **ubuntu 1x** 跑，**绝不在每次 push 上跑 macOS**（×10，烧额度）。
+- 桌面端两个平台各自跑测试，不共用一个 Linux 测试任务：`test/platform_caps_test.dart` 等用例的断言是
   **按平台参数化**的，Linux 全绿并不能证明 Windows / macOS 也绿。
-- **门禁**：静态分析或单元测试任一失败 → 该平台不出包。
-- **纯文档改动不触发构建**（`paths-ignore: docs/**, **/*.md`）：private 仓库 Actions 额度有限，
-  macOS runner 计费 ×10，不该为改一行 README 烧一次额度。
+- 门禁：静态分析（`--no-fatal-infos`，放行 info，error/warning 致命）或单元测试任一失败 → 不出包。
+- 桌面端工作流已改为「只打 tag / 手动」触发：原 `on.push` 同时写 `branches` 和 `tags` 会让一次发版 push
+  跑两遍（不同 ref → concurrency 互不取消），实测白烧约 48 计费分钟。
 
 ---
 
@@ -541,8 +547,8 @@ ovimap/
 ├── docs/                          设计文档（PRD / 架构 / 构建 / 部署 / SOP）
 ├── scripts/                       Windows 构建与文件关联脚本
 ├── tool/                          DXF 校验、OSM 数据抓取等辅助脚本
-├── test/                          66 个测试文件
-└── .github/workflows/             双平台桌面构建 CI
+├── test/                          67 个测试文件
+└── .github/workflows/             CI：门禁 / Android 打包 / Windows + macOS 打包
 ```
 
 ---

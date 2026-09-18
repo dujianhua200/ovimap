@@ -9,23 +9,20 @@
 #  之所以不做「一个 job 跑 Linux 测试」，是因为 test/platform_caps_test.dart 等
 #  断言是按平台参数化的 —— Linux 全绿并不能证明 Windows / macOS 也绿。
 #
-#  触发方式：push 到 main/master、PR、手动 workflow_dispatch；打 v* 标签会
-#  额外把两个压缩包挂到 GitHub Release 上。
+#  触发方式：打 v* 标签 或 手动 workflow_dispatch 才出包。
+#
+#  为什么改成「只打 tag / 手动」：
+#    原 on.push 同时写了 branches 和 tags，一次发版 push 会跑两遍
+#    （main 一遍 + tag 一遍，两套不同 ref → concurrency 互不取消），
+#    实测白烧约 48 计费分钟。现在分支门禁交给 ci.yml（ubuntu 1x），
+#    桌面端只在打 tag 或手动时出包，避免重复消耗 macOS 额度。
 # ============================================================================
 
 name: 桌面端构建（Windows / macOS）
 
 on:
   push:
-    branches: [main, master]
     tags: ['v*']
-    # 纯文档改动不触发构建：private 仓库的 Actions 额度有限
-    # （macOS runner 计费 ×10），不该为改一行 README 烧掉一次额度。
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 # 同一分支重复推送时，取消上一次未跑完的构建，避免排队。
