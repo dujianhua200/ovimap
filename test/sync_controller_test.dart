@@ -145,16 +145,26 @@ void main() {
 
   test('debounce：连续保存合并为一次上传', () async {
     final c1 = await makeLocal('甲', 1);
-    final sc = makeController(debounce: const Duration(milliseconds: 30));
+    final sc = makeController(debounce: const Duration(milliseconds: 50));
     await sc.start();
     final before = fake.putCount;
 
+    // ⚠️ 这里刻意「先把两次落盘做完，再紧邻发两次本地已保存通知」。
+    //
+    // 原先的写法是把 editLocal（真实文件 I/O）夹在两次 onLocalSaved 之间。
+    // 那样测试结论就依赖磁盘耗时：Windows runner 上这次写盘一旦超过 debounce
+    // 窗口，第一次通知的定时器已经触发并发出 PUT，最终变成 2 次 PUT 而不是 1 次，
+    // 用例随机失败（实测同一提交在两次 CI 上时过时不过）。
+    //
+    // 被验语义是「debounce 对 onLocalSaved 的合并」，通知相邻调用即可完整覆盖，
+    // 不必也不该让结论取决于磁盘快慢。
     await editLocal(c1, '甲', 2);
-    sc.onLocalSaved(c1);
     await editLocal(c1, '甲', 3);
-    sc.onLocalSaved(c1); // 重置 debounce
+    sc.onLocalSaved(c1);
+    sc.onLocalSaved(c1); // 紧邻再次通知 → 应重置 debounce 并合并
 
-    await Future<void>.delayed(const Duration(milliseconds: 90));
+    // 等待要留足余量：慢 runner 上定时器可能比标称值晚触发。
+    await Future<void>.delayed(const Duration(milliseconds: 300));
     expect(fake.putCount, before + 1, reason: '两次保存应合并为一次 PUT');
     expect(sc.statusFor(c1), SyncStatus.synced);
     expect(fake.projects[c1]!.rev, 2);
