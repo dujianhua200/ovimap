@@ -1,0 +1,200 @@
+# ============================================================================
+#  滑洲云图 ovimap —— 桌面端双平台构建（Windows / macOS）
+#
+#  产出：
+#    · ovimap-windows-x64-<版本>.zip     解压后双击 ovimap.exe（免安装绿色版）
+#    · ovimap-macos-universal-<版本>.zip 解压后拖入「应用程序」即可运行
+#
+#  质量门禁：每个平台各自跑 flutter analyze + flutter test，测试不过就不出包。
+#  之所以不做「一个 job 跑 Linux 测试」，是因为 test/platform_caps_test.dart 等
+#  断言是按平台参数化的 —— Linux 全绿并不能证明 Windows / macOS 也绿。
+#
+#  触发方式：push 到 main/master、PR、手动 workflow_dispatch；打 v* 标签会
+#  额外把两个压缩包挂到 GitHub Release 上。
+# ============================================================================
+
+name: 桌面端构建（Windows / macOS）
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# 同一分支重复推送时，取消上一次未跑完的构建，避免排队。
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 与 docs/BUILD-windows.md 记录的基线一致（要求 >= 3.35）。
+  # 升级 Flutter 时只改这一处。
+  FLUTTER_VERSION: '3.47.2'
+  FLUTTER_CHANNEL: 'stable'
+
+jobs:
+  # --------------------------------------------------------------------------
+  #  Windows x64
+  # --------------------------------------------------------------------------
+  build-windows:
+    name: Windows x64 打包
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: 读取版本号（来自 pubspec.yaml）
+        shell: bash
+        run: |
+          raw=$(grep -m1 '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//' | tr -d '\r ')
+          name=${raw%%+*}
+          number=${raw#*+}
+          [ "$number" = "$raw" ] && number=0
+          echo "BUILD_NAME=$name"   >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$number" >> "$GITHUB_ENV"
+          echo "版本：$name+$number"
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      - name: 静态分析（门禁）
+        # 注意：本项目当前有 68 条 info 级 lint（多为测试/工具脚本里的 print、
+        # 以及 drawer_panel 的 use_build_context_synchronously），而 flutter analyze
+        # 默认把 info 也视为致命。这里只放行 info —— error 与 warning 仍然会让
+        # 构建失败。想收紧时去掉 --no-fatal-infos 即可。
+        run: flutter analyze --no-fatal-infos
+
+      - name: 单元测试（门禁）
+        run: flutter test
+
+      - name: 启用 Windows 桌面支持
+        run: flutter config --enable-windows-desktop
+
+      - name: 构建 Release
+        run: flutter build windows --release --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}
+
+      - name: 打包为 zip
+        shell: pwsh
+        run: |
+          $src = "build/windows/x64/runner/Release"
+          if (-not (Test-Path "$src/ovimap.exe")) {
+            Write-Error "未找到构建产物 $src/ovimap.exe"
+            exit 1
+          }
+          $out = "ovimap-windows-x64-${{ env.BUILD_NAME }}.zip"
+          Compress-Archive -Path "$src/*" -DestinationPath $out -Force
+          $mb = [math]::Round((Get-Item $out).Length / 1MB, 1)
+          Write-Host "已生成 $out（${mb} MB）"
+          Get-ChildItem $src | Select-Object Name, Length | Format-Table
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ovimap-windows-x64-${{ env.BUILD_NAME }}
+          path: ovimap-windows-x64-${{ env.BUILD_NAME }}.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 挂到 Release（仅打 v* 标签时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ovimap-windows-x64-${{ env.BUILD_NAME }}.zip
+          fail_on_unmatched_files: true
+
+  # --------------------------------------------------------------------------
+  #  macOS（universal：arm64 + x86_64）
+  # --------------------------------------------------------------------------
+  build-macos:
+    name: macOS 打包
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: 读取版本号（来自 pubspec.yaml）
+        run: |
+          raw=$(grep -m1 '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//' | tr -d '\r ')
+          name=${raw%%+*}
+          number=${raw#*+}
+          [ "$number" = "$raw" ] && number=0
+          echo "BUILD_NAME=$name"   >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$number" >> "$GITHUB_ENV"
+          echo "版本：$name+$number"
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      - name: 静态分析（门禁）
+        # 同 Windows 任务：只放行 info，error / warning 仍然致命。
+        run: flutter analyze --no-fatal-infos
+
+      - name: 单元测试（门禁）
+        run: flutter test
+
+      - name: 启用 macOS 桌面支持
+        run: flutter config --enable-macos-desktop
+
+      - name: 构建 Release
+        # 未配置开发者证书时，Flutter 按工程里的 CODE_SIGN_IDENTITY = "-" 走
+        # ad-hoc 签名，产物可直接在本机运行（首次打开需右键「打开」绕过 Gatekeeper）。
+        run: flutter build macos --release --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}
+
+      - name: 校验签名与架构
+        run: |
+          APP="build/macos/Build/Products/Release/ovimap.app"
+          test -d "$APP" || { echo "未找到 $APP"; exit 1; }
+          echo "--- 可执行文件架构（期望同时含 arm64 与 x86_64）---"
+          lipo -info "$APP/Contents/MacOS/ovimap" || true
+          echo "--- 签名校验 ---"
+          if ! codesign --verify --strict --verbose=2 "$APP" 2>&1; then
+            echo "签名不完整，补一次 ad-hoc 签名"
+            codesign --force --deep --sign - "$APP"
+            codesign --verify --strict --verbose=2 "$APP"
+          fi
+          echo "--- 已授予的沙箱权限 ---"
+          codesign -d --entitlements - "$APP" 2>/dev/null || true
+
+      - name: 打包为 zip
+        # 必须用 ditto：.app 是 bundle，内含符号链接与可执行位，
+        # 用 zip 打包会丢符号链接，解压出来直接打不开。
+        run: |
+          APP="build/macos/Build/Products/Release/ovimap.app"
+          OUT="ovimap-macos-universal-$BUILD_NAME.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT"
+          ls -lh "$OUT"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ovimap-macos-universal-${{ env.BUILD_NAME }}
+          path: ovimap-macos-universal-${{ env.BUILD_NAME }}.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 挂到 Release（仅打 v* 标签时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ovimap-macos-universal-${{ env.BUILD_NAME }}.zip
+          fail_on_unmatched_files: true
