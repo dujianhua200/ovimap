@@ -259,6 +259,30 @@ git push origin v3.0.2
 `fail_on_unmatched_files: true` 是刻意的：**产物没生成就报错**，避免出现
 「Release 建好了但资产是空的」这种静默失败。
 
+> ⚠️ **踩坑：必须显式声明 `permissions: contents: write`（2026-09-18 实测踩到）**
+>
+> 本仓库的 Actions 默认工作流权限是 **read**：
+> ```bash
+> gh api repos/dujianhua200/ovimap/actions/permissions/workflow
+> # {"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}
+> ```
+> 工作流里若不声明 `permissions`，`GITHUB_TOKEN` 只能读，`action-gh-release` 会以
+>
+> ```
+> X Resource not accessible by integration - https://docs.github.com/rest/releases/releases#update-a-release
+> ```
+>
+> 失败。**表现很隐蔽**：前面的 analyze / test / build / zip / upload-artifact 全绿，
+> 只有最后这一步红，让人误以为「包出了就行」。已在工作流顶层补上：
+>
+> ```yaml
+> permissions:
+>   contents: write
+> ```
+>
+> 注意这是**工作流级**声明，两个 job 都受益；只改 job 级也可以，但要记得两处都加。
+> 排错顺序：先查 `default_workflow_permissions`，再查工作流有没有 `permissions` 块。
+
 ### 10.2 手动路径（不等 CI，用已验证的本地包）
 
 手边已有验证过的 `dist/` 压缩包、又不想等一次完整 CI 时：
@@ -287,6 +311,14 @@ gh release upload v3.0.2 dist/*.zip --clobber
 | 标签 | 日期 | 内容 |
 |---|---|---|
 | `v3.0.2` | 2026-09-18 | 首个桌面稳定版：Windows x64 绿色版 + macOS universal，对应 `pubspec.yaml` 的 `3.0.2+8` |
+
+**v3.0.2 的实际发布方式（留档）**：资产由 §10.2 的手动路径（`gh release create`）上传，
+标签指向的提交同时触发了 CI 做独立复验 —— 复验里 analyze / test / build / zip /
+upload-artifact 全绿，但最后的 Release 步骤因**当时缺失 `permissions: contents: write`** 而失败。
+该缺陷已修（见 §10.1 提示框），**下一个标签起自动路径可用**。
+
+> 也就是说：v3.0.2 的 Release 资产是「本机构建并已验证的包」，
+> 而非「CI 构建的包」；两者源于同一份代码，且 CI 已在同代码上跑通全部门禁。
 
 ### 10.4 版本号从哪来
 

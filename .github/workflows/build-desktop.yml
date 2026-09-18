@@ -33,6 +33,16 @@ concurrency:
   group: desktop-build-${{ github.ref }}
   cancel-in-progress: true
 
+# 打 v* 标签时要用 softprops/action-gh-release 创建/更新 Release 并上传资产，
+# 这需要 contents: write。
+#
+# ⚠️ 必须显式声明：本仓库的 actions 默认工作流权限是 **read**
+# （`gh api repos/<owner>/<repo>/actions/permissions/workflow` → default_workflow_permissions=read），
+# 不声明的话 GITHUB_TOKEN 只能读，最后一步会以
+# 「Resource not accessible by integration」失败 —— 构建产物照出，但挂不上 Release。
+permissions:
+  contents: write
+
 env:
   # 与 docs/BUILD-windows.md 记录的基线一致（要求 >= 3.35）。
   # 升级 Flutter 时只改这一处。
