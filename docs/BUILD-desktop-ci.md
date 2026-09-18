@@ -45,6 +45,11 @@ git tag v3.0.2
 git push origin v3.0.2
 ```
 
+**纯文档改动不触发构建**：`paths-ignore` 里配了 `docs/**` 与 `**/*.md`，
+避免为改一行 README 就烧掉一次 CI 额度（macOS runner 计费 ×10）。
+代价是：如果某个 tag 指向的提交只改了文档，那次不会自动出包，
+需要去 Actions 页面手动 Run workflow。
+
 ---
 
 ## 3. 产物怎么用
@@ -53,9 +58,21 @@ git push origin v3.0.2
 
 1. 下载 `ovimap-windows-x64-3.0.2.zip`，解压到任意目录（**不要**只把 `ovimap.exe`
    单独拖出来，它依赖同级的 `data\` 目录与若干 dll）。
-2. 双击 `ovimap.exe` 即可。这是免安装绿色版，无需安装运行库。
+2. 双击 `ovimap.exe` 即可。
 3. 如需双击 `.ovimap` 工程文件直接打开，用管理员 PowerShell 跑一次
    `scripts\install_association.ps1` 注册文件关联。
+
+**关于 VC++ 运行库**：Flutter 的 Windows 产物以 `/MD` 动态链接 C 运行库，
+`ovimap.exe` 的导入表里含 `MSVCP140.dll` / `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll`，
+而 Windows 只自带 UCRT（`api-ms-win-crt-*`），不带这几个。所以打包步骤会从
+runner 上 VS 2022 的 `VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT` 目录把整套 VC143
+CRT 拷进产物目录，做成真正双击即用的绿色版；该目录不存在时回退到从
+`System32` 取这三个必需项。
+
+> 许可提示：这些 dll 属于 Microsoft Visual C++ 可再发行组件，VS 的许可条款允许
+> 随你的应用一起分发。若贵司合规口径不允许随包分发，删掉工作流
+> 「打包为 zip」步骤里的那段拷贝逻辑即可，代价是用户机器需自行安装
+> 「Microsoft Visual C++ 2015-2022 Redistributable (x64)」。
 
 ### macOS
 
@@ -121,9 +138,44 @@ CI 里已放行 info 级，不影响出包。
 > 如果以后想给 Android 也加云端构建，需要注意新克隆的仓库缺 wrapper，
 > 得先本地跑一次构建或把这些文件补进版本库。
 
+### 5.5 Windows 与 macOS 的测试差异
+
+同一套测试在两个平台上的表现**不完全一致**，两类已知差异：
+
+1. **临时目录清理**（已修）：Windows 不允许删除仍被打开的文件。涉及云同步的
+   用例在 `tearDown` 里删临时目录时会撞上在途写盘句柄，抛
+   `PathAccessException ... errno = 32`。已统一改用 `test/_fs_cleanup.dart`
+   里的 `deleteTempDirResilient()`（退让重试、失败只告警），用于
+   `restore_confirm_indep_test` / `version_history_indep_test` / `sync_controller_test`。
+2. **`HOME` 环境变量**：Windows 上只有 `USERPROFILE`，没有 `HOME`。
+   凡是靠 `Platform.environment['HOME']` 定位本机样本的用例，在 Windows 上会
+   落到「跳过」（`+500 ~2` 而 macOS 是 `+502 ~1`）。属预期行为，不是失败。
+
+因此**不要用 macOS 本地全绿来推断 Windows 也会绿**，反之亦然。
+
 ---
 
-## 6. 本地等价命令
+## 6. 验证产物（构建成功 ≠ 产物可用）
+
+```bash
+gh run download <run-id> -n ovimap-macos-universal-3.0.2 -D /tmp/art
+cd /tmp/art && mkdir x && cd x && ditto -x -k ../ovimap-macos-universal-3.0.2.zip .
+lipo -info "ovimap.app/Contents/MacOS/ovimap"        # x86_64 arm64
+codesign --verify --strict --verbose=2 ovimap.app    # valid on disk
+codesign -d --entitlements - ovimap.app              # 核对 network.client
+open ovimap.app                                      # 真启动
+```
+
+⚠️ **不要**直接用 `./ovimap.app/Contents/MacOS/ovimap` 跑二进制来验证。
+带 app-sandbox 的 app 在**本身已被沙箱限制的 shell** 里直启，会在
+`libsystem_secinit` 的 `_libsecinit_appsandbox` 处 SIGTRAP（退出码 133），
+并留下 `.ips` 崩溃报告，看起来像应用崩了。判别方法：用同样方式跑
+`/System/Applications/Calculator.app/Contents/MacOS/Calculator`，
+若它也非零退出（137），就是环境限制；用 `open` 启动才是真实结果。
+
+---
+
+## 7. 本地等价命令
 
 想在本地复现 CI 的动作（macOS 需装完整 Xcode）：
 
@@ -139,3 +191,43 @@ flutter build macos --release                 # 或 flutter build windows --rele
 会把 `flutter_tester` 与测试进程之间的 localhost WebSocket 当成外网请求劫持，
 表现为所有用例加载失败并报 `Invalid WebSocket upgrade request`。
 GitHub 的 runner 没有代理，不需要这行。
+
+---
+
+## 8. 实测结论（2026-09-18）
+
+流水线跑通后，把两个 artifact 都拉回本机核对过：
+
+| 检查项 | 结果 |
+|---|---|
+| 两个任务 | `Windows x64 打包` 13m12s ✓ / `macOS 打包` 2m35s ✓ |
+| macOS 架构 | `lipo -info` → `x86_64 arm64`（真 universal） |
+| macOS 签名 | `codesign --verify --strict` → `valid on disk` + `satisfies its Designated Requirement` |
+| macOS 权限 | 签名中实际含 `app-sandbox` / `network.client` / `files.user-selected.read-write` |
+| macOS 版本 | `CFBundleShortVersionString=3.0.2`、`CFBundleVersion=8`、id `com.dujianhua.ovimap` |
+| macOS 可运行 | `open ovimap.app` → 进程稳定存活 13 秒以上，无新崩溃报告 |
+| macOS 体积 | .app 53 MB，zip 21 MB |
+| Windows 内容 | 20 个条目：`ovimap.exe` + `flutter_windows.dll` + `dartjni.dll` + 4 个插件 dll + `data/`；解压后 33.7 MB，zip 13 MB |
+| 本地测试 | `flutter test` 502 通过 / 1 跳过 / 0 失败 |
+
+Windows 包的**真实启动**未在本机验证（本机没有 Windows），
+只核对了导入表与文件完整性；首次真机运行时如报缺 dll，请看 §3 的运行库说明。
+
+---
+
+## 9. 成本提醒
+
+private 仓库的 GitHub Actions 免费额度是 **2000 分钟/月**，且计费带倍率：
+
+| runner | 倍率 | 本项目单次约耗 |
+|---|---|---|
+| `windows-latest` | ×2 | ~13 分钟 → 计费 ~26 分钟 |
+| `macos-latest` | ×10 | ~2.6 分钟 → 计费 ~26 分钟 |
+
+即**一次双平台构建约消耗 50 分钟额度，每月大约 40 次**。
+如果构建频次高，可以：
+
+- 把仓库改为 public（Actions 分钟数不限）；
+- 或删掉工作流里的 `unit test` 步骤减少耗时（不推荐，会失去门禁）；
+- 或把 macOS 任务改成只在打 tag 时跑（加 `if: startsWith(github.ref, 'refs/tags/v')`）。
+

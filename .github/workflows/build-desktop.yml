@@ -19,6 +19,11 @@ on:
   push:
     branches: [main, master]
     tags: ['v*']
+    # 纯文档改动不触发构建：private 仓库的 Actions 额度有限
+    # （macOS runner 计费 ×10），不该为改一行 README 烧掉一次额度。
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   pull_request:
     branches: [main, master]
   workflow_dispatch:
@@ -94,6 +99,38 @@ jobs:
             Write-Error "未找到构建产物 $src/ovimap.exe"
             exit 1
           }
+
+          # Flutter 的 Windows 产物用 /MD 动态链接 C 运行库，ovimap.exe 会 import
+          # MSVCP140.dll / VCRUNTIME140.dll / VCRUNTIME140_1.dll。这些不在 Windows
+          # 自带范围内（只有 UCRT 是系统组件），缺了就是「双击无反应 / 报缺 dll」。
+          # 这里从 VS 的 Redist 目录把整套 VC143 CRT 拷进产物，做成真正免安装的绿色版。
+          $crtDir = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022" `
+                     -Recurse -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -match '\\x64\\' } |
+                    Sort-Object FullName -Descending | Select-Object -First 1
+          $crtFiles = @()
+          if ($crtDir) {
+            Write-Host "VC 运行库目录：$($crtDir.FullName)"
+            $crtFiles = Get-ChildItem -Path $crtDir.FullName -Filter *.dll
+            $crtFiles | ForEach-Object { Copy-Item $_.FullName -Destination $src -Force }
+            $crtFiles | ForEach-Object { Write-Host "  已打包 $($_.Name)" }
+          } else {
+            Write-Host "警告：未找到 VS Redist 的 Microsoft.VC*.CRT 目录，回退到 System32 逐文件拷贝" -ForegroundColor Yellow
+          }
+
+          # 兜底：确保三个必需项一定在（Redist 目录缺失时从 System32 取）
+          foreach ($n in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+            if (-not (Test-Path "$src/$n")) {
+              $sys = Join-Path $env:WINDIR "System32\$n"
+              if (Test-Path $sys) {
+                Copy-Item $sys -Destination $src -Force
+                Write-Host "  已打包 $n（取自 System32）"
+              } else {
+                Write-Host "警告：$n 未找到，目标机器需自行安装 VC++ 2015-2022 x64 运行库" -ForegroundColor Yellow
+              }
+            }
+          }
+
           $out = "ovimap-windows-x64-${{ env.BUILD_NAME }}.zip"
           Compress-Archive -Path "$src/*" -DestinationPath $out -Force
           $mb = [math]::Round((Get-Item $out).Length / 1MB, 1)
