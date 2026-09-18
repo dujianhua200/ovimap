@@ -24,6 +24,12 @@
 | macOS「地图缩放不管用」 | macOS 跑的是移动壳，而 `MapCanvas` 的**默认** flags 是移动口径（`pinchZoom\|drag\|doubleTapZoom\|rotate`），**不含 `scrollWheelZoom`** → 滚轮完全没接线。（Windows 之所以能滚，是因为旧桌面壳额外传了 `InteractiveFlag.all`。） | `lib/ui/map/map_canvas.dart`：默认值收口到 `defaultFlagsForCurrentPlatform()`；桌面壳**不再覆盖** |
 | 按住 Ctrl 移动鼠标时地图被转掉，Ctrl+Z/S/E 顺手把图转歪 | flutter_map 的 `CursorKeyboardRotationOptions` 默认把 Control 键当旋转触发键，与桌面快捷键直接冲突 | `lib/ui/map/map_canvas.dart`：桌面用 `CursorKeyboardRotationOptions.disabled()` |
 | `Platform.isWindows` 散落各处，改一处漏一处 | 平台能力判断没有单点收口 | `lib/services/platform_caps.dart`：`isDesktop` / `hasGps` / `hasCompass` / `hasCamera` / `supportsFileSaveDialog` |
+| macOS「最上面有 1 排英文设置菜单，下面还有一排中文设置菜单」 | 英文那排是 **macOS 原生主菜单**（`MainMenu.xib`，Flutter 侧根本没有英文字符串）；中文那排是应用自绘菜单。两者互不知情，于是叠加成两排 | `lib/ui/desktop/app_platform_menu_bar.dart`：`PlatformMenuBar` **整体接管**主菜单（含应用菜单的 隐藏/退出）；`workspace_page.dart` 在 macOS 下**不渲染**自绘那一行 |
+| 「切换设置菜单每次都要点击 2 次」 | `PopupMenuButton` 的交互是「点标题展开 → 点条目执行」；而 Flutter 的 `MenuBar` / `SubmenuButton` **都不支持悬停展开**（`menu_anchor.dart` 里没有 `MouseRegion`/`onHover`） | macOS 用原生菜单（横扫即切换）；Windows/Linux 在 `app_menu_bar.dart` 自绘 `OverlayEntry` + `MouseRegion`：停留 120ms 展开、展开后横扫立即切换 |
+| 桌面端「竣工模式没了、很多符号标签也没了」 | **不是回归，是桌面壳从来没做**：`chooseEditMode` 只在 `home_page.dart` 被调用，`setType` / `LabelType.all` 的符号选择器也只有移动端有 → 桌面端落点前无法选符号 | `lib/ui/desktop/toolbar.dart`（符号库按钮 + 设计/竣工模式）+ `symbol_library.dart`（16 符号）；菜单开两个入口 |
+| 「地图的利用率不如奥维大」 | 左右栏常驻 260+300 ≈ 572px，1440 窗口下地图只剩 868px（60%） | `workspace_page.dart`：左 220 / 右 280、**右栏默认收起且选中点自动展开**；工具栏 48→42；新增「专注地图」`⌥⌘M`（详见 §3.1） |
+| 「主题变成白色」 | Flutter 侧本就是 `Brightness.dark`；白的是 **macOS 系统外壳**（系统菜单栏 + 窗口标题栏跟随系统浅色模式） | `macos/Runner/AppDelegate.swift`：`applicationWillFinishLaunching` 里钉 `NSApp.appearance = darkAqua`（放这里才不闪白）+ 窗口底色对齐 `0xFF101418` |
+| 「42 应能显示成 埋42」 | 数据层早有 `distLabel`，但前缀 chip 在输入框为空时**只填出光秃秃一个「埋」**（不会带上该段已有的距离）；也没有全局前缀 | `lib/geo/geo_util.dart` 的 `segLabelFor` 收敛为**唯一真源**（地图 / DXF / 成册共用）；`AppState` 加持久化的「段标前缀」；`segPrefixChips` 加 `autoDist` 参数 |
 
 > **教训**：平台分支只有一处（`main.dart`），平台能力只有一处（`PlatformCaps`）。
 > 新增平台相关判断时一律走 `PlatformCaps.isDesktop`，**不要写单一平台的 `isXxx`** ——
@@ -57,14 +63,55 @@
 
 | 部件 | 文件 | 高度 | 说明 |
 |---|---|---|---|
-| 菜单栏 | `app_menu_bar.dart` | 自适应 | 6 组菜单：文件 / 编辑 / 工程 / 底图 / 同步 / 帮助 |
-| 工具栏 | `toolbar.dart` | 自适应 | 打点 · 连线 · 测距 · 轨迹 · 定位 · 撤销 · 重做 · 删除 · 缩放 ± · 图源 · 导出 · 同步 · 折叠左右栏 |
-| 三栏主体 | `left_panel / map / right_panel` | `Expanded` | 左 260（可拖到 200–420）、右 300（可拖到 240–460），分隔条可拖拽 |
-| **模式提示栏** | `workspace_page._hintBar` | **30** | 新增。模式胶囊 + 操作提示 + 实时数据 + 「完成 (Esc)」 |
+| 菜单栏 | `app_menu_bar.dart`（Windows/Linux）<br>`app_platform_menu_bar.dart`（macOS） | 34 / 0 | **macOS 不占窗口高度**：菜单渲染到屏幕顶部系统菜单栏，窗口内这一行不画 |
+| 工具栏 | `toolbar.dart` | 42 | 打点 · **符号库** · **设计/竣工模式** · 连线 · 测距 · 轨迹 · 定位 · 撤销 · 重做 · 删除 · 缩放 ± · 图源 · 导出 · 同步 · 折叠左右栏 |
+| 三栏主体 | `left_panel / map / right_panel` | `Expanded` | 左 220（可拖 180–420）、右 280（可拖 240–460），分隔条可拖拽 |
+| **模式提示栏** | `workspace_page._hintBar` | **30** | 模式胶囊 + 操作提示 + 实时数据 + 「完成 (Esc)」 |
 | 状态栏 | `status_bar.dart` | 26 | 设备 · 同步 · 最后同步时间 · **鼠标经纬度** · 视图中心 · 图源 · 缩放 · 选中数 · 坐标系 |
 
 **窗口下限**：1024×680（与 Windows 侧 `win32_window.cpp` 的 `WM_GETMINMAXINFO`、macOS 侧 `MainFlutterWindow.contentMinSize` 一致）。
 窗口宽 < 1180 时右栏自动收起（`_body` 里的阈值），避免挤压地图。
+
+### 3.1 地图占屏口径（v3.1.0 调整）
+
+右栏是「选中点的属性检查器」，**默认收起**，选中点时才自动展开；取消选中**不**自动收起
+（用户常在连续核对多个点，频繁开合会打断操作）。要主动全屏看图用
+「视图 → 专注地图」`⌥⌘M`，再按一次**还原**到进入前状态（而不是盲目全展开）。
+
+| 场景（1440×900） | 地图宽度 | 占比 |
+|---|---|---|
+| 改造前（左右栏常驻 260+300） | 868px | ~60% |
+| 现在：未选中点（右栏收起，左栏 220） | 1214px | ~84% |
+| 现在：选中点（左 220 + 右 280） | 928px | ~64% |
+
+### 3.2 菜单架构：一份定义，两种渲染
+
+菜单定义只存在于 **`lib/ui/desktop/menu_model.dart`**（`oviMenuGroups` + `dispatchOviMenuItem`）。
+两端只负责渲染，**不得各自写一套菜单** —— 否则会出现「macOS 有这一项、Windows 没有」的漂移：
+本项目桌面壳当初缺「符号库」与「设计/竣工模式」入口，正是这种漂移的后果。
+
+| 平台 | 渲染器 | 落点 | 展开方式 |
+|---|---|---|---|
+| macOS | `PlatformMenuBar` | 屏幕顶部系统菜单栏 | 原生：点击展开，展开后横扫即切换；`⌘` 原生 |
+| Windows / Linux | 自绘 `OverlayEntry` + `MouseRegion` | 窗口内第一行 | 指针停留 120ms 展开；展开后横扫立即切换；离开 200ms 收起 |
+
+四条硬规则（都有单测护栏，见 `test/macos_native_menu_test.dart`）：
+
+1. **应用菜单必须自己建**。`PlatformMenuBar` 接管的是**整个**主菜单，
+   包括 macOS 那个以应用名命名的第一个菜单。Flutter 不会替你生成它 ——
+   漏了就是用户失去 ⌘Q（退出）与 ⌘H（隐藏）。系统级行为（隐藏 / 退出 /
+   最小化 / 缩放 / 全屏）走 `PlatformProvidedMenuItem`，这些是 `hide:` /
+   `terminate:` 之类的 selector，纯 Flutter 复刻不了。
+2. **裸键不当菜单快捷键**。把 `Delete` 声明成菜单 key equivalent 会把按键
+   从文本框里抢走（左栏搜索框里删不掉字）。裸键仍由 `shortcuts.dart` 按
+   「主焦点不在 `EditableText` 内」注册，菜单里只写文案提示。
+3. **带修饰键的快捷键可以声明，不会双重触发**。按 Apple《Handling Key Events》
+   的派发顺序，按键先沿**视图层级**（Flutter 视图）走 `performKeyEquivalent:`，
+   只有视图层不处理时才轮到菜单栏 —— 两条路径命中同一动作，且一条命中即终止。
+4. **`PlatformCaps.isMacOS` 与 `isDesktop` 是两回事**。`isMacOS` 只用于
+   「原生菜单栏」这类 macOS 独有能力；`hasGps` / `hasCompass` / `hasCamera` /
+   `supportsFileSaveDialog` 一律继续用 `isDesktop`（历史的
+   `Platform.isWindows` 散判就出过错，见 §1）。
 
 ---
 
@@ -135,6 +182,9 @@ void _onTapEvent() {
 | `Ctrl` + `=` / `+` 、`⌘±` | 放大一级 | 始终 |
 | `Ctrl` + `-` 、`⌘−` | 缩小一级 | 始终 |
 | `Ctrl+0` / `⌘0` | 复位到启动视图 | 始终 |
+| `Alt+Ctrl+L` / `⌥⌘L` | 折叠 / 展开左栏 | 始终 |
+| `Alt+Ctrl+R` / `⌥⌘R` | 折叠 / 展开右栏 | 始终 |
+| `Alt+Ctrl+M` / `⌥⌘M` | 专注地图（两侧全收 / 再按还原） | 始终 |
 | `+` `=` `-`（含小键盘） | 放大 / 缩小一级 | **非文本编辑态** |
 | `0`（含小键盘） | 复位到启动视图 | 非文本编辑态 |
 | `Esc` | 取消当前操作 / 结束模式 | 非文本编辑态 |
@@ -200,6 +250,11 @@ void _onTapEvent() {
 | 改点位靠对话框 | 「右键 → 待点放置 → 左键落点」 | 奥维是点住手柄直接拖；需要新增屏幕手柄命中层 |
 | 触控板双指捏合缩放 | 不支持（双指滚动已能缩放） | 加 `InteractiveFlag.pinchZoom`，需先验证与 `drag` 的事件竞争 |
 | 桌面端轨迹录制 | 明确不支持（无 GPS） | 保持：桌面端本就不具备定位硬件 |
+| 「界面太粗糙」的整体观感 | 只做了抓大放小的一轮（菜单 / 占屏 / 密度） | 还需要一轮视觉打磨：图标线条统一、间距栅格化、hover/active 态、配色 token 化 |
+
+> **macOS 权限提示**：应用把外观钉成深色（`AppDelegate` 的
+> `NSApp.appearance = darkAqua`）。这是刻意的 —— Flutter 内容区本就强制深色，
+> 若窗口装饰跟随系统浅色模式，就会出现「上白下黑」的割裂。
 
 ---
 
@@ -210,13 +265,22 @@ void _onTapEvent() {
 flutter analyze --no-fatal-infos
 
 # 测试（⚠️ 本机常开代理，必须绕开，否则 flutter_tester 的本地 WebSocket 会被代理吃掉）
-env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-    NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1 flutter test
+NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost flutter test -j 4
 
 # 本地跑桌面壳
 flutter run -d macos      # 或 -d windows
 ```
 
+> `-j 4` 不是可有可无：本机 8GB，全套 74 个测试文件并发跑会把机器压满，
+> 零星出现 `did not complete`（看着像挂，其实是被挤）。怀疑某个文件时先单跑它确认。
+
+**菜单相关的专项测试**：`flutter test test/macos_native_menu_test.dart` ——
+断言的是**实际交给 macOS 系统的那份菜单树**（顶层全中文、无 Edit/View/Window/Help、
+应用菜单含 quit/hide、视图含竣工模式与专注地图），不是源码字符串。
+`flutter test` 跑在宿主机上，所以 macOS 上 `PlatformMenuBar` 会走真实分支。
+
 人工过一遍：滚轮缩放（以指针为锚）/ 左键拖动平移 / 右键菜单 / `Ctrl+0` 复位 /
 `Esc` 结束模式 / `Backspace` 退点 / 状态栏鼠标经纬度随鼠标走动 /
-文本框内退格与 `+-` 正常输入（第 5.1 节的回归点）。
+文本框内退格与 `+-` 正常输入（第 5.1 节的回归点）/
+**鼠标移到菜单标题上是否自动弹出、横扫是否直接切换** /
+**系统浅色模式下顶部菜单栏与窗口标题栏是否仍为深色**。
