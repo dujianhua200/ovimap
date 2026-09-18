@@ -231,3 +231,67 @@ private 仓库的 GitHub Actions 免费额度是 **2000 分钟/月**，且计费
 - 或删掉工作流里的 `unit test` 步骤减少耗时（不推荐，会失去门禁）；
 - 或把 macOS 任务改成只在打 tag 时跑（加 `if: startsWith(github.ref, 'refs/tags/v')`）。
 
+---
+
+## 10. 发布版本（GitHub Release）
+
+### 10.1 自动路径（推荐，产物可溯源）
+
+打 `v*` 标签 → 工作流在构建成功后调用 `softprops/action-gh-release@v2`
+把两个 zip 挂到该标签对应的 Release 上：
+
+```bash
+git tag v3.0.2
+git push origin v3.0.2
+```
+
+工作流里两个任务各有一段：
+
+```yaml
+- name: 挂到 Release（仅打 v* 标签时）
+  if: startsWith(github.ref, 'refs/tags/v')
+  uses: softprops/action-gh-release@v2
+  with:
+    files: ovimap-windows-x64-${{ env.BUILD_NAME }}.zip   # macOS 任务为 universal 那个
+    fail_on_unmatched_files: true
+```
+
+`fail_on_unmatched_files: true` 是刻意的：**产物没生成就报错**，避免出现
+「Release 建好了但资产是空的」这种静默失败。
+
+### 10.2 手动路径（不等 CI，用已验证的本地包）
+
+手边已有验证过的 `dist/` 压缩包、又不想等一次完整 CI 时：
+
+```bash
+gh release create v3.0.2 \
+  dist/ovimap-windows-x64-3.0.2.zip \
+  dist/ovimap-macos-universal-3.0.2.zip \
+  --title "滑洲云图 ovimap v3.0.2 桌面版" \
+  --notes-file release-notes-v3.0.2.md
+```
+
+注意：`gh release create` 会在远端**创建同名标签**，而标签推送会再次触发工作流
+（GitHub 的 `paths-ignore` 过滤器对标签推送不生效）。两条路径不冲突 ——
+CI 重新构建后会以同名资产覆盖上传，等于给该版本补一次「云端可复现」验证；
+若 CI 因为偶发用例失败，已上传的本地包仍在，Release 不会变空。
+
+补传 / 替换资产：
+
+```bash
+gh release upload v3.0.2 dist/*.zip --clobber
+```
+
+### 10.3 已发布版本记录
+
+| 标签 | 日期 | 内容 |
+|---|---|---|
+| `v3.0.2` | 2026-09-18 | 首个桌面稳定版：Windows x64 绿色版 + macOS universal，对应 `pubspec.yaml` 的 `3.0.2+8` |
+
+### 10.4 版本号从哪来
+
+`pubspec.yaml` 的 `version: <name>+<number>` 是唯一真源，工作流开头用一段
+`Select-String`（Windows）/ `grep+sed`（macOS）解析出 `BUILD_NAME` 与 `BUILD_NUMBER`，
+再传给 `flutter build --build-name --build-number`。
+**升级版本时只改 `pubspec.yaml` 这一处**，标签名与产物文件名会自动跟上。
+

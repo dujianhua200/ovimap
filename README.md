@@ -1,17 +1,513 @@
-# ovimap
+# 滑洲云图 ovimap
 
-A new Flutter project.
+> 通信线路工程 **勘察采集 → 自动成图 → 一键出图** 的桌面 / 移动一体化工具。
+> 现场打点，自动连成杆路并算距离，直接导出 CAD 能打开的 DXF 路由图与全套竣工资料。
 
-## Getting Started
+[![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-This project is a starting point for a Flutter application.
+**当前版本：v3.0.2**（Windows x64 / macOS Universal / Android）
+**技术栈：** Flutter 3.47.2 · flutter_map 8 · Provider · DXF(R12/R2000) · Cloudflare Workers + D1 + R2
 
-A few resources to get you started if this is your first Flutter project:
+---
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## 目录
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- [1. 这是什么](#1-这是什么)
+- [2. 下载安装](#2-下载安装)
+- [3. 功能特性](#3-功能特性)
+- [4. 五分钟上手](#4-五分钟上手)
+- [5. 界面导航](#5-界面导航)
+- [6. 导出成果](#6-导出成果)
+- [7. 底图与坐标系](#7-底图与坐标系)
+- [8. 云同步](#8-云同步)
+- [9. 本地构建](#9-本地构建)
+- [10. CI 自动构建](#10-ci-自动构建)
+- [11. 项目结构](#11-项目结构)
+- [12. 文档索引](#12-文档索引)
+- [13. 常见问题](#13-常见问题)
+
+---
+
+## 1. 这是什么
+
+做通信线路勘察设计，传统流程是：**纸笔记点位 → 回办公室在 CAD 里一个个描 → 手算档距 → 手动统计材料**。
+滑洲云图把这个链条压成三步：
+
+```
+现场：站在杆下点一下          回程：点「自动布杆」        出图：点「导出成果」
+  打点（带符号/编号）    →    等距布杆 + 拓扑连线 + 算距离   →   DXF / KML / CSV / PNG
+```
+
+**适用场景**
+
+| 场景 | 说明 |
+|---|---|
+| 架空光缆勘察 | 沿杆路打点，自动算档距与总长，导出带桩号的 CAD 路由图 |
+| 管道光缆勘察 | 人孔/手井打点，管廊双线绘制，导出手孔点表与工程量清单 |
+| 箱体配线 | 光交 / 分光器箱 / 分纤盒 / ONU 箱拓扑连线，生成配线拓扑图与芯线占用表 |
+| 竣工测量 | 竣工模式记录实际路由与距离，与设计做变更对照，一键成册归档 |
+| 重复性资料编制 | 材料统计表、工程量清单（451 号文口径）自动生成，不再手工汇总 |
+
+**跨平台设计**：同一套代码，Android 上用手持 GPS + 电子罗盘现场采集；
+Windows / macOS 上跑桌面版做室内成图与出图。桌面端对无 GPS / 无罗盘 / 无相机的能力
+做统一降级（见 `lib/services/platform_caps.dart`），不会出现"点了没反应"。
+
+---
+
+## 2. 下载安装
+
+到 **[Releases](https://github.com/dujianhua200/ovimap/releases)** 下载最新的桌面版安装包：
+
+| 平台 | 文件 | 体积 | 用法 |
+|---|---|---|---|
+| Windows x64 | `ovimap-windows-x64-3.0.2.zip` | ≈14 MB | 解压到任意目录 → 双击 `ovimap.exe`（绿色免安装） |
+| macOS | `ovimap-macos-universal-3.0.2.zip` | ≈21 MB | 解压得到 `ovimap.app` → 拖入「应用程序」（通用二进制，Intel + Apple Silicon 通用） |
+
+### Windows 注意事项
+
+- **不要只把 `ovimap.exe` 单独拖出来**：它依赖同级的 `data\` 目录与若干 dll，单拎出来必崩。
+- 压缩包已内置 `MSVCP140.dll` / `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll`（VC++ 2015-2022 x64 运行库），
+  目标机器**无需**再装运行库。
+- 想双击 `.ovimap` 工程文件直接打开，用**管理员 PowerShell** 跑一次：
+  ```powershell
+  scripts\install_association.ps1
+  ```
+
+### macOS 注意事项
+
+- 首次打开会被 **Gatekeeper** 拦住（包是 ad-hoc 签名，没有 Apple 开发者证书）。
+  解决：**右键 → 打开**，弹窗里再点一次「打开」；或终端执行
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/ovimap.app
+  ```
+- 应用已开启沙箱并声明所需权限（网络客户端、用户选择文件读写），首次导入 / 导出文件时会弹
+  系统授权框，允许即可。
+
+---
+
+## 3. 功能特性
+
+### 3.1 现场采集
+
+| 功能 | 说明 |
+|---|---|
+| **打点标记** | 16 种预置工程符号：管道口、水泥杆、木杆、电力杆、人孔、手井、分纤盒、分光器箱、ONU 箱、交接箱、引上、机房、基站、轨迹、无标签、文字（另有「区域」类型） |
+| **符号形态** | 水滴定位针 / 椭圆（人孔·手井）/ 矩形框（各类箱体）/ 三角（引上）/ 纯文字，对齐联通线路 CAD 图例与 YD/T 5015 制图标准 |
+| **连续续画** | 打完一个点不弹窗，编号自动递增，适合沿线路一路走一路点 |
+| **自动编号** | 「采集设置」里配前缀 + 起始号，杆号自动生成（如 `G001`、`G002`…） |
+| **定位打点** | 移动端取 GPS；桌面端无 GPS 时降级为手动落点（点击地图即落） |
+| **轨迹记录** | 边走边记轨迹，支持暂停 / 继续，结束时自动存为一条「轨迹」收藏 |
+| **测距 / 测面积** | 连续点选量距离与围合面积，结果显示在地图上 |
+| **编辑属性** | 每个点的符号、编号、备注、光缆型号、敷设方式、盘留量均可单独编辑 |
+| **撤销 / 重做** | 草稿级撤销重做栈，误删可回退 |
+
+### 3.2 成图与算量
+
+| 功能 | 说明 |
+|---|---|
+| **拓扑连线** | 按「杆路 → 箱体 → 终端」点选成链，系统按拓扑角色（分光器 / 分纤盒 / ONU / 交接箱 / 杆路 / 管道井 / 机房 / 终端）自动组织层级 |
+| **自动布杆** | 给定平均档距与杆型，沿已画路径**等距自动落杆**并生成编号（`lib/geo/route_layout.dart`） |
+| **工程模板** | 3 套预设模板：架空光缆 / 管道光缆 / 箱体配线，一键套用符号与编号规则 |
+| **距离计算** | 大圆距离（Haversine）逐段累加，档距 / 段长 / 总长实时可见 |
+| **杆路轨迹核查** | 校验杆点与轨迹的偏离度，揪出打偏的点 |
+| **批量编辑** | 框选或选中线组后统一改符号 / 敷设方式 / 光缆型号 / 盘留 |
+| **统计面板** | 按符号分类计数、分段长度、盘留汇总，右栏实时刷新 |
+| **设计↔竣工对照** | 设计模式与竣工模式两份数据做变更对照，输出差异报告 |
+| **杆路点表** | 就地查看全部杆点坐标、编号、档距一览 |
+
+### 3.3 导出成果（7 类）
+
+见 [第 6 节](#6-导出成果)。
+
+### 3.4 底图与离线
+
+| 功能 | 说明 |
+|---|---|
+| **14 个地图源** | 见 [第 7 节](#7-底图与坐标系) |
+| **三级瓦片缓存** | 内存 → 磁盘 → 网络，跨会话复用，重复看同一片区不再费流量 |
+| **离线地图预下载** | 框选范围预先下载瓦片，无网也能看图打点 |
+| **GeoJSON 底图导入** | 从文件导入开源矢量底图（建筑轮廓 / 道路 / 水系），无网也能出图 |
+| **自建图源** | 支持自定义 XYZ 瓦片 URL 模板与坐标系基准 |
+
+### 3.5 云同步
+
+| 功能 | 说明 |
+|---|---|
+| **多端同步** | 工程数据同步到自建 Cloudflare Worker（D1 存索引 + R2 存快照） |
+| **乐观并发** | 基于 `rev` 版本号的乐观锁，冲突时生成冲突副本而非静默覆盖 |
+| **版本历史** | 每次同步留下版本记录，可回滚到任一历史版本 |
+| **状态指示** | 工具栏同步按钮上的圆点显示状态（仅本地 / 待上传 / 已同步 / 冲突） |
+
+### 3.6 桌面端增强
+
+| 功能 | 说明 |
+|---|---|
+| **原生菜单栏** | 文件 / 编辑 / 工程 / 底图 / 同步 / 帮助 六组菜单 |
+| **快捷键** | 见 [5.2 节](#52-快捷键) |
+| **右键菜单** | 地图上右键的上下文操作（编辑属性、续画分支、拖动点、复制坐标、删除点、敷设方式、光缆型号、盘留…） |
+| **左右栏折叠** | 一键收起侧栏，地图全屏出图 |
+| **拖放打开** | 从资源管理器拖 `.ovimap` / `.kml` / `.geojson` 到窗口直接打开 |
+| **原生另存为** | Windows 走系统「另存为」对话框选导出路径 |
+
+---
+
+## 4. 五分钟上手
+
+```
+1. 打开应用 → 地图自动定位到上次位置（默认 信阳 32.1301, 114.0814）
+2. 菜单「文件 → 新建工程」→ 填工程名
+3. 菜单「工程 → 工程模板」→ 选「架空光缆」
+4. 工具栏点「打点」→ 沿线路逐个点击落点（编号自动递增）
+5. 工具栏点「连线路（拓扑）」→ 依次点选，把杆路连成链
+6. 菜单「工程 → 杆路轨迹核查」→ 确认无偏离告警
+7. 快捷键 Ctrl+E → 选「📐 DXF 路由图」→ 勾选项 → 导出
+8. 菜单「文件 → 竣工资料一键成册」→ 一次性打包全套资料
+```
+
+> **提示**：工程数据是自动持久化的，随时关随时开不丢；想换机器带走就用
+> 「文件 → 导出工程文件(.ovimap)」，在另一台机器上 Ctrl+O 打开。
+
+更细的分场景操作步骤（架空 / 管道 / 箱体配线 / 竣工四类完整流程）见
+**[📖 使用手册 docs/USAGE.md](docs/USAGE.md)**。
+
+---
+
+## 5. 界面导航
+
+### 5.1 菜单栏
+
+| 菜单 | 项 |
+|---|---|
+| **文件** | 新建工程 · 打开工程文件(.ovimap) `Ctrl+O` · 保存收藏 `Ctrl+S` · 导出工程文件(.ovimap) · 导出成果 `Ctrl+E` · 竣工资料一键成册 · 导入 KML 到当前项目 |
+| **编辑** | 撤销 `Ctrl+Z` · 重做 `Ctrl+Y` · 删除选中 `Delete` · 批量编辑 · 清空草稿 |
+| **工程** | 采集设置（自动编号）· 工程模板 · 杆路点表 · 杆路轨迹核查 · 拓扑连线指引 |
+| **底图** | 图源 / 图层 · 坐标格式 · 离线地图（预下载）· 天地图 Key 设置 · 高德 Key 设置 · Overpass 端点 · 存储清理 |
+| **同步** | 云同步面板（立即同步 / 设置） |
+| **帮助** | 坐标系说明 · 关于 滑洲云图 |
+
+### 5.2 快捷键
+
+| 键 | 作用 |
+|---|---|
+| `Ctrl+S` | 保存收藏（把当前草稿存成一条收藏） |
+| `Ctrl+O` | 打开 `.ovimap` 工程文件 |
+| `Ctrl+E` | 打开导出对话框 |
+| `Ctrl+Z` | 撤销 |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | 重做 |
+| `Ctrl+F` | 聚焦左栏搜索框 |
+| `Delete` | 删除选中点 |
+
+> 焦点在输入框内时，按键优先交给输入框（录入时按 `Delete` 是删字符，不是删点）。
+
+### 5.3 工具栏（左 → 右）
+
+| 图标 | 功能 |
+|---|---|
+| ✋ | 打点 / 退出打点 |
+| 🌳 | 连线路（拓扑） |
+| 📏 | 测距 / 测面积（下拉） |
+| 🛣 | 轨迹记录 |
+| 📍 | 定位 |
+| ↶ ↷ | 撤销 / 重做 |
+| 🗑 | 删除选中 |
+| ＋ － | 放大 / 缩小 |
+| 🗂 | 图源 / 图层 |
+| 📤 | 导出成果 |
+| 🔄 | 云同步（右下角圆点显示状态） |
+| ⏴ ⏵ | 收起 / 展开左栏、右栏 |
+
+---
+
+## 6. 导出成果
+
+`Ctrl+E` 打开导出对话框，共 7 类：
+
+| 导出项 | 格式 | 用途 |
+|---|---|---|
+| 📐 **DXF 路由图** | `.dxf` | CAD 直接打开，出正式图 |
+| 🌍 **KML** | `.kml` | 谷歌地球 / 奥维互动地图查看 |
+| 📋 **杆点坐标 CSV** | `.csv` | Excel 打开的点位总表 |
+| 🔌 **芯线占用表 CSV** | `.csv` | 含校验，导出时报告告警条数 |
+| 🖼 **配线拓扑图 PNG** | `.png` | 1400px 宽，直接插进方案文档 |
+| 📊 **材料统计表 CSV** | `.csv` | 分类数量 / 分段长度 / 盘留汇总 |
+| 🧾 **工程量清单 CSV** | `.csv` | 按 **451 号文**口径（技工 114 元/工日、辅助材料 0.3%） |
+
+### DXF 导出选项
+
+| 选项 | 默认 | 说明 |
+|---|---|---|
+| 输出符号块 | ✅ | 杆 / 井 / 箱按图例绘制为符号块 |
+| 杆路里程桩号 | ✅ | 生成 `K0+000` 式桩号，竣工核对方便 |
+| 图例栏自动生成 | ✅ | 图框内左下角自动排图例 |
+| 竣工图红色描边 | ⬜ | 杆路 / 管廊改为红色描边（竣工图惯例） |
+| 附加拉直沿线配线图 | ⬜ | 长杆路按分幅拉直绘制 |
+| 管廊双线 | ⬜ | 输入走廊宽度（米），0 = 单中心线 |
+| **R2000 专业格式** | ⬜ | 勾选 = R2000（图层线宽 / 真彩 / 建筑填充 HATCH）；不勾 = **R12 最广兼容** |
+| 自动添加周边底图矢量 | ✅ | 联网抓建筑轮廓 / 道路 / 地名（首次后离线复用） |
+| ↳ 道路（分级双线 + 居中路名） | ✅ | 子项 |
+| ↳ 建筑轮廓 | ✅ | 子项 |
+| ↳ 建筑填充 | ⬜ | R2000 = HATCH / R12 = SOLID |
+| ↳ 小路也标路名 | ⬜ | service / other 类型道路 |
+| ↳ 地名 / 小区名 | ✅ | 子项 |
+| ↳ 天地图地名兜底 | ✅ | OSM 缺名时用天地图补 |
+| ↳ 刷新底图 | ⬜ | 忽略缓存重新抓取 |
+| 本地开源矢量底图 | ⬜ | 用导入的 GeoJSON 出图，全程离线 |
+| 范围（米） | — | 底图抓取半径 |
+
+> 选项**记忆上次勾选**，同一工程连续出图不用重复设置。
+> 导出前会走一遍 DXF 结构自洽校验（`lib/export/dxf_validate.dart`），不合法直接拦下。
+
+---
+
+## 7. 底图与坐标系
+
+### 7.1 预置图源
+
+| 分组 | 图源 | 坐标基准 | 最高级 |
+|---|---|---|---|
+| 联通（自建） | 联通卫星+注记 / 联通纯卫星 / 联通街道图 / 联通地形图 | GCJ-02 | 20 |
+| 高德 | 高德卫星 / 高德街道 / 高德注记（叠加层） | GCJ-02 | 18 |
+| 星图地球 | 星图地球影像（中科星图 GeoVis，国内亚米级） | WGS-84 | 18 |
+| OSM | OSM 街道（反代加速）/ OSM 街道（备援） | WGS-84 | 19 |
+| 天地图 | 天地图影像 / 矢量 / 影像注记 / 矢量注记（**需自备 key**） | WGS-84 | 18 |
+| 自定义 | 任意 XYZ 瓦片 URL 模板 | 可选 | 自定 |
+
+### 7.2 坐标系
+
+内置 **WGS-84 ↔ GCJ-02 ↔ BD-09** 双向转换（`lib/geo/geo_convert.dart`）：
+- 打点数据**统一以 WGS-84 存储**，与图源基准解耦；
+- 切换到 GCJ-02 图源（联通 / 高德）时自动偏移显示，保证点位与影像对齐；
+- 导出 DXF / KML 时统一输出 WGS-84，与测绘成果一致。
+
+菜单「帮助 → 坐标系说明」有完整口径。
+
+### 7.3 Key 配置
+
+| Key | 在哪配 | 空着会怎样 |
+|---|---|---|
+| 天地图 key | 底图 → 天地图 Key 设置 | 天地图 4 个图源自动隐藏；DXF 的「天地图地名兜底」失效 |
+| 高德 key | 底图 → 高德 Key 设置 | 高德 POI 搜索不可用（瓦片不受影响） |
+| Overpass 端点 | 底图 → Overpass 端点 | 用默认公共端点，可换自建/镜像 |
+
+> 程序内已内置可用的默认天地图 / 高德 key，开箱即用；换成自己的 key 可避免额度共享带来的限流。
+
+---
+
+## 8. 云同步
+
+同步服务是**自建**的 Cloudflare Worker（`ovimap-sync`），源码在 `cloudflare/`：
+
+```
+客户端 ──► Worker ──┬──► D1    工程索引 + rev 版本号
+                    └──► R2    工程快照（.ovimap 内容）
+```
+
+- **乐观并发**：上传带本地 `rev`，服务端 `rev` 不匹配即判冲突 → 生成冲突副本，不静默覆盖。
+- **版本历史**：可在「版本历史」里回滚到任一历史版本。
+- **部署方法**：见 [`docs/DEPLOY-sync.md`](docs/DEPLOY-sync.md)。
+
+---
+
+## 9. 本地构建
+
+> 完整平台细节见 [`docs/BUILD-windows.md`](docs/BUILD-windows.md) 与 [`docs/BUILD-macos.md`](docs/BUILD-macos.md)。
+
+### 9.0 通用前置
+
+```bash
+git clone https://github.com/dujianhua200/ovimap.git
+cd ovimap
+flutter --version      # 需 >= 3.35，本项目基线 3.47.2
+flutter pub get
+```
+
+### 9.1 Windows
+
+```powershell
+# 1) 装 Visual Studio 2022 Community，勾选「使用 C++ 的桌面开发」工作负载
+# 2) 确认工具链就绪
+flutter doctor -v      # Visual Studio 一栏必须是 √
+
+# 3) 构建
+flutter config --enable-windows-desktop
+flutter build windows --release
+# 产物：build\windows\x64\runner\Release\ovimap.exe
+```
+
+一键脚本（自动构建 + 收集 VC++ 运行库 + 打包成绿色版到 `dist\`）：
+
+```powershell
+scripts\build_windows.bat
+```
+
+> Flutter 的 Windows 产物用 `/MD` 动态链接 C 运行库，`ovimap.exe` 会 import
+> `MSVCP140.dll` / `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll`，而 Windows 只自带 UCRT。
+> 脚本会把这一套 VC143 CRT 一并拷进产物目录，做成真正双击即用的绿色版。
+> VS 许可条款允许随应用分发这些 dll；若合规口径不允许，删掉脚本里的拷贝段即可，
+> 代价是用户机器需自行安装「Microsoft Visual C++ 2015-2022 Redistributable (x64)」。
+
+### 9.2 macOS
+
+```bash
+# 1) 装 Xcode（App Store）并同意许可
+sudo xcode-select --install
+sudo xcodebuild -license accept
+flutter doctor -v      # Xcode 一栏必须是 √
+
+# 2) 构建
+flutter config --enable-macos-desktop
+flutter build macos --release
+# 产物：build/macos/Build/Products/Release/ovimap.app
+```
+
+打包分发（**必须用 ditto**，`.app` 内含符号链接与可执行位，普通 zip 会丢）：
+
+```bash
+APP="build/macos/Build/Products/Release/ovimap.app"
+ditto -c -k --sequesterRsrc --keepParent "$APP" ovimap-macos-universal-3.0.2.zip
+```
+
+未配置开发者证书时，Flutter 按工程里的 `CODE_SIGN_IDENTITY = "-"` 走 **ad-hoc 签名**，
+产物可直接在本机运行（首次打开需右键「打开」绕过 Gatekeeper）。
+
+### 9.3 Android
+
+```bash
+flutter build apk --release
+# 产物：build/app/outputs/flutter-apk/app-release.apk
+```
+
+### 9.4 质量检查（提交前建议跑）
+
+```bash
+flutter analyze --no-fatal-infos   # info 级 lint 放行，error/warning 致命
+flutter test                       # 66 个测试文件
+```
+
+---
+
+## 10. CI 自动构建
+
+工作流：[`.github/workflows/build-desktop.yml`](.github/workflows/build-desktop.yml)
+
+| 任务 | 环境 | 流程 | 产物 |
+|---|---|---|---|
+| `build-windows` | `windows-latest` | analyze + test 门禁 → `flutter build windows` → 补 VC++ dll → zip | `ovimap-windows-x64-<版本>.zip` |
+| `build-macos` | `macos-latest` | analyze + test 门禁 → `flutter build macos` → 校验签名与架构 → ditto 打包 | `ovimap-macos-universal-<版本>.zip` |
+
+**触发方式**
+
+| 场景 | 做法 |
+|---|---|
+| 日常验证 | push 到 `main` / `master` |
+| PR 检查 | 提 PR 自动跑 |
+| 只出包不改代码 | Actions → 左侧选本工作流 → **Run workflow** |
+| 发版 | 打 `v*` 标签，除 Artifact 外自动把两个 zip 挂到 GitHub Release |
+
+```bash
+git tag v3.0.2
+git push origin v3.0.2
+```
+
+**设计要点**
+
+- **两个平台各自跑测试**，不共用一个 Linux 测试任务：`test/platform_caps_test.dart` 等用例的断言是
+  **按平台参数化**的，Linux 全绿并不能证明 Windows / macOS 也绿。
+- **门禁**：静态分析或单元测试任一失败 → 该平台不出包。
+- **纯文档改动不触发构建**（`paths-ignore: docs/**, **/*.md`）：private 仓库 Actions 额度有限，
+  macOS runner 计费 ×10，不该为改一行 README 烧一次额度。
+
+---
+
+## 11. 项目结构
+
+```
+ovimap/
+├── lib/
+│   ├── main.dart                  应用入口
+│   ├── models/                    数据模型：符号库 / 地图源 / 点标记 / 工程模板 / 差异报告
+│   ├── geo/                       坐标与几何：WGS84↔GCJ02↔BD09 / 距离面积 / 等距布杆
+│   ├── state/app_state.dart       全局状态与业务编排（1462 行，业务核心）
+│   ├── export/                    导出引擎
+│   │   ├── dxf.dart               DXF 生成（1689 行）
+│   │   ├── dxf_layers.dart        T1 图层规范
+│   │   ├── dxf_version.dart       R12(AC1009) / R2000(AC1015)
+│   │   ├── dxf_validate.dart      DXF 结构自洽校验器
+│   │   ├── csv.dart               杆点 / 芯线占用 / 材料统计 / 工程量清单(451 号文)
+│   │   ├── kml.dart / kml_import.dart
+│   │   ├── topo.dart / topo_png.dart    配线拓扑图（矢量 / PNG）
+│   │   ├── basemap.dart / local_basemap.dart / basemap_file_import.dart
+│   │   ├── photo_book.dart        竣工照片册 ZIP
+│   │   ├── archive_book.dart      竣工资料一键成册
+│   │   └── overpass.dart          OSM 矢量抓取
+│   ├── services/                  平台能力 / 搜索 / 瓦片缓存 / 轨迹核查 / 文件落盘 / 持久化
+│   ├── sync/                      云同步（API / 编排 / 模型 / 本地存储）
+│   └── ui/
+│       ├── desktop/               桌面壳：菜单栏 / 工具栏 / 左右栏 / 快捷键 / 右键菜单 / 状态栏
+│       ├── map/map_canvas.dart    地图画布
+│       ├── dialogs.dart           全部对话框（2363 行）
+│       ├── export_center.dart     竣工成册 / 设计竣工对照
+│       └── sync/                  云同步面板与冲突对话框
+├── cloudflare/                    云同步后端（Worker + D1 + R2）
+├── docs/                          设计文档（PRD / 架构 / 构建 / 部署 / SOP）
+├── scripts/                       Windows 构建与文件关联脚本
+├── tool/                          DXF 校验、OSM 数据抓取等辅助脚本
+├── test/                          66 个测试文件
+└── .github/workflows/             双平台桌面构建 CI
+```
+
+---
+
+## 12. 文档索引
+
+| 文档 | 内容 |
+|---|---|
+| [`docs/USAGE.md`](docs/USAGE.md) | **使用手册**：分场景操作流程（架空 / 管道 / 箱体配线 / 竣工四类）+ 功能详解 + 数据备份 |
+| [`docs/BUILD-windows.md`](docs/BUILD-windows.md) | Windows 本地构建完整指南（含踩坑） |
+| [`docs/BUILD-macos.md`](docs/BUILD-macos.md) | macOS 本地构建完整指南（含签名与打包） |
+| [`docs/BUILD-desktop-ci.md`](docs/BUILD-desktop-ci.md) | GitHub Actions 双平台构建说明 + 版本发布流程 |
+| [`docs/DEPLOY-sync.md`](docs/DEPLOY-sync.md) | 云同步后端部署（Cloudflare Worker / D1 / R2） |
+| [`docs/PRD-windows-sync.md`](docs/PRD-windows-sync.md) | 桌面端 + 云同步产品需求文档 |
+| [`docs/ARCH-windows-sync.md`](docs/ARCH-windows-sync.md) | 桌面端 + 云同步架构设计 |
+| [`docs/class-diagram.mermaid`](docs/class-diagram.mermaid) | 类图 |
+| [`docs/sequence-diagram.mermaid`](docs/sequence-diagram.mermaid) | 时序图 |
+| `docs/sop/` | 增量开发 SOP（PRD → 设计 → 实现） |
+
+---
+
+## 13. 常见问题
+
+**Q：Windows 双击 `ovimap.exe` 没反应？**
+A：多半是把 exe 从压缩包里单独拖出来了。必须**整个目录一起解压**，保持 `data\` 同级。
+若报缺 dll，说明压缩包不完整，重新下载 Release 包（内置了 VC++ 运行库）。
+
+**Q：macOS 提示"无法打开，因为无法验证开发者"？**
+A：ad-hoc 签名包的正常现象。右键 → 打开 → 再点「打开」；或
+`xattr -dr com.apple.quarantine /Applications/ovimap.app`。
+
+**Q：地图一片空白 / 瓦片加载不出来？**
+A：先检查网络（联通 / 高德源在境内，OSM 官方源在境外较慢，可切「OSM 街道(反代加速)」）。
+再试「底图 → 存储清理」清掉损坏缓存。
+
+**Q：点位和影像对不上（偏几百米）？**
+A：图源坐标基准选错了。GCJ-02 源（联通 / 高德）应在「图源 / 图层」里按原样选择，
+程序会自动做偏移补偿；不要手动改坐标系基准。
+
+**Q：导出的 DXF 在 CAD 里打不开 / 提示"修复"？**
+A：默认用 R12（最广兼容）。若手工勾了 R2000，部分老 CAD 会提示修复 —— 取消勾选即可。
+导出前程序已做结构校验，若被拦下请把提示信息发出来。
+
+**Q：桌面端没有 GPS，怎么现场打点？**
+A：桌面版设计定位是室内成图与出图。现场采集请用 Android 版；
+桌面端也可手动点击地图落点，或在「底图 → 离线地图」预下载后配合导入 KML/GeoJSON 校正。
+
+**Q：`flutter test` 在 Windows 上报 `PathAccessException errno=32`？**
+A：Windows 文件锁导致的清理竞态，工程内已用 `test/_fs_cleanup.dart` 的
+`deleteTempDirResilient` 重试机制处理；若仍偶发，重跑一次即可。
+
+---
+
+## 许可
+
+内部工程工具，未开源授权。
+第三方依赖许可见 `pubspec.lock`；内置地图瓦片版权归各图源提供方所有。
