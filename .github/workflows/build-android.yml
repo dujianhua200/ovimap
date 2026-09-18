@@ -75,12 +75,55 @@ jobs:
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
 
-      - name: 安装 Android SDK（幂等：补齐 cmdline-tools 并设置 ANDROID_HOME / ANDROID_SDK_ROOT）
-        uses: android-actions/setup-android@v3
+      - name: 腾出磁盘空间
+        # 只清与本构建无关的预装大件（.NET / GHC / Boost）。SDK 里的 system-images
+        # （模拟器镜像，本项目不用）也一并清掉，给 NDK 留位置。
+        # 注意：**不要**动 $AGENT_TOOLSDIRECTORY —— Java 与 Flutter 都装在那里面。
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost 2>/dev/null || true
+          sudo rm -rf "${ANDROID_HOME:-/usr/local/lib/android/sdk}/system-images" 2>/dev/null || true
+          df -h / | tail -1
 
-      - name: 接受 SDK 许可
-        # yes 被 SIGPIPE 收尾会非零退出，加 || true 避免误判失败。
-        run: yes | sdkmanager --licenses || true
+      - name: 准备 Android SDK（runner 已预装 SDK，这里只补必需组件）
+        # ⚠️ 不要用 android-actions/setup-android@v3：它内部会执行 `sdkmanager tools`，
+        # 而新版 sdkmanager 已移除 `tools` 包 → 报 `Failed to find package 'tools'`
+        # 并 exit 1，整个 job 在第一步就挂（实测于 2026-09-18，runner 镜像 cmdline-tools 16.0）。
+        # runner 镜像本身已带 SDK（/usr/local/lib/android/sdk），我们只需补组件 + 接受许可。
+        #
+        # 组件版本取自 Flutter 3.47.2 的 FlutterExtension.kt（本机同源核对）：
+        #   compileSdkVersion = 36 / targetSdkVersion = 36 / minSdkVersion = 24
+        #   ndkVersion = 28.2.13676358
+        # 显式安装而不是指望 AGP 自动补齐 —— 自动补齐失败时报错位置很靠后，难定位。
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          [ -n "$SDK" ] || SDK=/usr/local/lib/android/sdk
+          if [ ! -d "$SDK" ]; then
+            echo "::error::未找到 Android SDK（尝试过 \$ANDROID_HOME / \$ANDROID_SDK_ROOT / $SDK）"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK"       >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK"   >> "$GITHUB_ENV"
+          echo "使用 SDK：$SDK"
+
+          SDKMGR=$(ls -1 "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1)
+          if [ ! -x "$SDKMGR" ]; then
+            echo "::error::未找到 sdkmanager（$SDK/cmdline-tools/*/bin/sdkmanager）"
+            exit 1
+          fi
+          echo "sdkmanager：$SDKMGR"
+
+          # 不加 pipefail：yes 收尾的 SIGPIPE 会污染管道状态。
+          # 不写 set -o pipefail 时管道取最后一个命令的退出码，正是我们要的。
+          yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMGR" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358"
+
+          echo "--- 已装组件 ---"
+          "$SDKMGR" --list_installed || true
 
       - name: 读取版本号（来自 pubspec.yaml）
         run: |
@@ -124,8 +167,8 @@ jobs:
 
       - name: 环境自检（构建失败定位用，本身不致命）
         run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
           flutter doctor -v || true
-          sdkmanager --list_installed || true
 
       - name: 拉取依赖
         run: flutter pub get
@@ -138,7 +181,12 @@ jobs:
         # 打 tag 时桌面两个 job 已各跑过一遍，这里是第三遍 —— 但 ubuntu 是 1x 计费，
         # 一遍约 1 分钟，代价可忽略；而手动单独跑本 workflow 时不会有别的门禁，
         # 不跑就等于把没测过的代码签进发布包，不值当。
-        run: flutter test
+        #
+        # 至多一次重试：挡 flutter_tester 收尾偶发崩溃（见 ci.yml 同步骤注释）。
+        run: |
+          flutter test && exit 0
+          echo "::warning::第一次运行非零退出 —— 重试一次；若两次都红则是真失败"
+          flutter test
 
       - name: 构建 Release APK（universal）
         run: flutter build apk --release --build-name=$BUILD_NAME --build-number=$BUILD_NUMBER

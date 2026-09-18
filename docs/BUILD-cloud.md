@@ -223,8 +223,16 @@ $ANDROID_HOME/build-tools/*/apksigner verify --print-certs /tmp/ovimap-android-X
 ### 5.3 NDK 缺失
 
 - **现象**：构建报找不到 NDK（`ndkVersion` 未安装）。
-- **对策**：`Android 打包` 用 `android-actions/setup-android@v3` 按需补齐；本机可用
-  `sdkmanager "ndk;<version>"` 安装与 `flutter.ndkVersion` 一致的版本。
+- **对策**：`Android 打包` 里**显式**安装，不指望 AGP 自动补齐：
+
+  ```bash
+  sdkmanager --install "platform-tools" "platforms;android-36" \
+                         "build-tools;36.0.0" "ndk;28.2.13676358"
+  ```
+
+  版本来源是 Flutter 3.47.2 的 `FlutterExtension.kt`（与本机 SDK 已装组件核对一致）：
+  `compileSdkVersion=36` / `targetSdkVersion=36` / `minSdkVersion=24` / `ndkVersion=28.2.13676358`。
+  升级 Flutter 后这几个数要重新核对。
 
 ### 5.4 JVM OOM（内存溢出）
 
@@ -241,6 +249,54 @@ $ANDROID_HOME/build-tools/*/apksigner verify --print-certs /tmp/ovimap-android-X
   `permissions: contents: write`（本仓库默认工作流权限是 read）。两个出包 workflow 都已声明。
 - **Android 包签名校验失败**：`Android 打包` 末尾会比对「注入 keystore 的 SHA1」与「APK 实际签名 SHA1」，
   不一致就 `exit 1`。见 §4.4。
+
+### 5.6 ⚠️ 已知偶发：`flutter test` 用例全绿却 exit 1
+
+**现象**（macOS 与 ubuntu 都实测到过）：
+
+```
+🎉 501 tests passed, 2 skipped.      ← 正常应是 505
+##[error]Process completed with exit code 1.
+```
+
+日志里**一条报错都搜不到**（没有 `❌`、没有 `Expected/Actual`）；macOS 上偶尔会多打一行
+`TestDeviceException(Shell subprocess crashed with segmentation fault.)` 并挂在 `finalization`。
+
+**定性方法**（30 秒，别去猜）：**同一提交直接重跑**。
+
+```bash
+gh run rerun <RUN_ID> --failed
+```
+
+- 重跑转绿 → 是偶发（2026-09-18 实测：同一提交第一次红、重跑就 `505 passed / 2 skipped`）；
+- 重跑还红 → 才是确定性缺陷，去比两次运行「实际执行的用例集合」找嫌疑人（手法见
+  `docs/BUILD-desktop-ci.md`）。
+
+**我们的对策**：`ci.yml` 与 `build-android.yml` 的测试步骤做了**「至多一次」重试** ——
+第一次非零退出就再跑一次；两次都红才判失败。这样确定性失败仍然拦得住，只有偶发崩溃被吸收。
+
+> ⚠️ **不要**把它改成 `flutter test || true` —— 那是掩盖问题。
+> 也不要把 `exit 1` 的判定换掉（比如「摘要说全过就算过」），真崩溃会被一起吞掉。
+
+### 5.7 ⚠️ 不要用 `android-actions/setup-android@v3`
+
+**现象**（2026-09-18 实测，runner 镜像 cmdline-tools 16.0）：
+
+```
+[command]/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager tools
+Warning: Failed to find package 'tools'
+Error: The process '.../sdkmanager' failed with exit code 1
+```
+
+该 action 内部的步骤 `sdkmanager tools` 会失败 —— 新版 sdkmanager 已经**移除了 `tools` 包**。
+因为它在 job 的第 5 步就抛错，后面**所有**步骤都变成 skipped，看起来像「Android 完全跑不起来」。
+
+**关键事实**：GitHub 托管的 ubuntu runner **本身就预装了 Android SDK**
+（`/usr/local/lib/android/sdk`，含 cmdline-tools）。所以这个 action 是多余的。
+
+**对策**：删掉该 action，改为自己定位 SDK + `sdkmanager --licenses` + 显式装组件（见 §5.3）。
+定位逻辑对 `$ANDROID_HOME` / `$ANDROID_SDK_ROOT` / `/usr/local/lib/android/sdk` 三重兜底，
+并把 `ANDROID_HOME` 写回 `$GITHUB_ENV`，供后续步骤（含 `apksigner` 定位）使用。
 
 ---
 
