@@ -14,6 +14,7 @@ import 'package:ovimap/sync/sync_api.dart';
 import 'package:ovimap/sync/sync_controller.dart';
 import 'package:ovimap/sync/sync_models.dart';
 
+import '_fs_cleanup.dart';
 import '_sync_fake_server.dart';
 
 const kBase = 'https://sync.example.com';
@@ -59,14 +60,15 @@ void main() {
     );
   });
 
-  tearDown(() {
+  tearDown(() async {
     for (final c in controllers) {
       c.dispose();
     }
     controllers.clear();
     fake.uninstall();
     AppPaths.clearForTest();
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
+    // 退让重试：Windows 上在途异步写盘会短暂锁住临时目录（errno=32）。
+    await deleteTempDirResilient(dir);
   });
 
   SyncController makeController({Duration? debounce}) {

@@ -18,6 +18,7 @@ import 'package:ovimap/sync/sync_controller.dart';
 import 'package:ovimap/sync/sync_models.dart' show SyncStatus;
 import 'package:ovimap/ui/sync/sync_panel.dart';
 
+import '_fs_cleanup.dart';
 import '_sync_fake_server.dart';
 
 const kBase = 'https://sync.example.com';
@@ -40,14 +41,16 @@ void main() {
     fake = FakeSyncServer(token: 'tok-test')..install();
   });
 
-  tearDown(() {
+  tearDown(() async {
     for (final c in controllers) {
       c.dispose();
     }
     controllers.clear();
     fake.uninstall();
     AppPaths.clearForTest();
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
+    // 用退让重试的删除：Windows 上在途异步写盘会短暂锁住临时目录，
+    // 直接 deleteSync 会抛 PathAccessException(errno=32) 把构建判红。
+    await deleteTempDirResilient(dir);
   });
 
   SyncController makeController() {
