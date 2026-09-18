@@ -55,15 +55,17 @@ jobs:
           cache: true
 
       - name: 读取版本号（来自 pubspec.yaml）
-        shell: bash
+        # 用 pwsh 而非 bash：Windows runner 的 $GITHUB_ENV 是反斜杠 Windows 路径，
+        # 交给 Git Bash 重定向容易踩转义坑，官方推荐写法是 Out-File -Append -Encoding utf8。
+        shell: pwsh
         run: |
-          raw=$(grep -m1 '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//' | tr -d '\r ')
-          name=${raw%%+*}
-          number=${raw#*+}
-          [ "$number" = "$raw" ] && number=0
-          echo "BUILD_NAME=$name"   >> "$GITHUB_ENV"
-          echo "BUILD_NUMBER=$number" >> "$GITHUB_ENV"
-          echo "版本：$name+$number"
+          $raw = (Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value.Trim()
+          $parts = $raw -split '\+'
+          $name = $parts[0]
+          $number = if ($parts.Length -gt 1) { $parts[1] } else { '0' }
+          "BUILD_NAME=$name"     | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BUILD_NUMBER=$number" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "版本：$name+$number"
 
       - name: 拉取依赖
         run: flutter pub get
