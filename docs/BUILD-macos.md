@@ -166,20 +166,44 @@ Architectures in the fat file: .../ovimap are: x86_64 arm64
 
 ### 7.3 沙箱权限（entitlements）
 
-应用开启了 **App Sandbox**（`macos/Runner/Release.entitlements`），已声明三项必要权限：
+应用开启了 **App Sandbox**（`macos/Runner/Release.entitlements`）。**实际签名里会看到 4 项**：
 
-| 权限键 | 为什么必须 |
-|---|---|
-| `com.apple.security.app-sandbox` | 沙箱开关 |
-| `com.apple.security.network.client` | 地图瓦片 / 天地图检索 / 云同步全走 HTTPS；**少了这项，界面能起来但底图与所有在线能力空白** |
-| `com.apple.security.files.user-selected.read-write` | 导入 GeoJSON 底图、另存为导出产物、选择取证图片 |
+| 权限键 | 来源 | 为什么必须 / 说明 |
+|---|---|---|
+| `com.apple.security.app-sandbox` | 工程文件 | 沙箱开关 |
+| `com.apple.security.network.client` | 工程文件 | 地图瓦片 / 天地图检索 / 云同步全走 HTTPS；**少了这项，界面能起来但底图与所有在线能力空白** |
+| `com.apple.security.files.user-selected.read-write` | 工程文件 | 导入 GeoJSON 底图、另存为导出产物、选择取证图片 |
+| `com.apple.security.get-task-allow` | **Xcode 构建时注入**（不在工程文件里） | 允许调试器附加。Release 包不该有，见下方「已知硬化项」 |
 
-调试配置（`DebugProfile.entitlements`）在此基础上多了 `allow-jit` 与 `network.server`
+调试配置（`DebugProfile.entitlements`）在工程声明上多了 `allow-jit` 与 `network.server`
 （Flutter 热重载需要）。
 
+核实命令：
+
+```bash
+codesign -d --entitlements - build/macos/Build/Products/Release/ovimap.app | grep '\[Key\]'
+```
+
 > **改动提醒**：如果你在 macOS 上跑 release 版发现「界面正常但地图全白」，第一件事就是
-> `codesign -d --entitlements - "$APP"` 看看 `network.client` 还在不在 —— 不少 Xcode 升级会
-> 覆盖 entitlements 文件。
+> 上面这条命令，看看 `network.client` 还在不在 —— 不少 Xcode 升级会覆盖 entitlements 文件。
+
+#### ⚠️ 已知硬化项：Release 包里带了 `get-task-allow`
+
+`com.apple.security.get-task-allow` 让调试器能附加到进程，属于**开发期授权**，
+正式分发包里不该出现。本项目的 release 包里实测有它（`Release.entitlements`
+源文件里并没有），原因是 Xcode 的 `CODE_SIGN_INJECT_BASE_ENTITLEMENTS` 默认为 `YES`，
+在 ad-hoc 签名下会注入这条基础授权。
+
+**影响面**：同用户会话下的进程可附加调试器读取内存。对内部工程工具属低风险，
+不影响功能与分发；但如需按安全基线收口，在 Release 配置里关掉即可：
+
+```
+# macos/Runner/Configs/Release.xcconfig（或 Xcode → Runner target → Release → Build Settings）
+CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO
+```
+
+改完重新构建，再用上面的 `codesign -d` 命令确认这一项消失。
+（当前 v3.0.2 未收口，已验证不影响运行。）
 
 ### 7.4 应用标识
 

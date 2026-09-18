@@ -203,7 +203,7 @@ GitHub 的 runner 没有代理，不需要这行。
 | 两个任务 | `Windows x64 打包` 13m12s ✓ / `macOS 打包` 2m35s ✓ |
 | macOS 架构 | `lipo -info` → `x86_64 arm64`（真 universal） |
 | macOS 签名 | `codesign --verify --strict` → `valid on disk` + `satisfies its Designated Requirement` |
-| macOS 权限 | 签名中实际含 `app-sandbox` / `network.client` / `files.user-selected.read-write` |
+| macOS 权限 | 签名中实际含 `app-sandbox` / `network.client` / `files.user-selected.read-write`（另有一条 Xcode 注入的 `get-task-allow`，见 BUILD-macos.md §7.3 已知硬化项） |
 | macOS 版本 | `CFBundleShortVersionString=3.0.2`、`CFBundleVersion=8`、id `com.dujianhua.ovimap` |
 | macOS 可运行 | `open ovimap.app` → 进程稳定存活 13 秒以上，无新崩溃报告 |
 | macOS 体积 | .app 53 MB，zip 21 MB |
