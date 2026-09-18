@@ -49,7 +49,7 @@ flutter_map 的点击判定 `PositionedTapDetector2` 把「是否双击」和「
 | 项 | 结果 |
 |---|---|
 | `flutter analyze --no-fatal-infos` | **0 error / 0 warning**（改动文件 0 info） |
-| `flutter test` | **506 passed / 1 skipped / 0 failed** |
+| `flutter test` | **505 passed / 2 skipped / 0 failed**（本机与 CI 双平台一致） |
 | 新增测试 | `desktop_shell_smoke_test.dart`（状态栏鼠标经纬度 notifier 联动 + 快捷键裸键守卫） |
 | 更新测试 | 5 处断言原先编码的是**旧缺陷契约**（`Platform.isWindows` 判据、「全部交互开关」），已改写为新契约并加回归护栏 |
 
