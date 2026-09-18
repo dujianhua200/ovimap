@@ -103,32 +103,39 @@ jobs:
           # Flutter 的 Windows 产物用 /MD 动态链接 C 运行库，ovimap.exe 会 import
           # MSVCP140.dll / VCRUNTIME140.dll / VCRUNTIME140_1.dll。这些不在 Windows
           # 自带范围内（只有 UCRT 是系统组件），缺了就是「双击无反应 / 报缺 dll」。
-          # 这里从 VS 的 Redist 目录把整套 VC143 CRT 拷进产物，做成真正免安装的绿色版。
-          $crtDir = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022" `
-                     -Recurse -Directory -Filter "Microsoft.VC*.CRT" -ErrorAction SilentlyContinue |
-                    Where-Object { $_.FullName -match '\\x64\\' } |
+          # 这里优先从 VS 的 Redist 目录整体拷入，取不到就逐个从 System32 兜底，
+          # 目标都是做出真正免安装的绿色版。
+          #
+          # 用 Get-Item 配通配符而不是 Get-ChildItem -Recurse：后者在
+          # C:\Program Files 下遇到无权限子目录会被静默中断，反而永远匹配不到。
+          $redistGlobs = @(
+            'C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT'
+          )
+          $crtDir = Get-Item -Path $redistGlobs -ErrorAction SilentlyContinue |
                     Sort-Object FullName -Descending | Select-Object -First 1
-          $crtFiles = @()
           if ($crtDir) {
             Write-Host "VC 运行库目录：$($crtDir.FullName)"
-            $crtFiles = Get-ChildItem -Path $crtDir.FullName -Filter *.dll
-            $crtFiles | ForEach-Object { Copy-Item $_.FullName -Destination $src -Force }
-            $crtFiles | ForEach-Object { Write-Host "  已打包 $($_.Name)" }
-          } else {
-            Write-Host "警告：未找到 VS Redist 的 Microsoft.VC*.CRT 目录，回退到 System32 逐文件拷贝" -ForegroundColor Yellow
+            Get-ChildItem -Path $crtDir.FullName -Filter *.dll | ForEach-Object {
+              Copy-Item $_.FullName -Destination $src -Force
+              Write-Host "  已打包 $($_.Name)"
+            }
           }
 
-          # 兜底：确保三个必需项一定在（Redist 目录缺失时从 System32 取）
+          # 兜底并校验：三个必需项一定要在（Redist 缺失或不全时从 System32 取）
+          $missing = @()
           foreach ($n in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
-            if (-not (Test-Path "$src/$n")) {
-              $sys = Join-Path $env:WINDIR "System32\$n"
-              if (Test-Path $sys) {
-                Copy-Item $sys -Destination $src -Force
-                Write-Host "  已打包 $n（取自 System32）"
-              } else {
-                Write-Host "警告：$n 未找到，目标机器需自行安装 VC++ 2015-2022 x64 运行库" -ForegroundColor Yellow
-              }
+            if (Test-Path "$src/$n") { continue }
+            $sys = Join-Path $env:WINDIR "System32\$n"
+            if (Test-Path $sys) {
+              Copy-Item $sys -Destination $src -Force
+              Write-Host "  已打包 $n（取自 System32）"
+            } else {
+              $missing += $n
             }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "警告：$($missing -join ', ') 均未找到，目标机器需自行安装 VC++ 2015-2022 x64 运行库" -ForegroundColor Yellow
           }
 
           $out = "ovimap-windows-x64-${{ env.BUILD_NAME }}.zip"
