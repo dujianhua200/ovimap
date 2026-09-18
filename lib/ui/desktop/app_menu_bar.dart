@@ -1,59 +1,220 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../state/app_state.dart';
-import '../batch_edit.dart';
 import '../dialogs.dart';
-import '../export_center.dart';
-import '../route_tools.dart';
+import 'menu_model.dart';
 
-/// 桌面顶部菜单栏（架构文档 §3.2 / T11，高度 34）。
+/// 桌面顶部菜单栏（Windows / Linux 用；macOS 走 `app_platform_menu_bar.dart`
+/// 的系统原生菜单）。
 ///
-/// 用 Flutter 原生 `PopupMenuButton`（零依赖）实现下拉；菜单项直接复用既有
-/// 对话框函数（如 `showSourceDialog` / `showCollectionSettings`），不重复业务逻辑。
-class AppMenuBar extends StatelessWidget {
-  const AppMenuBar({
-    super.key,
-    required this.st,
-    required this.onNewProject,
-    required this.onSave,
-    required this.onUndo,
-    required this.onRedo,
-    required this.onDeleteSelection,
-    required this.onExport,
-    required this.onOffline,
-    required this.onStorageCleanup,
-    required this.onPoleTable,
-    required this.onTrackCheck,
-    required this.onSync,
-    required this.onOpenProject,
-    required this.onExportProject,
-  });
+/// ## 为什么不用 `PopupMenuButton` / `MenuBar`
+///
+/// 旧实现用 `PopupMenuButton`，交互是「点标题展开 → 点条目执行」，且**展开后
+/// 想换一个菜单必须先把它点掉**（切换要两次点击）。用户明确要求
+/// 「鼠标放到哪个菜单就自动弹出」。而 Flutter 的 `MenuBar` / `SubmenuButton`
+/// **都没有悬停展开能力**（`menu_anchor.dart` 里没有 `MouseRegion`/`onHover`），
+/// 所以这里自己用 `Overlay` + `MouseRegion` 实现：
+///
+/// - 指针在标题上**停留 120ms** 即展开（留一个停留阈值，避免鼠标横扫顶部时
+///   一路误弹）；
+/// - 展开状态下，指针移到别的标题上**立即切换**（零延迟，这才是"切换不用点两次"）；
+/// - 指针离开标题/面板 200ms 后收起（延迟是为了让指针能"路过缝隙"进面板）。
+///
+/// 菜单项定义与快捷键全部来自 [oviMenuGroups] —— 与 macOS 原生菜单同源，
+/// 不会出现两端功能漂移。
+class AppMenuBar extends StatefulWidget {
+  const AppMenuBar({super.key, required this.st, required this.actions});
 
   final AppState st;
-  final VoidCallback onNewProject;
-  final VoidCallback onSave;
-  final VoidCallback onUndo;
-  final VoidCallback onRedo;
-  final VoidCallback onDeleteSelection;
-  final VoidCallback onExport;
-  final VoidCallback onOffline;
-  final VoidCallback onStorageCleanup;
-  final VoidCallback onPoleTable;
-  final VoidCallback onTrackCheck;
+  final OviMenuActions actions;
 
-  /// 打开云同步面板（T17）。
-  final VoidCallback onSync;
+  /// 条形高度（与改造前一致，桌面壳布局依赖这个值）。
+  static const double barHeight = 34;
 
-  /// 打开工程文件 `.ovimap`（T22）。
-  final VoidCallback onOpenProject;
+  @override
+  State<AppMenuBar> createState() => _AppMenuBarState();
+}
 
-  /// 导出工程文件 `.ovimap`（T22）。
-  final VoidCallback onExportProject;
+class _AppMenuBarState extends State<AppMenuBar> {
+  /// 每个顶层菜单标题的定位锚（用于把下拉面板对齐到标题下方）。
+  final List<GlobalKey> _anchors = [
+    for (var i = 0; i < oviMenuGroups.length; i++) GlobalKey(),
+  ];
+
+  /// 当前展开的菜单下标；null 表示全部收起。
+  int? _open;
+
+  OverlayEntry? _entry;
+  Timer? _hoverTimer;
+  Timer? _closeTimer;
+
+  @override
+  void dispose() {
+    _hoverTimer?.cancel();
+    _closeTimer?.cancel();
+    _entry?.remove();
+    _entry = null;
+    super.dispose();
+  }
+
+  // ---------------- 展开 / 收起 ----------------
+
+  /// 指针进入标题：已展开 → 立即切换；未展开 → 停留 120ms 后展开。
+  void _onEnterTitle(int i) {
+    _closeTimer?.cancel();
+    if (_open != null) {
+      if (_open != i) _show(i);
+      return;
+    }
+    _hoverTimer?.cancel();
+    _hoverTimer = Timer(const Duration(milliseconds: 120), () {
+      if (mounted && _open == null) _show(i);
+    });
+  }
+
+  /// 指针离开标题：给 200ms 宽限，让指针能往下进入面板而不被收起。
+  void _onExitTitle() {
+    _hoverTimer?.cancel();
+    _scheduleClose();
+  }
+
+  void _onTapTitle(int i) {
+    _hoverTimer?.cancel();
+    if (_open == i) {
+      _close();
+    } else {
+      _show(i);
+    }
+  }
+
+  void _scheduleClose() {
+    _closeTimer?.cancel();
+    _closeTimer = Timer(const Duration(milliseconds: 200), () {
+      if (mounted) _close();
+    });
+  }
+
+  void _close() {
+    _hoverTimer?.cancel();
+    _closeTimer?.cancel();
+    _entry?.remove();
+    _entry = null;
+    if (_open != null) setState(() => _open = null);
+  }
+
+  void _show(int i) {
+    _hoverTimer?.cancel();
+    final anchorCtx = _anchors[i].currentContext;
+    if (anchorCtx == null) return;
+    final box = anchorCtx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+
+    final origin = box.localToGlobal(Offset.zero);
+    final rect = Rect.fromLTWH(origin.dx, origin.dy, box.size.width, box.size.height);
+
+    _entry?.remove();
+    _entry = OverlayEntry(builder: (_) => _dropdown(i, rect));
+    Overlay.of(context).insert(_entry!);
+    setState(() => _open = i);
+  }
+
+  // ---------------- 下拉面板 ----------------
+
+  Widget _dropdown(int index, Rect anchor) {
+    final group = oviMenuGroups[index];
+    return Stack(
+      children: [
+        // 点到面板以外（且不在菜单栏上）→ 收起。
+        // 上边界压在菜单栏下沿，保证顶部标题仍可点击（点标题=切换/收起）。
+        Positioned(
+          left: 0,
+          right: 0,
+          top: anchor.bottom,
+          bottom: 0,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: _close,
+            child: const SizedBox.expand(),
+          ),
+        ),
+        Positioned(
+          left: anchor.left,
+          top: anchor.bottom,
+          child: MouseRegion(
+            onEnter: (_) => _closeTimer?.cancel(),
+            onExit: (_) => _scheduleClose(),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 252,
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                decoration: const BoxDecoration(
+                  color: kPanelBg,
+                  border: Border.fromBorderSide(BorderSide(color: Colors.white24)),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Color(0x66000000),
+                        blurRadius: 10,
+                        offset: Offset(0, 4)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var k = 0; k < group.items.length; k++) ...[
+                      if (k > 0 && group.items[k].dividerBefore)
+                        const Divider(height: 7, color: Colors.white12),
+                      _menuRow(group.items[k]),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _menuRow(OviMenuItemDef item) {
+    return InkWell(
+      onTap: () {
+        _close();
+        // 分发是异步的（要弹对话框），菜单回调签名同步 —— 菜单此刻已关，
+        // 没有后续依赖，故不 await。
+        dispatchOviMenuItem(context, widget.st, item.id, widget.actions);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: kTextMain, fontSize: 12.5)),
+            ),
+            if (item.keys != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 14),
+                child: Text(item.keys!,
+                    style: const TextStyle(color: kTextSub, fontSize: 11)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------- 菜单栏本体 ----------------
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 34,
+      height: AppMenuBar.barHeight,
       decoration: const BoxDecoration(
         color: Color(0xFF161B20),
         border: Border(bottom: BorderSide(color: Colors.white12)),
@@ -68,181 +229,27 @@ class AppMenuBar extends StatelessWidget {
                     fontSize: 13,
                     fontWeight: FontWeight.bold)),
           ),
-          _menu(context, '文件', {
-            'new_project': '新建工程',
-            'open_project': '打开工程文件(.ovimap)  Ctrl+O',
-            'save': '保存收藏  Ctrl+S',
-            'export_project': '导出工程文件(.ovimap)',
-            'export': '导出成果  Ctrl+E',
-            'archive': '竣工资料一键成册',
-            'import_kml': '导入 KML 到当前项目',
-          }),
-          _menu(context, '编辑', {
-            'undo': '撤销  Ctrl+Z',
-            'redo': '重做  Ctrl+Y',
-            'delete_sel': '删除选中  Delete',
-            'batch_edit': '批量编辑…',
-            'clear_draft': '清空草稿',
-          }),
-          _menu(context, '工程', {
-            'collection_settings': '采集设置（自动编号）',
-            'template': '工程模板',
-            'pole_table': '杆路点表',
-            'track_check': '杆路轨迹核查',
-            'topo_guide': '拓扑连线指引',
-          }),
-          _menu(context, '底图', {
-            'source': '图源 / 图层',
-            'coord_fmt': '坐标格式',
-            'offline': '离线地图（预下载）',
-            'tianditu_key': '天地图 Key 设置',
-            'amap_key': '高德 Key 设置',
-            'overpass': 'Overpass 端点',
-            'storage_cleanup': '存储清理',
-          }),
-          _menu(context, '同步', {
-            'sync_panel': '云同步面板（立即同步 / 设置）',
-          }),
-          _menu(context, '帮助', {
-            'datum_help': '坐标系说明',
-            'about': '关于 滑洲云图',
-          }),
+          for (var i = 0; i < oviMenuGroups.length; i++)
+            MouseRegion(
+              key: _anchors[i],
+              onEnter: (_) => _onEnterTitle(i),
+              onExit: (_) => _onExitTitle(),
+              child: GestureDetector(
+                onTap: () => _onTapTitle(i),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  color: _open == i ? const Color(0xFF232A31) : null,
+                  child: Text(oviMenuGroups[i].label,
+                      style: TextStyle(
+                          color: _open == i ? Colors.white : kTextMain,
+                          fontSize: 12.5)),
+                ),
+              ),
+            ),
           const Spacer(),
         ],
       ),
     );
-  }
-
-  Widget _menu(BuildContext context, String label, Map<String, String> items) {
-    return PopupMenuButton<String>(
-      tooltip: label,
-      color: kPanelBg,
-      position: PopupMenuPosition.under,
-      onSelected: (v) => _onSelected(context, v),
-      itemBuilder: (ctx) => [
-        for (final e in items.entries)
-          PopupMenuItem<String>(
-            value: e.key,
-            child: Text(e.value,
-                style: const TextStyle(color: kTextMain, fontSize: 13)),
-          ),
-      ],
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Text(label,
-            style: const TextStyle(color: kTextMain, fontSize: 12.5)),
-      ),
-    );
-  }
-
-  Future<void> _onSelected(BuildContext context, String v) async {
-    switch (v) {
-      case 'new_project':
-        onNewProject();
-        break;
-      case 'open_project':
-        onOpenProject();
-        break;
-      case 'export_project':
-        onExportProject();
-        break;
-      case 'save':
-        onSave();
-        break;
-      case 'export':
-        onExport();
-        break;
-      case 'archive':
-        await showArchiveBookDialog(context, st);
-        break;
-      case 'import_kml':
-        await showKmlImportDialog(context, st);
-        break;
-      case 'undo':
-        onUndo();
-        break;
-      case 'redo':
-        onRedo();
-        break;
-      case 'delete_sel':
-        onDeleteSelection();
-        break;
-      case 'batch_edit':
-        if (st.selectedIds.isEmpty) {
-          toast(context, '请先框选或在线组里选中点');
-        } else {
-          await showBatchEditDialog(context, st);
-        }
-        break;
-      case 'clear_draft':
-        await _confirmClear(context);
-        break;
-      case 'collection_settings':
-        await showCollectionSettings(context, st);
-        break;
-      case 'template':
-        await showTemplateDialog(context, st);
-        break;
-      case 'pole_table':
-        onPoleTable();
-        break;
-      case 'track_check':
-        onTrackCheck();
-        break;
-      case 'topo_guide':
-        await showTopoGuide(context);
-        break;
-      case 'source':
-        await showSourceDialog(context, st);
-        break;
-      case 'coord_fmt':
-        st.setCoordFmt(st.coordFmt + 1);
-        if (context.mounted) {
-          toast(context, '坐标格式已切换（下次重开沿用）');
-        }
-        break;
-      case 'offline':
-        onOffline();
-        break;
-      case 'tianditu_key':
-        await showTiandituKeyDialog(context, st);
-        break;
-      case 'amap_key':
-        await showAmapKeyDialog(context, st);
-        break;
-      case 'overpass':
-        await showOverpassEndpointsDialog(context, st);
-        break;
-      case 'storage_cleanup':
-        onStorageCleanup();
-        break;
-      case 'sync_panel':
-        onSync();
-        break;
-      case 'datum_help':
-        await showDatumHelp(context, st);
-        break;
-      case 'about':
-        await showAbout(context);
-        break;
-    }
-  }
-
-  Future<void> _confirmClear(BuildContext context) async {
-    if (st.labels.isEmpty) {
-      toast(context, '草稿为空');
-      return;
-    }
-    await showDarkDialog(context,
-        title: '清空草稿',
-        content: Text('确定删除当前 ${st.labels.length} 个未保存的点？',
-            style: const TextStyle(color: kTextMain, fontSize: 13)),
-        actions: [
-          darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
-          darkTextBtn('清空', () {
-            st.clearDraft();
-            Navigator.pop(context);
-          }, color: const Color(0xFFFF5252)),
-        ]);
   }
 }

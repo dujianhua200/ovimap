@@ -112,6 +112,10 @@ void main() {
               onResetView: () {},
               onEscape: () {},
               onUndoPoint: () => undoPoint++,
+              // 侧栏 / 专注地图（本轮新增的三个视图快捷键）。
+              onToggleLeft: () {},
+              onToggleRight: () {},
+              onFocusMap: () {},
               child: Column(
                 children: [
                   TextField(focusNode: tf, controller: ctl),

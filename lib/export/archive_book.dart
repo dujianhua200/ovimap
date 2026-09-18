@@ -37,6 +37,7 @@ class ArchiveBookExporter {
     int pointCount = 0,
     double totalLenM = 0,
     String editMode = 'completion',
+    String segPrefix = '', // 段标前缀（如 埋／架）：空串=仅数字；透传自 AppState.segPrefix
   }) async {
     final archive = Archive();
     final included = <String>[];
@@ -53,6 +54,7 @@ class ArchiveBookExporter {
         labels: labels,
         includeSurroundings: false,
         version: DxfVersion.r12,
+        segPrefix: segPrefix,
       );
       final bytes = r.file.readAsBytesSync();
       archive.addFile(ArchiveFile('路由图.dxf', bytes.length, bytes));

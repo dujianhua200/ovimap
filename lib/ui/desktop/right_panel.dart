@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/map_label.dart';
+import '../../geo/geo_util.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
 import 'stats_section.dart';
@@ -168,6 +169,12 @@ class _RightPanelState extends State<RightPanel> {
     final isWell = const ['manhole', 'handwell', 'pipe'].contains(l.typeId);
     final isTopoBox = l.type.isTopoNode;
     final showSeg = l.seq > 1 && l.typeId != 'text' && l.typeId != 'track';
+    // 段标注 chip 自动补距离：取同线组上一链点的段距（与地图渲染口径一致）。
+    final _prevSeg = st.previousChainLabel(l);
+    final _autoSegDist = _prevSeg == null
+        ? null
+        : (l.distanceM ??
+            GeoUtil.haversine(_prevSeg.lat, _prevSeg.lon, l.lat, l.lon));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -195,7 +202,7 @@ class _RightPanelState extends State<RightPanel> {
               style: const TextStyle(color: kTextMain, fontSize: 13.5),
               decoration: dec('如：埋42.5 / 架38，留空自动显示距离')),
           const SizedBox(height: 6),
-          segPrefixChips(_segLabel),
+          segPrefixChips(_segLabel, autoDist: _autoSegDist),
           const SizedBox(height: 8),
           TextField(
               controller: _dist,

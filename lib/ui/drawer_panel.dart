@@ -415,7 +415,8 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
         break;
       case 'export':
         final ls = await st.store.loadCollection(m.id);
-        if (context.mounted) showExportDialog(context, ls, m.name);
+        if (context.mounted)
+          showExportDialog(context, ls, m.name, segPrefix: st.segPrefix);
         break;
       case 'import_boxes':
         if (!context.mounted) return;
@@ -700,6 +701,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
         labels: ls,
         pointCount: m.count,
         editMode: m.editMode,
+        segPrefix: st.segPrefix,
       );
       if (!context.mounted) return;
       if (r.skipped.isNotEmpty) {

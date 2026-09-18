@@ -467,7 +467,8 @@ class _LeftPanelState extends State<LeftPanel> {
         break;
       case 'export':
         final ls = await st.store.loadCollection(m.id);
-        if (context.mounted) showExportDialog(context, ls, m.name);
+        if (context.mounted)
+          showExportDialog(context, ls, m.name, segPrefix: st.segPrefix);
         break;
       case 'batch_export':
         // 批量导出：优先导出多选集合；无多选时退化为「仅本项」。

@@ -17,6 +17,17 @@ class MainFlutterWindow: NSWindow {
     let flutterViewController = FlutterViewController()
     self.contentViewController = flutterViewController
 
+    // 窗口底色与 Flutter 侧 `Scaffold.backgroundColor`（0xFF101418）对齐：
+    // Flutter 首帧渲染之前窗口是"空"的，不设底色会闪一下系统默认的浅色底。
+    self.backgroundColor = NSColor(srgbRed: 0x10 / 255.0,
+                                   green: 0x14 / 255.0,
+                                   blue: 0x18 / 255.0,
+                                   alpha: 1)
+    // 标题栏/工具条区域也走深色。AppDelegate 已把 `NSApp.appearance` 钉成
+    // darkAqua，这里对窗口再显式声明一次 —— 窗口级外观与全局外观是两套独立
+    // 属性，只设一处时个别系统版本会出现标题栏仍是浅色。
+    self.appearance = NSAppearance(named: .darkAqua)
+
     // 屏幕可能比目标尺寸小（如 1280×800 的笔记本）：按可见区域收敛，避免窗口超出屏幕。
     let target = MainFlutterWindow.preferredSize
     if let visible = (self.screen ?? NSScreen.main)?.visibleFrame {

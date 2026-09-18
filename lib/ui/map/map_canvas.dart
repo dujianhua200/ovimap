@@ -660,9 +660,8 @@ List<SegText> collectSegTexts(AppState st, MapCamera cam) {
       final pxDist = math.sqrt(dx * dx + dy * dy);
       if (pxDist < 30) continue;
       final dist = b.distanceM ?? GeoUtil.haversine(a.lat, a.lon, b.lat, b.lon);
-      final segText = b.distLabel.trim().isNotEmpty
-          ? b.distLabel.trim()
-          : GeoUtil.fmtSegLen(dist);
+      final segText = GeoUtil.segLabelFor(b, GeoUtil.fmtSegLen(dist),
+          prefix: st.segPrefix);
       if (segText.isEmpty) continue;
       var ang = math.atan2(dy, dx);
       if (ang > math.pi / 2 || ang < -math.pi / 2) ang += math.pi;

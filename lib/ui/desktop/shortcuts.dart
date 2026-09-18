@@ -32,6 +32,9 @@ import 'package:flutter/services.dart';
 /// | Ctrl+= / Ctrl++ / ⌘± | [ZoomInIntent] | 放大一级 | 始终 |
 /// | Ctrl+- / ⌘− | [ZoomOutIntent] | 缩小一级 | 始终 |
 /// | Ctrl+0 / ⌘0 | [ResetViewIntent] | 复位到启动视图 | 始终 |
+/// | Alt+Ctrl+L / ⌥⌘L | [ToggleLeftIntent] | 折叠 / 展开左栏 | 始终 |
+/// | Alt+Ctrl+R / ⌥⌘R | [ToggleRightIntent] | 折叠 / 展开右栏 | 始终 |
+/// | Alt+Ctrl+M / ⌥⌘M | [FocusMapIntent] | 专注地图（两侧全收 / 还原） | 始终 |
 /// | `+` / `=` / `-`（含小键盘） | [ZoomInIntent] / [ZoomOutIntent] | 同 Ctrl± | 非编辑态 |
 /// | Esc | [EscapeIntent] | 取消当前操作 / 结束模式 | 非编辑态 |
 /// | Backspace | [UndoPointIntent] | 退掉最后一个点/连线 | 非编辑态 |
@@ -95,6 +98,21 @@ class UndoPointIntent extends Intent {
   const UndoPointIntent();
 }
 
+/// Alt+Ctrl+L / ⌥⌘L：折叠 / 展开左栏。
+class ToggleLeftIntent extends Intent {
+  const ToggleLeftIntent();
+}
+
+/// Alt+Ctrl+R / ⌥⌘R：折叠 / 展开右栏。
+class ToggleRightIntent extends Intent {
+  const ToggleRightIntent();
+}
+
+/// Alt+Ctrl+M / ⌥⌘M：专注地图（两侧全收，再按还原）。
+class FocusMapIntent extends Intent {
+  const FocusMapIntent();
+}
+
 /// 桌面快捷键容器：把一组回调接到对应 Intent 上。
 class DesktopShortcuts extends StatefulWidget {
   const DesktopShortcuts({
@@ -112,6 +130,9 @@ class DesktopShortcuts extends StatefulWidget {
     required this.onResetView,
     required this.onEscape,
     required this.onUndoPoint,
+    required this.onToggleLeft,
+    required this.onToggleRight,
+    required this.onFocusMap,
   });
 
   final Widget child;
@@ -127,6 +148,9 @@ class DesktopShortcuts extends StatefulWidget {
   final VoidCallback onResetView;
   final VoidCallback onEscape;
   final VoidCallback onUndoPoint;
+  final VoidCallback onToggleLeft;
+  final VoidCallback onToggleRight;
+  final VoidCallback onFocusMap;
 
   @override
   State<DesktopShortcuts> createState() => _DesktopShortcutsState();
@@ -216,6 +240,25 @@ class _DesktopShortcutsState extends State<DesktopShortcuts> {
       const SingleActivator(LogicalKeyboardKey.digit0, meta: true):
           const ResetViewIntent(),
 
+      // ---- 侧栏 / 地图占屏（Alt 组合，不与文本编辑冲突）----
+      //
+      // 与 macOS 原生菜单里同一批菜单项声明的快捷键**重复是刻意的、也是安全的**：
+      // 按 Apple 的事件派发顺序（Handling Key Events），按键先沿**视图层级**
+      // 传递，只有视图层不处理时才轮到菜单栏的 key equivalent —— 两条路径
+      // 命中同一个动作，且一条命中即终止，不会触发两遍。
+      const SingleActivator(LogicalKeyboardKey.keyL, control: true, alt: true):
+          const ToggleLeftIntent(),
+      const SingleActivator(LogicalKeyboardKey.keyR, control: true, alt: true):
+          const ToggleRightIntent(),
+      const SingleActivator(LogicalKeyboardKey.keyM, control: true, alt: true):
+          const FocusMapIntent(),
+      const SingleActivator(LogicalKeyboardKey.keyL, meta: true, alt: true):
+          const ToggleLeftIntent(),
+      const SingleActivator(LogicalKeyboardKey.keyR, meta: true, alt: true):
+          const ToggleRightIntent(),
+      const SingleActivator(LogicalKeyboardKey.keyM, meta: true, alt: true):
+          const FocusMapIntent(),
+
       // ---- 裸键：仅在非文本编辑态注册（规则 1）----
       if (!_editing) ...{
         const SingleActivator(LogicalKeyboardKey.equal): const ZoomInIntent(),
@@ -267,6 +310,12 @@ class _DesktopShortcutsState extends State<DesktopShortcuts> {
               onInvoke: (_) => _run(widget.onEscape)),
           UndoPointIntent: CallbackAction<UndoPointIntent>(
               onInvoke: (_) => _run(widget.onUndoPoint)),
+          ToggleLeftIntent: CallbackAction<ToggleLeftIntent>(
+              onInvoke: (_) => _run(widget.onToggleLeft)),
+          ToggleRightIntent: CallbackAction<ToggleRightIntent>(
+              onInvoke: (_) => _run(widget.onToggleRight)),
+          FocusMapIntent: CallbackAction<FocusMapIntent>(
+              onInvoke: (_) => _run(widget.onFocusMap)),
         },
         // autofocus 保证快捷键在无其它可聚焦控件时也能命中。
         child: Focus(autofocus: true, child: widget.child),

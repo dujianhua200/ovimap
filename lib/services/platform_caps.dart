@@ -24,6 +24,15 @@ class PlatformCaps {
   static final bool isDesktop =
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
+  /// 是否 macOS。**只用于「原生菜单栏」这类 macOS 独有能力**。
+  ///
+  /// 与 [isDesktop] 分开的理由：`PlatformMenuBar` 在 macOS 上把菜单渲染到
+  /// 屏幕顶部系统菜单栏（且会整体接管主菜单），Windows / Linux 没有这个能力，
+  /// 必须继续用窗口内自绘菜单栏。所以这里需要区分「桌面」与「macOS」。
+  /// 其余平台判断（有无 GPS / 罗盘 / 相机 / 另存为对话框）**一律仍用 [isDesktop]**，
+  /// 不要因为本 getter 的存在就改回 `Platform.isXxx` 散判。
+  static final bool isMacOS = Platform.isMacOS;
+
   /// 是否有真实 GPS 定位。
   ///
   /// **只有移动端有，桌面三平台都没有。** 旧实现写成 `!Platform.isWindows`，

@@ -96,9 +96,20 @@ Widget sheetGroupTitle(String text) => Padding(
       child: Text(text, style: const TextStyle(color: kTextSub, fontSize: 12)),
     );
 
+/// 段标注自动补距离：用 [GeoUtil.fmtSegLen] 口径格式化，但去掉整数时的 ".0"
+/// 毛刺（例如 42.0 → "42"），避免出现"埋42.0"这种不自然写法。
+String _segAutoDistText(double d) {
+  final s = GeoUtil.fmtSegLen(d);
+  return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+}
+
 /// 段标注敷设前缀快捷键：埋/管/吊/架/钉/槽/桥/顶棚/暗/竖 + 数字（如 管45.3）
-/// 点击 = 把前缀替换到距离数字前面（保留数字，换前缀直接点）。
-Widget segPrefixChips(TextEditingController ctl) {
+/// 点击 = 把前缀替换到距离数字前面：
+/// - 输入框已有数字 → 保留数字（换前缀直接点）；
+/// - 输入框无数字 → 用 [autoDist]（当前段到上一点的自动距离，按 [_segAutoDistText]
+///   口径，去掉 ".0" 毛刺）自动补上数字，实现"42 → 埋42"；
+/// - 拿不到距离（[autoDist] 为 null，如首点无上一点）则退化为只填前缀。
+Widget segPrefixChips(TextEditingController ctl, {double? autoDist}) {
   return Wrap(
     spacing: 6,
     runSpacing: 6,
@@ -114,7 +125,10 @@ Widget segPrefixChips(TextEditingController ctl) {
           visualDensity: VisualDensity.compact,
           onPressed: () {
             final m = RegExp(r'[0-9][0-9.]*').firstMatch(ctl.text);
-            ctl.text = p + (m?.group(0) ?? '');
+            final num = m?.group(0);
+            final digit = num ??
+                (autoDist == null ? null : _segAutoDistText(autoDist));
+            ctl.text = p + (digit ?? '');
           },
         ),
       ActionChip(
@@ -176,6 +190,13 @@ Future<void> showLabelProperties(
       text: label.slackM > 0 ? _fmtSlack(label.slackM) : '');
   final segCableCtl = TextEditingController(text: label.segCable);
   var segKind = label.segKind;
+  // 段标注 chip 自动补距离：取同线组上一链点的段距（与地图渲染口径一致）。
+  final _prevChain = st.previousChainLabel(label);
+  final _segAutoDist = _prevChain == null
+      ? null
+      : (label.distanceM ??
+          GeoUtil.haversine(
+              _prevChain.lat, _prevChain.lon, label.lat, label.lon));
   final isWell = ['manhole', 'handwell', 'pipe'].contains(label.typeId);
   final isTopoBox = label.type.isTopoNode;
   var photos = List<String>.from(label.photoPaths);
@@ -206,7 +227,7 @@ Future<void> showLabelProperties(
                   style: const TextStyle(color: kTextMain, fontSize: 14),
                   decoration: dec('本段标注（如：埋42.5 / 架38，留空自动显示距离）')),
               const SizedBox(height: 6),
-              segPrefixChips(segLabelCtl),
+              segPrefixChips(segLabelCtl, autoDist: _segAutoDist),
               const SizedBox(height: 8),
               TextField(
                   controller: distCtl,
@@ -569,7 +590,7 @@ Future<void> showCompletionSegment(
             style: const TextStyle(color: kTextMain, fontSize: 14),
             decoration: dec('本段标注（点下方快捷：埋42 / 吊38 / 钉25…）')),
         const SizedBox(height: 6),
-        segPrefixChips(segLabelCtl),
+        segPrefixChips(segLabelCtl, autoDist: prev == null ? null : calculated),
         const SizedBox(height: 8),
         TextField(
             controller: slackCtl,
@@ -753,7 +774,8 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
 // ================= 导出 =================
 
 Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
-    String name) async {
+    String name,
+    {String segPrefix = ''}) async {
   if (labels.isEmpty) {
     toast(context, '没有可导出的数据');
     return;
@@ -770,7 +792,7 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
           children: [
             _exportTile('📐 DXF 路由图（CAD 可直接打开）', () async {
               Navigator.pop(context);
-              await showDxfOptions(context, labels, name);
+              await showDxfOptions(context, labels, name, segPrefix: segPrefix);
             }),
             _exportTile('🌍 KML（谷歌地球 / 奥维）', () async {
               Navigator.pop(context);
@@ -857,8 +879,9 @@ Widget _exportTile(String title, VoidCallback onTap) => InkWell(
       ),
     );
 
-Future<void> showDxfOptions(
-    BuildContext context, List<MapLabel> labels, String name) async {
+Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
+    String name,
+    {String segPrefix = ''}) async {
   // 选项记忆：下次导出默认沿用上次勾选
   final prefs = await SharedPreferences.getInstance();
   bool opt(String k, bool def) => prefs.getBool(k) ?? def;
@@ -1322,6 +1345,7 @@ Future<void> showDxfOptions(
             buildingFill: layerBldFill,
             showMinorRoadNames: minorRoadNames,
             layerPlaces: layerPlaces,
+            segPrefix: segPrefix,
             placesTdtFallback: tdtFallback,
             tdtKey: tdtKey,
             // 高德 key（用户自配）：有则地名兜底优先用高德，无则回落天地图
@@ -1740,6 +1764,7 @@ class _OfflineProgressDialogState extends State<_OfflineProgressDialog> {
 
 Future<void> showCollectionSettings(BuildContext context, AppState st) async {
   final prefixCtl = TextEditingController(text: st.numPrefix);
+  final segPrefixCtl = TextEditingController(text: st.segPrefix);
   var autoNum = st.autoNumber;
 
   await showDarkDialog(
@@ -1762,6 +1787,11 @@ Future<void> showCollectionSettings(BuildContext context, AppState st) async {
               controller: prefixCtl,
               style: const TextStyle(color: kTextMain, fontSize: 14),
               decoration: dec('编号前缀（默认 GK）')),
+          const SizedBox(height: 10),
+          TextField(
+              controller: segPrefixCtl,
+              style: const TextStyle(color: kTextMain, fontSize: 14),
+              decoration: dec('段标前缀（如 埋／架，留空则只显示数字）')),
         ],
       ),
     ),
@@ -1769,6 +1799,7 @@ Future<void> showCollectionSettings(BuildContext context, AppState st) async {
       darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
       darkTextBtn('保存', () {
         st.setAutoNumber(autoNum, prefixCtl.text);
+        st.setSegPrefix(segPrefixCtl.text);
         Navigator.pop(context);
         toast(context, '已保存设置');
       }),

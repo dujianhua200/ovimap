@@ -42,6 +42,7 @@ class AppState extends ChangeNotifier {
   static const prefCompass = 'compassMode';
   static const prefAutoNum = 'autoNumber';
   static const prefNumPrefix = 'numPrefix';
+  static const prefSegPrefix = 'segPrefix';
   static const prefTdtKey = 'tiandituKey';
   static const prefTplId = 'tplId';
 
@@ -391,6 +392,10 @@ class AppState extends ChangeNotifier {
   bool get autoNumber => prefs.getBool(prefAutoNum) ?? false;
   String get numPrefix => prefs.getString(prefNumPrefix) ?? 'GK';
 
+  /// 段标前缀（如 埋／架）。默认空串 = 不改变既有行为（段标注仅显示数字）。
+  /// 渲染/导出时若 [MapLabel.distLabel] 为空，会自动补成"前缀 + 段距"。
+  String get segPrefix => prefs.getString(prefSegPrefix)?.trim() ?? '';
+
   /// 在显示坐标处添加标签（自动续线组、自动编号）。
   MapLabel addLabelAtDisp(double dispLat, double dispLon) {
     final w = toWgs(dispLat, dispLon);
@@ -605,6 +610,12 @@ class AppState extends ChangeNotifier {
   void setAutoNumber(bool v, String prefix) {
     prefs.setBool(prefAutoNum, v);
     prefs.setString(prefNumPrefix, prefix.trim().isEmpty ? 'GK' : prefix.trim());
+    notifyListeners();
+  }
+
+  /// 段标前缀：trim 后存；空串即清除（等同"不自动加前缀"）。
+  void setSegPrefix(String v) {
+    prefs.setString(prefSegPrefix, v.trim());
     notifyListeners();
   }
 

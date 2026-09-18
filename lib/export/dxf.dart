@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:gbk_codec/gbk_codec.dart';
 
+import '../geo/geo_util.dart';
 import '../models/label_type.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
@@ -130,6 +131,7 @@ class DxfExporter {
     BasemapData? localBasemap, // 导入的本地开源矢量底图（离线优先）
     int localBasemapFeatureCap =
         GeoJsonImporter.defaultFeatureCap, // 本地底图要素数上限（防御性兜底）
+    String segPrefix = '', // 段标前缀（如 埋／架）：空串=仅数字；透传自 AppState.segPrefix
   }) async {
     final warnings = <String>[];
     final dir = await LabelStore.instance.exportDir();
@@ -306,9 +308,8 @@ class DxfExporter {
             b.distanceM ?? _haversine(a.lat, a.lon, b.lat, b.lon);
         routeTotalLen += segmentDistance;
         chainCum += segmentDistance;
-        final segText = b.distLabel.trim().isNotEmpty
-            ? b.distLabel.trim()
-            : _formatDistNoUnit(segmentDistance);
+        final segText = GeoUtil.segLabelFor(b, _formatDistNoUnit(segmentDistance),
+            prefix: segPrefix);
         _text(c, 'JuLi', mx, my + 1.2, 2.5, segText,
             angle: angle, style: true);
         // 盘留标注（段下方第一行）

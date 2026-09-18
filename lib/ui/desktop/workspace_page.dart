@@ -11,6 +11,7 @@ import '../../models/map_label.dart';
 import '../../services/export_saver.dart';
 import '../../services/file_drop.dart';
 import '../../services/photos.dart';
+import '../../services/platform_caps.dart';
 import '../../services/tile_cache.dart';
 import '../../services/track_check.dart';
 import '../../state/app_state.dart';
@@ -20,8 +21,10 @@ import '../export_center.dart';
 import '../map/map_canvas.dart';
 import '../sync/sync_panel.dart';
 import 'app_menu_bar.dart';
+import 'app_platform_menu_bar.dart';
 import 'context_menu.dart';
 import 'left_panel.dart';
+import 'menu_model.dart';
 import 'right_panel.dart';
 import 'shortcuts.dart';
 import 'status_bar.dart';
@@ -62,10 +65,23 @@ class _WorkspacePageState extends State<WorkspacePage> {
   String _lastMouseText = '';
 
   // ---- 布局（可拖拽/折叠） ----
-  double _leftW = 260;
-  double _rightW = 300;
+  //
+  // ⚠️ 这三个默认值是**地图利用率**的直接决定项（用户反馈「地图的利用率不如奥维大」）。
+  // 奥维桌面版只常驻一个约 200px 的左栏；本壳原本左右各常驻一栏（260+300），
+  // 1440 窗口下地图只剩 868px（60%）。调整口径：
+  //   · 左栏默认 220（工程树够用），右栏默认 280；
+  //   · **右栏默认收起** —— 它是「选中点的属性/统计」检查器，只在要看时才需要；
+  //   · 选中一个点 → 自动展开右栏（见 [MapCanvas.onSelect] 回调）；
+  //   · 要一键全屏看图用「视图 → 专注地图」⌥⌘M。
+  // 结果：默认视口地图占 1440 的 ~84%，选中点时 ~64%（比改造前的 60% 仍更优）。
+  double _leftW = 220;
+  double _rightW = 280;
   bool _leftCollapsed = false;
-  bool _rightCollapsed = false;
+  bool _rightCollapsed = true;
+
+  /// 「专注地图」进入前的左右栏状态（再按一次还原，而不是盲目全展开）。
+  bool _prevLeftOpen = true;
+  bool _prevRightOpen = false;
 
   // ---- 选中（右栏展示） ----
   MapLabel? _selLabel;
@@ -254,6 +270,23 @@ class _WorkspacePageState extends State<WorkspacePage> {
     st.setFollow(false);
     _mc.moveAndRotate(LatLng(d[0], d[1]), st.initZoom, 0);
     toast(context, '已复位到启动视图（缩放 ${st.initZoom.toStringAsFixed(1)}）');
+  }
+
+  /// 视图 → 专注地图（⌥⌘M）：一键收掉两侧栏把地图铺满；再按一次**还原**
+  /// 到进入前的左右栏状态（而不是盲目全展开 —— 用户可能本来就是收着左栏的）。
+  void _focusMap() {
+    setState(() {
+      final anyOpen = !_leftCollapsed || !_rightCollapsed;
+      if (anyOpen) {
+        _prevLeftOpen = !_leftCollapsed;
+        _prevRightOpen = !_rightCollapsed;
+        _leftCollapsed = true;
+        _rightCollapsed = true;
+      } else {
+        _leftCollapsed = !_prevLeftOpen;
+        _rightCollapsed = !_prevRightOpen;
+      }
+    });
   }
 
   /// 鼠标悬停经纬度：转成显示基准的文本交给状态栏（奥维桌面版状态栏口径）。
@@ -622,67 +655,99 @@ class _WorkspacePageState extends State<WorkspacePage> {
       onResetView: _resetView,
       onEscape: _escape,
       onUndoPoint: _undoPoint,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF101418),
-        body: Column(
-          children: [
-            AppMenuBar(
-              st: st,
-              onNewProject: _newProject,
-              onSave: _save,
-              onUndo: _undo,
-              onRedo: _redo,
-              onDeleteSelection: _deleteSelection,
-              onExport: _export,
-              onOffline: _onOffline,
-              onStorageCleanup: _storageCleanup,
-              onPoleTable: _showPoleTable,
-              onTrackCheck: _showTrackCheck,
-              onSync: _showSyncInfo,
-              onOpenProject: _openProjectFile,
-              onExportProject: _exportProjectFile,
-            ),
-            Toolbar(
-              st: st,
-              sync: sync,
-              onZoomIn: _zoomIn,
-              onZoomOut: _zoomOut,
-              onTopo: _topo,
-              onTrack: _track,
-              onLocate: _locateMe,
-              onUndo: _undo,
-              onRedo: _redo,
-              onDeleteSelection: _deleteSelection,
-              onExport: _export,
-              onSync: _showSyncInfo,
-              leftCollapsed: _leftCollapsed,
-              rightCollapsed: _rightCollapsed,
-              onToggleLeft: () =>
-                  setState(() => _leftCollapsed = !_leftCollapsed),
-              onToggleRight: () =>
-                  setState(() => _rightCollapsed = !_rightCollapsed),
-            ),
-            Expanded(child: _body(st)),
-            // 模式提示栏（奥维桌面版的「提示栏」位）：模式 / 可用操作 / 实时数据。
-            _hintBar(st),
-            StatusBar(
-              st: st,
-              sync: sync,
-              centerText: _centerText(st),
-              zoom: _cam?.zoom ?? st.initZoom,
-              selectedCount: st.selectedIds.length,
-              mouseGeo: _mouseGeo,
-            ),
-          ],
+      onToggleLeft: () => setState(() => _leftCollapsed = !_leftCollapsed),
+      onToggleRight: () => setState(() => _rightCollapsed = !_rightCollapsed),
+      onFocusMap: _focusMap,
+      // macOS：把菜单交给**系统菜单栏**（`PlatformMenuBar`）。它不占窗口面积、
+      // 悬停即展开、⌘ 快捷键由系统绘制，并且**整体接管主菜单** —— 屏幕顶部
+      // 那排英文菜单（App / Edit / View / Window / Help）由这份中文菜单取代。
+      // 非 macOS 时该组件原样透传 child（见 AppPlatformMenuBar.build）。
+      child: AppPlatformMenuBar(
+        st: st,
+        actions: _menuActions,
+        child: Scaffold(
+          backgroundColor: const Color(0xFF101418),
+          body: Column(
+            children: [
+              // Windows / Linux 没有系统菜单栏，继续用窗口内自绘菜单栏。
+              // macOS 下**不画这一行** —— 这就是「上面一排英文菜单、下面还有一排
+              // 中文菜单」的修复点：macOS 只保留系统那一排（且已换成中文）。
+              if (!PlatformCaps.isMacOS)
+                AppMenuBar(st: st, actions: _menuActions),
+              Toolbar(
+                st: st,
+                sync: sync,
+                onZoomIn: _zoomIn,
+                onZoomOut: _zoomOut,
+                onTopo: _topo,
+                onTrack: _track,
+                onLocate: _locateMe,
+                onUndo: _undo,
+                onRedo: _redo,
+                onDeleteSelection: _deleteSelection,
+                onExport: _export,
+                onSync: _showSyncInfo,
+                leftCollapsed: _leftCollapsed,
+                rightCollapsed: _rightCollapsed,
+                onToggleLeft: () =>
+                    setState(() => _leftCollapsed = !_leftCollapsed),
+                onToggleRight: () =>
+                    setState(() => _rightCollapsed = !_rightCollapsed),
+              ),
+              Expanded(child: _body(st)),
+              // 模式提示栏（奥维桌面版的「提示栏」位）：模式 / 可用操作 / 实时数据。
+              _hintBar(st),
+              StatusBar(
+                st: st,
+                sync: sync,
+                centerText: _centerText(st),
+                zoom: _cam?.zoom ?? st.initZoom,
+                selectedCount: st.selectedIds.length,
+                mouseGeo: _mouseGeo,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
+  /// 菜单动作表 —— `menu_model.dart` 那份单一真源的入口。
+  ///
+  /// macOS 原生菜单与 Windows 自绘菜单**共用这一份**，不会出现
+  /// 「macOS 有这一项、Windows 没有」的平台漂移（默认值/模式切换曾正是这样丢的）。
+  OviMenuActions get _menuActions => OviMenuActions(
+        onNewProject: _newProject,
+        onOpenProject: _openProjectFile,
+        onExportProject: _exportProjectFile,
+        onSave: _save,
+        onExport: _export,
+        onUndo: _undo,
+        onRedo: _redo,
+        onDeleteSelection: _deleteSelection,
+        onPoleTable: _showPoleTable,
+        onTrackCheck: _showTrackCheck,
+        onOffline: _onOffline,
+        onStorageCleanup: _storageCleanup,
+        onSync: _showSyncInfo,
+        onToggleLeft: () => setState(() => _leftCollapsed = !_leftCollapsed),
+        onToggleRight: () => setState(() => _rightCollapsed = !_rightCollapsed),
+        onFocusMap: _focusMap,
+        onZoomIn: _zoomIn,
+        onZoomOut: _zoomOut,
+        onResetView: _resetView,
+        onFocusSearch: _focusSearch,
+      );
+
   Widget _body(AppState st) {
     return LayoutBuilder(
       builder: (ctx, c) {
-        // 窗口 < 1180 自动收起右栏，避免挤压地图。
+        // 右栏的显隐口径（改造后）：
+        //   · 用户手动收起了 → 不显示；
+        //   · 窗口 < 1180（三栏排不下）→ 不显示；
+        //   · 其余情况由 `_rightCollapsed` 决定，而它**默认为 true**，
+        //     并在选中一个点时自动展开（见 onSelect）—— 也就是「要看属性才占地方」。
+        // 这样默认视口把 560px 的左右两栏换成只常驻 220px 左栏，地图宽度提升约 25%。
         final showRight = !_rightCollapsed && c.maxWidth >= 1180;
         final showLeft = !_leftCollapsed;
         return Row(
@@ -690,7 +755,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
             if (showLeft) SizedBox(width: _leftW, child: _leftPanel(st)),
             if (showLeft)
               _dragDivider((dx) => setState(
-                  () => _leftW = (_leftW + dx).clamp(200.0, 420.0))),
+                  () => _leftW = (_leftW + dx).clamp(180.0, 420.0))),
             Expanded(child: _mapStack(st)),
             if (showRight)
               _dragDivider((dx) => setState(
@@ -739,6 +804,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
           onSelect: (label, cid) => setState(() {
             _selLabel = label;
             _selCid = cid;
+            // 选中一个点 → 自动展开右栏（右栏是属性检查器，此时才"有东西可看"，
+            // 这正是它默认收起的前提）。取消选中时**不自动收起**：用户往往在
+            // 连续核对多个点，频繁开合反而打断操作。
+            if (label != null && _rightCollapsed) _rightCollapsed = false;
           }),
           onMapReady: () {
             _mapReady = true;

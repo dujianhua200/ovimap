@@ -4,11 +4,22 @@ import '../../state/app_state.dart';
 import '../../sync/sync_controller.dart';
 import '../../sync/sync_models.dart';
 import '../dialogs.dart';
+import 'symbol_library.dart';
 
-/// 桌面工具栏（架构文档 §3.2 / T11，高度 48）。
+/// 桌面工具栏（架构文档 §3.2 / T11）。
 ///
-/// 打点 / 连线路 / 测距 / 轨迹 / 定位 / 撤销重做 / 删除选中 / 缩放 / 图源 /
-/// 导出 / 同步（占位）/ 左右栏折叠。
+/// ## 与移动端的功能对齐（本轮修复）
+///
+/// 桌面壳此前**缺两个打点前必需的入口**，导致用户反馈「竣工模式没了、
+/// 很多标签也都没了」：
+///
+/// | 能力 | 移动端 | 桌面壳（改造前） | 现在 |
+/// |---|---|---|---|
+/// | 选符号（16 种） | 底部符号行 | **无** | 工具栏「符号」按钮 → 符号库 |
+/// | 设计/竣工模式 | 模式行两个 chip | **无** | 工具栏模式按钮 + 视图菜单 |
+///
+/// 两处都复用 `AppState` 既有能力（[AppState.setType] / [AppState.chooseEditMode]），
+/// 不新增业务逻辑，保证两端行为一致。
 class Toolbar extends StatelessWidget {
   const Toolbar({
     super.key,
@@ -49,10 +60,14 @@ class Toolbar extends StatelessWidget {
   /// 云同步编排器（可为 null：未接入同步的环境 → 圆点显示「仅本地」）。
   final SyncController? sync;
 
+  /// 工具栏高度。从 48 压到 42：桌面三栏壳里纵向每 6px 都是地图面积，
+  /// 而图标本身 20px，42 仍是舒适点击区。
+  static const double barHeight = 42;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 48,
+      height: barHeight,
       decoration: const BoxDecoration(
         color: Color(0xFF11161B),
         border: Border(bottom: BorderSide(color: Colors.white12)),
@@ -65,6 +80,9 @@ class Toolbar extends StatelessWidget {
               active: st.mode == AppMode.edit,
               onTap: () => st.setMode(
                   st.mode == AppMode.edit ? AppMode.view : AppMode.edit)),
+          _symbolBtn(context),
+          _modeBtn(context),
+          _sep(),
           _btn(Icons.account_tree_outlined,
               tooltip: '连线路（拓扑）',
               active: st.mode == AppMode.topoLink,
@@ -102,9 +120,76 @@ class Toolbar extends StatelessWidget {
     );
   }
 
+  /// 符号按钮：显示当前符号的色块与符号字，点开符号库。
+  ///
+  /// 把「当前符号」直接画在按钮上，是为了解决一个隐蔽问题 ——
+  /// 原来桌面端点完「打点」就开始落点，但用户看不到**正在放什么符号**，
+  /// 只能事后逐个改属性。现在一眼可见。
+  Widget _symbolBtn(BuildContext context) {
+    final t = st.curType;
+    final glyph = t.symbol.isNotEmpty
+        ? t.symbol
+        : (t.name.isNotEmpty ? t.name.substring(0, 1) : '·');
+    return Tooltip(
+      message: '符号库 · 当前「${t.name}」',
+      child: InkWell(
+        onTap: () => showSymbolLibrary(context, st),
+        child: SizedBox(
+          width: 44,
+          height: barHeight,
+          child: Center(
+            child: Container(
+              width: 26,
+              height: 20,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: t.color.withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(
+                    t.shape == 'box' ? 3 : 999),
+              ),
+              child: Text(glyph,
+                  style: const TextStyle(
+                      color: Colors.white, fontSize: 11.5, height: 1.1)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 设计 / 竣工模式切换（对齐移动端模式行，竣工用橙色警示）。
+  Widget _modeBtn(BuildContext context) {
+    final completion = st.editModeName == 'completion';
+    final color = completion ? const Color(0xFFFFB74D) : kAccent;
+    return Tooltip(
+      message: completion
+          ? '当前：竣工模式（落点会弹竣工距离确认）— 点击切回设计模式'
+          : '当前：设计模式 — 点击切到竣工模式',
+      child: InkWell(
+        onTap: () => st.chooseEditMode(completion ? 'design' : 'completion'),
+        child: SizedBox(
+          width: 62,
+          height: barHeight,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: color.withValues(alpha: 0.7)),
+              ),
+              child: Text(completion ? '竣工' : '设计',
+                  style: TextStyle(color: color, fontSize: 11.5)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _measureBtn(BuildContext context) {
-    final active = st.mode == AppMode.measureDist ||
-        st.mode == AppMode.measureArea;
+    final active =
+        st.mode == AppMode.measureDist || st.mode == AppMode.measureArea;
     return PopupMenuButton<String>(
       tooltip: '测距 / 测面积',
       color: kPanelBg,
@@ -122,7 +207,7 @@ class Toolbar extends StatelessWidget {
       ],
       child: SizedBox(
         width: 40,
-        height: 48,
+        height: barHeight,
         child: Center(
           child: Icon(Icons.straighten,
               size: 20, color: active ? kAccent : kTextMain),
@@ -144,7 +229,7 @@ class Toolbar extends StatelessWidget {
         onTap: onSync,
         child: SizedBox(
           width: 40,
-          height: 48,
+          height: barHeight,
           child: Center(
             child: Stack(
               alignment: Alignment.center,
@@ -152,7 +237,7 @@ class Toolbar extends StatelessWidget {
                 const Icon(Icons.sync, size: 20, color: kTextMain),
                 Positioned(
                   right: 6,
-                  bottom: 12,
+                  bottom: 10,
                   child: Container(
                     width: 7,
                     height: 7,
@@ -181,7 +266,7 @@ class Toolbar extends StatelessWidget {
         onTap: enabled ? onTap : null,
         child: SizedBox(
           width: 40,
-          height: 48,
+          height: barHeight,
           child: Center(
             child: Icon(icon,
                 size: 20,
@@ -198,7 +283,7 @@ class Toolbar extends StatelessWidget {
 
   Widget _sep() => Container(
       width: 1,
-      height: 24,
+      height: 22,
       margin: const EdgeInsets.symmetric(horizontal: 4),
       color: Colors.white12);
 }

@@ -73,6 +73,7 @@ Future<void> batchExportDxf(
     store: st.store,
     metas: metas,
     root: root,
+    segPrefix: st.segPrefix,
   );
 
   if (!context.mounted) return;
@@ -95,6 +96,7 @@ Future<BatchExportSummary> runBatchExport({
   required LabelStore store,
   required List<CollectionMeta> metas,
   required Directory root,
+  String segPrefix = '', // 段标前缀（如 埋／架）：空串=仅数字；透传自 AppState.segPrefix
 }) async {
   final opts = await _DxfBatchOptions.fromPrefs();
 
@@ -141,6 +143,7 @@ Future<BatchExportSummary> runBatchExport({
         buildingFill: opts.layerBldFill,
         showMinorRoadNames: opts.minorRoadNames,
         layerPlaces: opts.layerPlaces,
+        segPrefix: segPrefix,
         placesTdtFallback: opts.tdtFallback,
         tdtKey: opts.tdtKey,
         amapKey: opts.amapKey,

@@ -31,7 +31,7 @@ Future<void> openExportCenter(BuildContext context, AppState st) async {
     return;
   }
   if (!context.mounted) return;
-  await showExportDialog(context, labels, name);
+  await showExportDialog(context, labels, name, segPrefix: st.segPrefix);
 }
 
 /// 成册对象：当前草稿（[draft]=true）或某个收藏工程。
@@ -124,6 +124,7 @@ Future<void> _runArchiveBook(
       labels: labels,
       pointCount: pointCount,
       editMode: editMode,
+      segPrefix: st.segPrefix,
     );
     if (!context.mounted) return;
     if (r.skipped.isNotEmpty) {

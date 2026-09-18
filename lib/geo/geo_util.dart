@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../models/map_label.dart';
+
 /// 几何与格式化工具：距离/面积/比例尺/坐标格式化。
 class GeoUtil {
   GeoUtil._();
@@ -54,6 +56,24 @@ class GeoUtil {
   static String fmtSegLen(double m) {
     if (m < 1000) return m.toStringAsFixed(1);
     return '${(m / 1000).toStringAsFixed(2)}km';
+  }
+
+  /// 段标注显示口径（地图 / 导出唯一真源）。
+  ///
+  /// 决策逻辑唯一收敛在此，避免各出口各写一遍三目、导致前缀口径漂移：
+  /// - [b.distLabel] 非空 → 原样用（用户手填，优先级最高）；
+  /// - 否则 → [prefix] + [autoDistText]（[autoDistText] 由各出口按自身数字口径
+  ///   预先格式化好：地图段标注用 [fmtSegLen]，DXF 用无单位米；本函数**不再二次
+  ///   格式化**，以保住各出口既有的数字显示不变，例如 DXF 长段显示整数米而非 km）；
+  ///   若 [prefix] 为空串则只显示距离数字。
+  ///
+  /// 注意：渲染/导出一律走这里，不要把"前缀 + 距离"写死进 [MapLabel.distLabel]
+  /// （距离是动态的，落点写死会随段长变化而失真；要的是"设一次前缀、所有段自动带"）。
+  static String segLabelFor(MapLabel b, String autoDistText,
+      {String prefix = ''}) {
+    final label = b.distLabel.trim();
+    if (label.isNotEmpty) return label;
+    return prefix.isEmpty ? autoDistText : '$prefix$autoDistText';
   }
 
   /// 面积显示：平方米/公顷/平方公里自动切换，附亩。
