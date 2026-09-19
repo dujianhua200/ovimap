@@ -345,9 +345,9 @@ void main() {
 
   // ============ ⑥ 已通过成果回归确认 ============
 
-  test('⑥-a：内置端点 5 个且不含任何已下线端点', () {
+  test('⑥-a：内置端点 6 个且不含任何已下线端点', () {
     final builtin = OverpassEndpoints.builtin();
-    expect(builtin.length, 5);
+    expect(builtin.length, 6, reason: 'v3.5.0 起首位为自建 hzyt 反代');
     for (final dead in OverpassEndpoints.retired) {
       expect(builtin, isNot(contains(dead)), reason: '下线端点 $dead 不得复活');
       expect(OverpassEndpoints.resolve(''), isNot(contains(dead)));

@@ -130,6 +130,57 @@ void main() {
     });
   });
 
+  group('T2b 跨工程续画断路（「打点老接上次工程末端」回归）', () {
+    test('打开收藏后第一笔不接收藏线组；之后恢复连续绘制', () async {
+      // 收藏里已有两点同组（一条线）。
+      final labels = labelsN(2)
+        ..[0].lineGroupId = 'g1'
+        ..[1].lineGroupId = 'g1';
+      final cid = await store.finishCollection(
+        name: '老杆路',
+        kind: 'label',
+        folderId: '',
+        editMode: 'design',
+        labels: labels,
+      );
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final st = AppState();
+      st.setPrefsForTest(await SharedPreferences.getInstance());
+      final metas = await store.loadIndex();
+      await st.openCollection(metas.firstWhere((m) => m.id == cid));
+
+      // 打开收藏后新打一笔：**不得**接进 g1。
+      st.addLabelAtWgs(33.0, 115.0);
+      expect(st.labels.last.lineGroupId, isEmpty,
+          reason: '跨工程第一笔必须另起（v3.4 之前会接上收藏末端）');
+
+      // 第二笔恢复连续绘制：接上第一笔的新线组。
+      st.addLabelAtWgs(33.001, 115.001);
+      expect(st.labels[3].lineGroupId, st.labels[2].lineGroupId,
+          reason: '同工程内仍自动连线');
+      expect(st.labels[3].lineGroupId, isNot('g1'),
+          reason: '新线组是独立的，不与收藏旧线组混淆');
+    });
+
+    test('breakChain()：手动断开后下一笔另起', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final st = AppState();
+      st.setPrefsForTest(await SharedPreferences.getInstance());
+      st.addLabelAtWgs(32.0, 114.0);
+      st.addLabelAtWgs(32.001, 114.0);
+      expect(st.labels[1].lineGroupId, isNotEmpty);
+      expect(st.labels[1].lineGroupId, st.labels[0].lineGroupId);
+
+      st.breakChain();
+      st.addLabelAtWgs(32.5, 114.5);
+      expect(st.labels[2].lineGroupId, isEmpty,
+          reason: '断开后第一笔不接任何线组');
+      st.addLabelAtWgs(32.501, 114.5);
+      expect(st.labels[3].lineGroupId, st.labels[2].lineGroupId,
+          reason: '断开只影响一笔，之后恢复连续绘制');
+    });
+  });
+
   group('T3 文件夹 CRUD（奥维式右键菜单的磁盘层）', () {
     test('新建 → 重命名 → 持久化在 folders.json', () async {
       final f1 = await store.addFolder('光缆工程');

@@ -8,7 +8,7 @@
 //  ② 接线：fetchFor 确实把 resolve(userCustom) 传给 fetchRaw（行为级 + 源级）
 //  ③ 设置项持久化：AppState 存 / 取 / 清空
 //  ④ URL 校验：非法地址的中文提示分支
-//  ⑤ 回归：未配置时只用内置 5 个端点（请求集合与顺序不变）
+//  ⑤ 回归：未配置时只用内置 6 个端点（请求集合与顺序不变）
 import 'dart:convert';
 import 'dart:io';
 
@@ -65,7 +65,11 @@ void main() {
     test("resolve('') == builtin()：未配置语义与既有完全一致", () {
       expect(OverpassEndpoints.resolve(''), OverpassEndpoints.builtin(),
           reason: '空输入 ⇒ 只剩内置、顺序不变');
-      expect(OverpassEndpoints.builtin().length, 5, reason: '内置固定 5 个');
+      expect(OverpassEndpoints.builtin().length, 6,
+          reason: '内置固定 6 个（v3.5.0 起首位为自建 hzyt 反代）');
+      expect(OverpassEndpoints.builtin().first,
+          'https://hzyt.hainasi.eu.org/api/interpreter',
+          reason: '自建反代排首位（国内直连最快；不可达时竞速自动回落）');
     });
 
     test('自定义在前、内置在后、无重复', () {
@@ -254,10 +258,10 @@ void main() {
       final builtinHosts =
           OverpassEndpoints.builtin().map((e) => Uri.parse(e).host).toSet();
       expect(requestedHosts, builtinHosts,
-          reason: '未配置 ⇒ 仅内置 5 个端点被请求（集合一致）');
+          reason: '未配置 ⇒ 仅内置 6 个端点被请求（集合一致）');
     });
 
-    test('fetchFor 端点列表与 defaults 对齐（内置 5 个，顺序不变）', () {
+    test('fetchFor 端点列表与 defaults 对齐（内置 6 个，顺序不变）', () {
       final got = OverpassEndpoints.resolve('');
       final builtin = OverpassEndpoints.builtin();
       for (var i = 0; i < builtin.length; i++) {

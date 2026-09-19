@@ -525,7 +525,7 @@ void main() {
   group('B20-QA C1 端点清单', () {
     test('内置端点：空壳/已死全部下线，仅留实测能返回真实数据的镜像', () {
       final eps = OverpassEndpoints.builtin();
-      expect(eps.length, 5);
+      expect(eps.length, 6);
       // 下线：空壳 osm.ch（200 最快但恒空）/ 已死 ru·jp / 长期超时 private.coffee
       expect(eps.any((e) => e.contains('private.coffee')), isFalse);
       expect(eps.any((e) => e.contains('overpass.osm.ch')), isFalse,
@@ -551,7 +551,7 @@ void main() {
       // （第二十三批规格变更：自定义优先——用户配反代即绕开境外直连，须排最前）
       final merged = OverpassEndpoints.resolve(
           'https://x.example/api;https://overpass-api.de/api/interpreter');
-      expect(merged.length, 6, reason: '5 内置 + x.example；de 已存在故去重');
+      expect(merged.length, 7, reason: '6 内置 + x.example；de 已存在故去重');
       expect(merged.first, 'https://x.example/api',
           reason: '自定义端点必须排在最前（旧规格"内置在前"已废弃）');
       expect(merged.contains('https://overpass-api.de/api/interpreter'), isTrue,

@@ -149,6 +149,13 @@ class _LeftPanelState extends State<LeftPanel> {
                     fontSize: TokFs.heading,
                     fontWeight: FontWeight.bold)),
           ),
+          // 新建工程入口（v3.4.0 改轨道时曾丢失，用户点名要回来）。
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: '新建工程',
+            onPressed: widget.onNewProject,
+            icon: const Icon(Icons.note_add, color: kAccent, size: 20),
+          ),
           if (widget.onClose != null)
             IconButton(
               visualDensity: VisualDensity.compact,
@@ -186,6 +193,9 @@ class _LeftPanelState extends State<LeftPanel> {
 
   /// 导航栈：空 = 根目录；最后一位 = 当前所在文件夹。
   final List<Folder> _nav = <Folder>[];
+
+  /// 已展开（显示二级）的文件夹 id 集（+/− 树）。
+  final Set<String> _expanded = <String>{};
 
   String get _currentFolderId => _nav.isEmpty ? '' : _nav.last.id;
 
@@ -261,7 +271,7 @@ class _LeftPanelState extends State<LeftPanel> {
     st.refreshUi();
   }
 
-  /// 当前层内容：搜索时跨全库；否则显示当前文件夹的子文件夹 + 工程。
+  /// 当前层内容：搜索时跨全库；否则显示当前文件夹的子文件夹（可 +/- 展开）+ 工程。
   Widget _currentLevelList(BuildContext context) {
     if (_query.isNotEmpty) return _collectionList(context);
 
@@ -287,7 +297,8 @@ class _LeftPanelState extends State<LeftPanel> {
             ]),
           ),
         ),
-      for (final f in subfolders) _folderRow(f),
+      // 子文件夹树：+/− 展开/收缩二级（用户指定交互），点名称仍可钻入。
+      ..._folderRows(subfolders, 0),
     ];
 
     return Column(
@@ -305,11 +316,31 @@ class _LeftPanelState extends State<LeftPanel> {
     );
   }
 
-  /// 文件夹行（当前层）：点按钻入，右键出操作菜单，右侧显示内含工程数。
-  Widget _folderRow(Folder f) {
+  /// 递归构建文件夹行：展开的文件夹其子级缩进显示。
+  List<Widget> _folderRows(List<Folder> roots, int baseDepth) {
+    final rows = <Widget>[];
+    void rec(Folder f, int depth) {
+      rows.add(_folderRow(f, depth));
+      if (_expanded.contains(f.id)) {
+        for (final c in st.folders) {
+          if (c.id.isNotEmpty && c.parentId == f.id) rec(c, depth + 1);
+        }
+      }
+    }
+
+    for (final f in roots) {
+      rec(f, baseDepth);
+    }
+    return rows;
+  }
+
+  /// 文件夹行：**有子级时前缀 +/− 号**——点 + 展开二级（变 −），点 − 收缩；
+  /// 点名称/行钻入该层（面包屑导航仍在）。右侧显示内含工程数。
+  Widget _folderRow(Folder f, int depth) {
     final count = st.collections.where((m) => m.folder == f.id).length;
-    final subCount =
-        st.folders.where((c) => c.id.isNotEmpty && c.parentId == f.id).length;
+    final kids =
+        st.folders.where((c) => c.id.isNotEmpty && c.parentId == f.id).toList();
+    final expanded = _expanded.contains(f.id);
     return InkWell(
       onTap: () => _drillInto(f),
       // 桌面惯例是右键；长按保留给触屏（移动端抽屉同一套手势语义）。
@@ -323,16 +354,37 @@ class _LeftPanelState extends State<LeftPanel> {
       },
       child: Container(
         height: 32,
-        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-        padding: const EdgeInsets.only(left: 8, right: 4),
+        margin: EdgeInsets.only(left: 6.0 + depth * 14.0, right: 6, top: 1, bottom: 1),
+        padding: const EdgeInsets.only(left: 6, right: 4),
         decoration: BoxDecoration(
           color: TokC.field,
           borderRadius: BorderRadius.circular(TokR.s),
         ),
         child: Row(
           children: [
-            const Icon(Icons.folder, size: 16, color: kAccent),
-            const SizedBox(width: 6),
+            if (kids.isEmpty)
+              const Icon(Icons.folder, size: 15, color: kTextSub)
+            else
+              // 加号=收起（可展开），减号=已展开（点击收缩）。
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() {
+                  if (expanded) {
+                    _expanded.remove(f.id);
+                  } else {
+                    _expanded.add(f.id);
+                  }
+                }),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+                  child: Icon(
+                    expanded ? Icons.remove : Icons.add,
+                    size: 14,
+                    color: kAccent,
+                  ),
+                ),
+              ),
+            const SizedBox(width: 4),
             Expanded(
               child: Text(f.name,
                   maxLines: 1,
@@ -342,10 +394,10 @@ class _LeftPanelState extends State<LeftPanel> {
                       fontSize: TokFs.body,
                       fontWeight: FontWeight.w500)),
             ),
-            Text('$count 工程 · $subCount 文件夹',
+            Text('$count 工程',
                 style: const TextStyle(
                     color: kTextHint, fontSize: TokFs.micro)),
-            const Icon(Icons.chevron_right, size: 16, color: kTextHint),
+            const Icon(Icons.chevron_right, size: 15, color: kTextHint),
           ],
         ),
       ),

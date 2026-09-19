@@ -182,7 +182,7 @@ void main() {
   group('R2-2 真实端点列表下的抢答回归', () {
     test('最快的一个内置端点返回空壳，其余四个慢但有数据 → 数据胜出', () async {
       final eps = OverpassEndpoints.builtin();
-      expect(eps.length, 5);
+      expect(eps.length, 6);
       // 选列表里的第一个当"空壳端点"（0ms），其余 4 个 400ms 返回真实数据
       final shell = eps.first;
       OverpassClient.httpGetOverride = (url, {headers}) async {
@@ -347,7 +347,7 @@ void main() {
 
     test('端点清单：5 个且 4 个已下线端点全部不在列表中', () {
       final eps = OverpassEndpoints.builtin();
-      expect(eps.length, 5);
+      expect(eps.length, 6);
       expect(OverpassEndpoints.retired.length, 4);
       for (final bad in OverpassEndpoints.retired) {
         expect(eps, isNot(contains(bad)), reason: '$bad 不得再参与抓取');

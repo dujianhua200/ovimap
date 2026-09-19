@@ -7,7 +7,14 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.4.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.5.0**（Windows x64 / macOS Universal / Android）
+
+> **v3.5.0 更新**：① 修复「点击打点总是接上一次工程末端且取消不了」——打开收藏 /
+> 新建工程后第一笔**绝不接旧线**，右键新增「**断开续画（下一点另起）**」手动控制；
+> ② 右键新增「**删除整条连线**」（一次删整组，Ctrl+Z 可整条还原）；
+> ③ 左侧图标轨道与收藏夹面板**补回「新建工程」按钮**；
+> ④ 文件夹改**+/− 展开收缩树**（点 + 展开二级变 −，点 − 收缩；点名称仍可钻入）；
+> ⑤ 自建 Overpass 反代 `hzyt.hainasi.eu.org` **内置为首位取数端点**。
 
 > **v3.4.0 更新**（界面按你的七条反馈重排）：① 左栏收成一条**「收藏夹」图标轨道**，
 > 点击以悬浮面板叠加在地图上，不再常驻占宽；② 收藏夹改**叠加式多级导航**——

@@ -44,12 +44,19 @@ Future<void> showMapContextMenu(
             value: 'branch', child: _mi(Icons.call_split, '从此点续画分支')),
         PopupMenuItem<String>(
             value: 'drag', child: _mi(Icons.open_with, '拖动点位')),
+        PopupMenuItem<String>(
+            value: 'break_chain',
+            child: _mi(Icons.link_off, '断开续画（下一点另起）')),
       ]);
     }
     items.addAll([
       PopupMenuItem<String>(
           value: 'copy_coord', child: _mi(Icons.copy, '复制坐标')),
       PopupMenuDivider(),
+      if (draft)
+        PopupMenuItem<String>(
+            value: 'del_chain',
+            child: _mi(Icons.clear_all, '删除整条连线', red: true)),
       PopupMenuItem<String>(
           value: 'del_point', child: _mi(Icons.delete_outline, '删除点', red: true)),
     ]);
@@ -105,6 +112,10 @@ Future<void> showMapContextMenu(
       toast(context,
           '已从「${_nm(hit.label!)}」开始新分支杆路，继续点地图绘制');
       break;
+    case 'break_chain':
+      st.breakChain();
+      toast(context, '已断开续画：下一点将另起新线，不接任何已有杆路');
+      break;
     case 'drag':
       st.draggingLabelId = hit.label!.id;
       st.refreshUi();
@@ -112,6 +123,12 @@ Future<void> showMapContextMenu(
       break;
     case 'copy_coord':
       _copy(context, _coord(st, hit.label!));
+      break;
+    case 'del_chain':
+      final n0 = st.deleteChain(hit.label!);
+      if (n0 > 0) {
+        toast(context, '已删除整条连线（$n0 个点），Ctrl+Z 可整条还原');
+      }
       break;
     case 'del_point':
       if (hit.sourceCid.isEmpty) {

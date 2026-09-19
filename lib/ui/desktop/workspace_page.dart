@@ -866,6 +866,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       child: Column(children: [
         railBtn(Icons.bookmarks, '收藏夹', _favOpen,
             () => setState(() => _favOpen = !_favOpen)),
+        railBtn(Icons.note_add, '新建', false, _newProject),
         const Spacer(),
       ]),
     );

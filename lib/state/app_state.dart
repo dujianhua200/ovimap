@@ -413,8 +413,11 @@ class AppState extends ChangeNotifier {
     );
     final isText = curType.id == 'text';
     final lineType = curType.id == 'track' || curType.id == 'none';
-    if (!isText && !curType.isStandalone) {
-      // 统一连续绘制：延续上一个连线点的线组，切换类型不断线
+    if (!isText && !curType.isStandalone && !_chainBroken) {
+      // 统一连续绘制：延续上一个连线点的线组，切换类型不断线。
+      // ⚠️ [_chainBroken] 打开收藏 / 新建工程后置位：**新工程的第一笔绝不许
+      // 接在已打开工程的末端**（用户反馈「点击打点老是连接上一次工程的末端，
+      // 怎么也取消不了」）；该笔落下后复位，后续点恢复连续绘制。
       final prev = lastLineLabel();
       if (prev != null) {
         if (prev.lineGroupId.isEmpty) {
@@ -425,6 +428,8 @@ class AppState extends ChangeNotifier {
           l.lineGroupId = prev.lineGroupId;
         }
       }
+    } else if (_chainBroken && !isText && !curType.isStandalone) {
+      _chainBroken = false; // 断开后的第一笔已落，恢复连续绘制
     }
     // 模板默认值：仅当模板默认非"空"时给新点写入（不改字段语义，不影响自动编号）
     if (defSegKind != 0 || defSegCable.isNotEmpty || defSlackM > 0) {
@@ -457,6 +462,18 @@ class AppState extends ChangeNotifier {
       return e;
     }
     return null;
+  }
+
+  /// 续画断路器：true 时下一笔连线型点**不接**任何已有线组。
+  ///
+  /// 置位时机：[openCollection] / [startNewDraft]（跨工程绝不续画）、
+  /// 用户右键「断开续画」（[breakChain]）。新点落下后自动复位。
+  bool _chainBroken = false;
+
+  /// 手动断开续画：下一点另起新线（右键菜单入口）。
+  void breakChain() {
+    _chainBroken = true;
+    notifyListeners();
   }
 
   /// 本点在所属线组上的上一个连线点（竣工段距确认的基准）。
@@ -568,6 +585,7 @@ class AppState extends ChangeNotifier {
 
   /// 从已存点续画新杆路：复制该点为新线组起点。
   void startRouteFrom(MapLabel near) {
+    _chainBroken = false; // 显式续画：恢复连续绘制
     String typeId;
     if (near.type.isStandalone) {
       typeId = (curType.isStandalone || curType.id == 'text')
@@ -655,6 +673,7 @@ class AppState extends ChangeNotifier {
   void startNewDraft() {
     activeCollectionId = '';
     _openedForEdit = false;
+    _chainBroken = true; // 新建空白工程：从零开始画
     clearDraft();
     projectName = '';
     folderId = '';
@@ -686,6 +705,24 @@ class AppState extends ChangeNotifier {
     _saveDraft();
     notifyListeners();
     return ids.length;
+  }
+
+  /// 删除 [l] 所在的**整条连线**（同线组全部点）——「删除线太费劲」的
+  /// 一键入口：以前只能逐点右键删。一次快照覆盖整批（Ctrl+Z 可整条还原）。
+  ///
+  /// [l] 不在线组里（lineGroupId 为空）时退化为删除单点。
+  int deleteChain(MapLabel l) {
+    final gid = l.lineGroupId;
+    final targets = gid.isEmpty
+        ? <MapLabel>[l]
+        : labels.where((e) => e.lineGroupId == gid).toList();
+    if (targets.isEmpty) return 0;
+    pushUndoSnapshot();
+    labels.removeWhere((e) => targets.contains(e));
+    selectedIds.removeAll(targets.map((e) => e.id));
+    _saveDraft();
+    notifyListeners();
+    return targets.length;
   }
 
   /// 更新某个可见收藏工程里的一个点（普通模式点选编辑保存时调用）。
@@ -1039,6 +1076,7 @@ class AppState extends ChangeNotifier {
     editModeName = meta.editMode;
     activeCollectionId = meta.id;
     _openedForEdit = true;
+    _chainBroken = true; // 打开收藏：新打的第一笔绝不接在收藏末端
     mode = AppMode.edit;
     // 收藏打开即作为草稿继续编辑（保存时覆盖原收藏）
     await store.saveDraft(labels, projectName, folderId, editModeName);
