@@ -7,7 +7,12 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.7.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.7.1**（Windows x64 / macOS Universal / Android）
+
+> **v3.7.1 更新**：标记收正为新口径——收藏夹**树中直接列出标记点条目**
+> （图钉符号 + 名字 + 备注灰字，挂在所在文件夹下）；**点击条目瞬间定位到地图**
+> 并打开属性（改名/备注，保存即落盘）。标记收藏独立为 `mark` 类型，
+> 工程列表里徽标显示「标记」。
 
 > **v3.7.0 更新**：① 撤销改**逐点回退**（之前一次撤掉一大半）；
 > ② 新增**标记模式**（工具栏图钉）：任何模式下点地图只放独立符号（不连线），

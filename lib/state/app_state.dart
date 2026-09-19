@@ -514,7 +514,8 @@ class AppState extends ChangeNotifier {
   Future<void> _appendToMarkBook(MapLabel l) async {
     CollectionMeta? meta;
     for (final m in collections) {
-      if (m.name == kMarkBook && m.folder.isEmpty) {
+      final isMark = m.kind == 'mark' || (m.name == kMarkBook && m.folder.isEmpty);
+      if (isMark && m.folder.isEmpty) {
         meta = m;
         break;
       }
@@ -524,7 +525,7 @@ class AppState extends ChangeNotifier {
     if (meta == null) {
       ls = [l];
       cid = await store.finishCollection(
-          name: kMarkBook, kind: 'label', folderId: '', editMode: 'design', labels: ls);
+          name: kMarkBook, kind: 'mark', folderId: '', editMode: 'design', labels: ls);
     } else {
       cid = meta.id;
       ls = await store.loadCollection(cid);
@@ -533,7 +534,7 @@ class AppState extends ChangeNotifier {
       await store.finishCollection(
           existingId: cid,
           name: kMarkBook,
-          kind: 'label',
+          kind: 'mark',
           folderId: '',
           editMode: 'design',
           labels: ls);

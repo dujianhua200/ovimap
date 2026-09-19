@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ovimap/models/map_label.dart';
 import 'package:ovimap/services/app_paths.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
@@ -103,6 +104,45 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     expect(find.text('B'), findsOneWidget, reason: '再展开 B 回来');
+  });
+
+  testWidgets('标记收藏在树中列出点行：图钉+名字+备注，点击定位', (tester) async {
+    // 建标记收藏（真实 IO 必须在 runAsync——testWidgets 是假时钟区）。
+    final cid = await tester.runAsync(() async {
+      final cid = await store.finishCollection(
+          name: '标记', kind: 'mark', folderId: '', editMode: 'design', labels: []);
+      final ls = await store.loadCollection(cid);
+      ls.add(MapLabel(typeId: 'fiberbox', seq: 1, lat: 32.0, lon: 114.0,
+          name: '标记1')..note = '光交');
+      await store.saveCollectionLabels(cid, ls);
+      st.visibleCids.add(cid);
+      st.overlayLabels[cid] = ls;
+      await st.refreshCollections();
+      return cid;
+    });
+
+    await mountPanel(tester, st);
+    expect(find.text('标记1'), findsOneWidget, reason: '树中列出标记点行');
+    expect(find.text('光交'), findsOneWidget, reason: '备注灰字跟显');
+
+    // 点击点行 → 定位回调（属性对话框链路由右键菜单既有用例覆盖）。
+    var located = <MapLabel>[];
+    await tester.pumpWidget(MultiProvider(
+      providers: [Provider<SyncController?>.value(value: null)],
+      child: MaterialApp(
+        home: Scaffold(
+          body: LeftPanel(
+              st: st,
+              onNewProject: () {},
+              onLocate: (l) => located.add(l)),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('标记1'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(located.length, 1, reason: '瞬间定位');
+    expect(cid, isNotEmpty);
   });
 
   testWidgets('搜索跨全库：在 A 选中态搜 P2 也能命中根目录工程', (tester) async {

@@ -211,9 +211,11 @@ class _LeftPanelState extends State<LeftPanel> {
   /// 收藏夹树：根行 + 各级文件夹（+/− 折叠、缩进、[n] 计数）。
   Widget _folderTree() {
     final rows = <Widget>[_rootRow()];
+    rows.addAll(_markRowsFor('', 0));
     void rec(Folder f, int depth) {
       rows.add(_folderRow(f, depth));
       if (!_collapsed.contains(f.id)) {
+        rows.addAll(_markRowsFor(f.id, depth + 1));
         for (final c in st.folders) {
           if (c.id.isNotEmpty && c.parentId == f.id) rec(c, depth + 1);
         }
@@ -375,6 +377,72 @@ class _LeftPanelState extends State<LeftPanel> {
       onTap: () => _selectFolder(f.id),
       onSecondary: (pos) => _showFolderMenu(f, pos),
       dropTargetId: f.id,
+    );
+  }
+
+  /// 某层内标记收藏（kind=mark 或旧版根目录「标记」）的**点行**。
+  /// 数据取自已上屏的 [AppState.overlayLabels]——标记模式保存即上屏，
+  /// 重启后 _loadVisibleOverlays 也会加载；未上屏的收藏不在此列（点眼睛即可）。
+  List<Widget> _markRowsFor(String fid, int depth) {
+    final rows = <Widget>[];
+    for (final m in st.collections) {
+      final isMark = m.kind == 'mark' || m.name == '标记';
+      if (!isMark || m.folder != fid) continue;
+      final ls = st.overlayLabels[m.id];
+      if (ls == null) continue;
+      for (final l in ls) {
+        rows.add(_markRow(m.id, l, depth));
+      }
+    }
+    return rows;
+  }
+
+  /// 标记点行：图钉色点 + 名字（+备注灰字）。点击 = 地图定位 + 打开属性
+  /// （改名/备注，保存走收藏点通道 updateOverlayLabel）。
+  Widget _markRow(String cid, MapLabel l, int depth) {
+    final nm = l.name.trim().isEmpty ? l.type.name : l.name.trim();
+    final note = l.note.trim();
+    return InkWell(
+      onTap: () {
+        widget.onLocate?.call(l); // 瞬间定位（相机归壳）
+        showLabelProperties(context, st, l,
+            sourceCid: cid, title: nm);
+      },
+      child: Container(
+        height: 28,
+        padding: EdgeInsets.only(left: 8.0 + depth * 16.0 + 23.0, right: 10),
+        child: Row(children: [
+          Container(
+            width: 14,
+            height: 14,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: l.type.color,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+                l.type.symbol.isNotEmpty ? l.type.symbol : nm.substring(0, 1),
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 9, height: 1.0)),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(nm,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(color: kTextMain, fontSize: TokFs.body)),
+          ),
+          if (note.isNotEmpty)
+            Flexible(
+              child: Text(note,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: kTextHint, fontSize: TokFs.micro)),
+            ),
+        ]),
+      ),
     );
   }
 
@@ -830,19 +898,23 @@ class _LeftPanelState extends State<LeftPanel> {
     );
   }
 
-  String _kindTag(CollectionMeta m) => m.kind == 'track'
-      ? '轨迹'
-      : m.kind == 'data'
-          ? '数据'
-          : m.editMode == 'completion'
-              ? '竣工'
-              : '设计';
-
-  Color _kindColor(CollectionMeta m) => m.editMode == 'completion'
-      ? TokC.warn
+  String _kindTag(CollectionMeta m) => m.kind == 'mark'
+      ? '标记'
       : m.kind == 'track'
-          ? const Color(0xFFFFD54F)
-          : const Color(0xFF81C784);
+          ? '轨迹'
+          : m.kind == 'data'
+              ? '数据'
+              : m.editMode == 'completion'
+                  ? '竣工'
+                  : '设计';
+
+  Color _kindColor(CollectionMeta m) => m.kind == 'mark'
+      ? const Color(0xFFE6A23C)
+      : m.editMode == 'completion'
+          ? TokC.warn
+          : m.kind == 'track'
+              ? const Color(0xFFFFD54F)
+              : const Color(0xFF81C784);
 
   Widget _tag(String text, Color color) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),

@@ -210,6 +210,7 @@ void main() {
       final metas = await store.loadIndex();
       final mark = metas.where((m) => m.name == '标记' && m.folder.isEmpty).toList();
       expect(mark.length, 1, reason: '只建一个「标记」收藏');
+      expect(mark.first.kind, 'mark', reason: 'kind=mark 供收藏夹树识别列出点行');
       final ls = await store.loadCollection(mark.first.id);
       expect(ls.length, 2);
       expect(ls[0].name, '标记1');
