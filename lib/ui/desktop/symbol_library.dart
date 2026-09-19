@@ -68,7 +68,7 @@ class SymbolTile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    color: selected ? Colors.white : kTextMain,
+                    color: selected ? kAccent : kTextMain,
                     fontSize: 11.5)),
           ],
         ),

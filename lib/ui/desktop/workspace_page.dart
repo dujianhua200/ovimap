@@ -66,23 +66,21 @@ class _WorkspacePageState extends State<WorkspacePage> {
   /// 最近一次写入状态栏的鼠标坐标文本（变化去重用，见 [_onMouseGeo]）。
   String _lastMouseText = '';
 
-  // ---- 布局（可拖拽/折叠） ----
+  // ---- 布局（v3.4.0 重排） ----
   //
-  // ⚠️ 这三个默认值是**地图利用率**的直接决定项（用户反馈「地图的利用率不如奥维大」）。
-  // 奥维桌面版只常驻一个约 200px 的左栏；本壳原本左右各常驻一栏（260+300），
-  // 1440 窗口下地图只剩 868px（60%）。调整口径：
-  //   · 左栏默认 220（工程树够用），右栏默认 280；
-  //   · **右栏默认收起** —— 它是「选中点的属性/统计」检查器，只在要看时才需要；
-  //   · 选中一个点 → 自动展开右栏（见 [MapCanvas.onSelect] 回调）；
-  //   · 要一键全屏看图用「视图 → 专注地图」⌥⌘M。
-  // 结果：默认视口地图占 1440 的 ~84%，选中点时 ~64%（比改造前的 60% 仍更优）。
-  double _leftW = 220;
+  // 用户反馈：「右侧栏很鸡肋」「左侧栏可以做个图标，名字为收藏夹，点击打开
+  // 就是收藏夹」。口径：
+  //   · 左栏不再常驻，换成一条 52px 的**图标轨道**；点「收藏夹」图标时以
+  //     **悬浮面板**叠加在地图上（不挤压地图宽度），再点或 Esc 收起；
+  //   · 右栏保持默认收起，且选中点**不再自动展开**——要看属性时从工具栏手动开；
+  //   · 默认视口 1440 下地图占 (1440-52-0)/1440 ≈ 96%。
   double _rightW = 280;
-  bool _leftCollapsed = false;
   bool _rightCollapsed = true;
 
-  /// 「专注地图」进入前的左右栏状态（再按一次还原，而不是盲目全展开）。
-  bool _prevLeftOpen = true;
+  /// 收藏夹悬浮面板开关。
+  bool _favOpen = false;
+
+  /// 「专注地图」进入前的右栏状态（再按一次还原，而不是盲目全展开）。
   bool _prevRightOpen = false;
 
   // ---- 选中（右栏展示） ----
@@ -272,18 +270,16 @@ class _WorkspacePageState extends State<WorkspacePage> {
     toast(context, '已复位到启动视图（缩放 ${st.initZoom.toStringAsFixed(1)}）');
   }
 
-  /// 视图 → 专注地图（⌥⌘M）：一键收掉两侧栏把地图铺满；再按一次**还原**
-  /// 到进入前的左右栏状态（而不是盲目全展开 —— 用户可能本来就是收着左栏的）。
+  /// 视图 → 专注地图（⌥⌘M）：一键收掉收藏夹面板与右栏把地图铺满；
+  /// 再按一次**还原**右栏到进入前的状态（收藏夹面板不自动弹回，需要时再点图标）。
   void _focusMap() {
     setState(() {
-      final anyOpen = !_leftCollapsed || !_rightCollapsed;
+      final anyOpen = _favOpen || !_rightCollapsed;
       if (anyOpen) {
-        _prevLeftOpen = !_leftCollapsed;
         _prevRightOpen = !_rightCollapsed;
-        _leftCollapsed = true;
+        _favOpen = false;
         _rightCollapsed = true;
       } else {
-        _leftCollapsed = !_prevLeftOpen;
         _rightCollapsed = !_prevRightOpen;
       }
     });
@@ -314,6 +310,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
   /// 清空草稿有专门入口（右键菜单 / 左栏）。
   void _escape() {
     final st = _st;
+    // Esc 第一优先：收起收藏夹悬浮面板（临时 UI 最先退场）。
+    if (_favOpen) {
+      setState(() => _favOpen = false);
+      return;
+    }
     if (st.draggingLabelId != null) {
       st.cancelPendingEdit();
       toast(context, '已取消「待点地图放置」');
@@ -703,7 +704,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       onResetView: _resetView,
       onEscape: _escape,
       onUndoPoint: _undoPoint,
-      onToggleLeft: () => setState(() => _leftCollapsed = !_leftCollapsed),
+      onToggleLeft: () => setState(() => _favOpen = !_favOpen),
       onToggleRight: () => setState(() => _rightCollapsed = !_rightCollapsed),
       onFocusMap: _focusMap,
       onInspect: _inspect,
@@ -737,10 +738,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 onExport: _export,
                 onSync: _showSyncInfo,
                 onInspect: _inspect,
-                leftCollapsed: _leftCollapsed,
+                leftCollapsed: !_favOpen,
                 rightCollapsed: _rightCollapsed,
                 onToggleLeft: () =>
-                    setState(() => _leftCollapsed = !_leftCollapsed),
+                    setState(() => _favOpen = !_favOpen),
                 onToggleRight: () =>
                     setState(() => _rightCollapsed = !_rightCollapsed),
               ),
@@ -781,7 +782,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         onOffline: _onOffline,
         onStorageCleanup: _storageCleanup,
         onSync: _showSyncInfo,
-        onToggleLeft: () => setState(() => _leftCollapsed = !_leftCollapsed),
+        onToggleLeft: () => setState(() => _favOpen = !_favOpen),
         onToggleRight: () => setState(() => _rightCollapsed = !_rightCollapsed),
         onFocusMap: _focusMap,
         onZoomIn: _zoomIn,
@@ -793,21 +794,37 @@ class _WorkspacePageState extends State<WorkspacePage> {
   Widget _body(AppState st) {
     return LayoutBuilder(
       builder: (ctx, c) {
-        // 右栏的显隐口径（改造后）：
-        //   · 用户手动收起了 → 不显示；
-        //   · 窗口 < 1180（三栏排不下）→ 不显示；
-        //   · 其余情况由 `_rightCollapsed` 决定，而它**默认为 true**，
-        //     并在选中一个点时自动展开（见 onSelect）—— 也就是「要看属性才占地方」。
-        // 这样默认视口把 560px 的左右两栏换成只常驻 220px 左栏，地图宽度提升约 25%。
+        // 右栏的显隐口径：
+        //   · 用户手动开了才显示（选中点**不再自动展开**，v3.4.0）；
+        //   · 窗口 < 1180（放不下）→ 不显示。
+        // 收藏夹不再占常驻宽度：图标轨道 52px + 悬浮面板叠加在地图上。
         final showRight = !_rightCollapsed && c.maxWidth >= 1180;
-        final showLeft = !_leftCollapsed;
         return Row(
           children: [
-            if (showLeft) SizedBox(width: _leftW, child: _leftPanel(st)),
-            if (showLeft)
-              _dragDivider((dx) => setState(
-                  () => _leftW = (_leftW + dx).clamp(180.0, 420.0))),
-            Expanded(child: _mapStack(st)),
+            _favRail(st),
+            Expanded(
+              child: Stack(
+                children: [
+                  _mapStack(st),
+                  // 收藏夹悬浮面板：叠加在地图上，只在打开时出现。
+                  if (_favOpen)
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      bottom: 8,
+                      width: 320,
+                      child: Material(
+                        color: TokC.panelSolid,
+                        elevation: 6,
+                        shadowColor: Colors.black38,
+                        borderRadius: BorderRadius.circular(TokR.m),
+                        clipBehavior: Clip.antiAlias,
+                        child: _leftPanel(st),
+                      ),
+                    ),
+                ],
+              ),
+            ),
             if (showRight)
               _dragDivider((dx) => setState(
                   () => _rightW = (_rightW - dx).clamp(240.0, 460.0))),
@@ -819,12 +836,49 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
+  /// 最左侧图标轨道：目前只有「收藏夹」一个入口，后续同类入口（如体检、
+  /// 导出中心）可以继续往下加，形成奥维桌面版左侧工具条的布局。
+  Widget _favRail(AppState st) {
+    Widget railBtn(IconData icon, String label, bool active, VoidCallback onTap) {
+      final color = active ? kAccent : kTextSub;
+      return InkWell(
+        onTap: onTap,
+        child: Container(
+          width: 52,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(height: 3),
+            Text(label,
+                style: TextStyle(
+                    fontSize: TokFs.micro, color: color, height: 1.1)),
+          ]),
+        ),
+      );
+    }
+
+    return Container(
+      width: 52,
+      decoration: const BoxDecoration(
+        color: TokC.panelSolid,
+        border: Border(right: BorderSide(color: TokC.divider)),
+      ),
+      child: Column(children: [
+        railBtn(Icons.bookmarks, '收藏夹', _favOpen,
+            () => setState(() => _favOpen = !_favOpen)),
+        const Spacer(),
+      ]),
+    );
+  }
+
   Widget _leftPanel(AppState st) => LeftPanel(
         st: st,
         searchFocus: _searchFocus,
         onNewProject: _newProject,
         // 段落/点位行点击 → 与体检「定位」同一条路径（相机归壳）。
         onLocate: (l) => _locateLabels([l.id]),
+        // 悬浮面板标题栏的「收起」按钮。
+        onClose: () => setState(() => _favOpen = false),
       );
 
   Widget _rightPanel(AppState st) => RightPanel(
@@ -915,7 +969,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       height: 30,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
-        color: Color(0xFF161C23),
+        color: TokC.toolbar,
         border: Border(top: BorderSide(color: TokC.divider)),
       ),
       child: Row(

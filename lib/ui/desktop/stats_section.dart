@@ -138,7 +138,7 @@ class StatsSection extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A2027),
+        color: TokC.field,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: TokC.divider),
       ),
@@ -147,7 +147,7 @@ class StatsSection extends StatelessWidget {
         children: [
           const Text('工程统计',
               style: TextStyle(
-                  color: Colors.white,
+                  color: kTextMain,
                   fontSize: 13,
                   fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),

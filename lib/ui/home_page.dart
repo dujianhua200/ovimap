@@ -419,7 +419,7 @@ class _HomePageState extends State<HomePage> {
                         child: TextField(
                           controller: _searchCtl,
                           style: const TextStyle(
-                              color: Colors.white, fontSize: 13),
+                              color: kTextMain, fontSize: 13),
                           decoration: const InputDecoration(
                             hintText: '搜索地点 / 输入经纬度',
                             hintStyle: TextStyle(
@@ -714,13 +714,13 @@ class _HomePageState extends State<HomePage> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                             color: st.curType.id == t.id
-                                ? Colors.white
+                                ? kAccent
                                 : Colors.transparent),
                       ),
                       child: Text(t.name,
                           maxLines: 1,
                           style: const TextStyle(
-                              color: Colors.white, fontSize: 10.5)),
+                              color: kTextMain, fontSize: 10.5)),
                     ),
                   ),
               ],
@@ -850,7 +850,7 @@ class _HomePageState extends State<HomePage> {
             child: Text(
                 '${GeoUtil.fmtDist(st.recordDistance)} · ${_fmtElapsed(_recordElapsed)}'
                 '${st.recordPaused ? '（已暂停）' : ''}',
-                style: const TextStyle(color: Colors.white, fontSize: 12)),
+                style: const TextStyle(color: kTextMain, fontSize: 12)),
           ),
           _modeChip(st.recordPaused ? '继续' : '暂停',
               onTap: st.toggleRecordPause),
@@ -899,7 +899,7 @@ class _HomePageState extends State<HomePage> {
         visualDensity: VisualDensity.compact,
         tooltip: tooltip,
         onPressed: onTap,
-        icon: Icon(icon, color: Colors.white, size: 21),
+        icon: Icon(icon, color: kTextMain, size: 21),
       );
 
   Widget _railBtn(String glyph, VoidCallback onTap,
@@ -914,7 +914,7 @@ class _HomePageState extends State<HomePage> {
           children: [
             Text(glyph,
                 style: TextStyle(
-                    color: active ? kAccent : Colors.white,
+                    color: active ? kAccent : kTextMain,
                     fontSize: 19,
                     fontWeight: FontWeight.bold)),
             if (label != null)
@@ -953,7 +953,7 @@ class _HomePageState extends State<HomePage> {
           child: Text(text,
               maxLines: 1,
               style: TextStyle(
-                  color: active ? Colors.black : (color ?? Colors.white),
+                  color: active ? Colors.black : (color ?? kTextMain),
                   fontSize: 11.5,
                   fontWeight: active ? FontWeight.bold : FontWeight.normal)),
         ),

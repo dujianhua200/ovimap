@@ -21,7 +21,7 @@ Future<ConflictChoice?> showConflictDialog(
       builder: (ctx, setSt) => AlertDialog(
         backgroundColor: kPanelBg,
         title: const Text('同步冲突',
-            style: TextStyle(color: Colors.white, fontSize: 16)),
+            style: TextStyle(color: kTextMain, fontSize: 16)),
         content: SizedBox(
           width: 420,
           child: Column(

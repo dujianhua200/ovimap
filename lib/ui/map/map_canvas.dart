@@ -147,14 +147,12 @@ class _MapCanvasState extends State<MapCanvas> {
         final l = st.addLabelAtDisp(point.latitude, point.longitude);
         widget.onSelect?.call(l, '');
         if (l.typeId == 'text') {
+          // 文字符号必须先输入内容才有意义，保留提示框。
           showTextPrompt(context, st, l);
-        } else if (st.editModeName == 'completion') {
-          if (st.labels.length == 1) {
-            showLabelProperties(context, st, l, title: '设置起点属性');
-          } else {
-            showCompletionSegment(context, st, l);
-          }
         }
+        // 竣工模式不再逐点弹属性/段属性框（用户反馈「点击打点时属性对话框
+        // 老蹦出来影响体验」）：连续打点是高频动作，弹窗打断节奏。补属性走
+        // 右键「编辑属性」或右栏属性面板，语义不变、入口不丢。
         break;
       case AppMode.topoLink:
         final target = _hitTestGeo(

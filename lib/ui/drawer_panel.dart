@@ -70,7 +70,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
           const Expanded(
             child: Text('收藏夹',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: kTextMain,
                     fontSize: 17,
                     fontWeight: FontWeight.bold)),
           ),
@@ -312,7 +312,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            color: Colors.white, fontSize: 14)),
+                            color: kTextMain, fontSize: 14)),
                     const SizedBox(height: 2),
                     Row(children: [
                       _tag(kindTag, tagColor),

@@ -217,7 +217,7 @@ class _AppMenuBarState extends State<AppMenuBar> {
     return Container(
       height: AppMenuBar.barHeight,
       decoration: const BoxDecoration(
-        color: Color(0xFF161B20),
+        color: TokC.toolbar,
         border: Border(bottom: BorderSide(color: TokC.divider)),
       ),
       child: Row(
@@ -226,7 +226,7 @@ class _AppMenuBarState extends State<AppMenuBar> {
             padding: EdgeInsets.symmetric(horizontal: 12),
             child: Text('滑洲云图',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: kTextMain,
                     fontSize: 13,
                     fontWeight: FontWeight.bold)),
           ),
@@ -243,7 +243,7 @@ class _AppMenuBarState extends State<AppMenuBar> {
                   color: _open == i ? TokC.field : null,
                   child: Text(oviMenuGroups[i].label,
                       style: TextStyle(
-                          color: _open == i ? Colors.white : kTextMain,
+                          color: _open == i ? kAccent : kTextMain,
                           fontSize: 12.5)),
                 ),
               ),

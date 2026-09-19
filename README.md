@@ -7,7 +7,14 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.3.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.4.0**（Windows x64 / macOS Universal / Android）
+
+> **v3.4.0 更新**（界面按你的七条反馈重排）：① 左栏收成一条**「收藏夹」图标轨道**，
+> 点击以悬浮面板叠加在地图上，不再常驻占宽；② 收藏夹改**叠加式多级导航**——
+> 点文件夹逐级进入、「..」/面包屑返回，列表只显示当前层；③ **新建文件夹出现 2 个**
+> 的 bug 修复（连按回车会重复建）；④ 移动工程改为**下拉选目标文件夹**（带层级缩进）；
+> ⑤ 残留深色块/白字全部清掉，**统一白底黑字**；⑥ 打点**不再自动弹属性对话框**
+> （补属性走右键「编辑属性」）；⑦ 右栏默认隐藏，选中点也不再自动弹出。
 
 > **v3.3.0 更新**：① 界面主题由深色改为**浅色**（含 macOS 系统菜单栏/标题栏）；
 > ② 收藏夹对齐电脑版奥维：文件夹**右键菜单**（新建子文件夹 / 重命名 / 删除 /

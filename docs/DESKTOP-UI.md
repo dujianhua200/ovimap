@@ -30,6 +30,10 @@
 | 「地图的利用率不如奥维大」 | 左右栏常驻 260+300 ≈ 572px，1440 窗口下地图只剩 868px（60%） | `workspace_page.dart`：左 220 / 右 280、**右栏默认收起且选中点自动展开**；工具栏 48→42；新增「专注地图」`⌥⌘M`（详见 §3.1） |
 | 「主题变成白色」 | Flutter 侧本就是 `Brightness.dark`；白的是 **macOS 系统外壳**（系统菜单栏 + 窗口标题栏跟随系统浅色模式） | `macos/Runner/AppDelegate.swift`：`applicationWillFinishLaunching` 里钉 `NSApp.appearance = darkAqua`（放这里才不闪白）+ 窗口底色对齐 `0xFF101418` |
 | 「42 应能显示成 埋42」 | 数据层早有 `distLabel`，但前缀 chip 在输入框为空时**只填出光秃秃一个「埋」**（不会带上该段已有的距离）；也没有全局前缀 | `lib/geo/geo_util.dart` 的 `segLabelFor` 收敛为**唯一真源**（地图 / DXF / 成册共用）；`AppState` 加持久化的「段标前缀」；`segPrefixChips` 加 `autoDist` 参数 |
+| 「主题我不喜欢黑色，弄成白色」（v3.3.0） | 上一轮把 macOS 外壳钉成深色是对的（消除上白下黑），但用户要的是**整体浅色** | v3.3.0 全面翻白：`design_tokens.dart` 的 `TokC` 换浅色调色板（面板 `FAF9FAFB`、强调 `0288D1`、正文 `1C242C`）；`main.dart` `Brightness.light`；macOS 宿主 `NSApp.appearance = aqua` + 窗口底色 `0xF2F4F6`。**三个落点必须同改**，缺一个就出现「上黑下白」或「上白下黑」 |
+| 「添加的轨迹和标签没有保存功能」（v3.3.0） | `openCollection` 后打点 / 删点 / 撤销 / 续画只写 `draft.json`，收藏文件停在打开时的旧内容，重启即丢 | `app_state.dart` 的 `_saveDraft()` 收口：`activeCollectionId` 非空时同步写回 `collection_<cid>.json`；新增 `startNewDraft()` 保证「先脱离收藏再清空」。护栏测试 `test/collection_autosave_indep_test.dart` |
+| 「新建一个（文件夹）就出现 2 个」（v3.4.0） | `_addFolder` 的 `onSubmitted` 里 `created.complete(st.store.addFolder(...))`：回车后**对话框不关闭**；再按回车时 `complete` 的参数表达式**先求值**（第二个 `addFolder` 已发出）才抛 StateError，两个并发写盘竞态后同名文件夹出现两个 | `left_panel.dart`：改为单一提交口 `submit()` + `done` 闸门，回车/按钮谁先来都只建一次，**回车立即关框**；`showFinishDialog` 内的「新建文件夹」同口径封堵 |
+| 「收藏夹用叠加功能实现多级访问」「左栏做个收藏夹图标」「右栏鸡肋」「移动文件不满意」「打点弹属性框烦」（v3.4.0） | 文件夹树平铺全树、移动是逐文件夹按钮、左右栏常驻挤占地图、竣工模式逐点弹属性框 | `left_panel.dart` + `workspace_page.dart` + `map_canvas.dart` 全面重排：① 文件夹树改**叠加式导航**（`_nav` 栈逐级钻入，「..」/面包屑返回，列表只显示当前层，搜索跨全库）；② 左栏收成 52px **图标轨道**，点「收藏夹」以 320px 悬浮面板**叠加**在地图上（Esc/再点收起）；③ 右栏默认隐藏，选中点**不再自动展开**；④ 移动工程改**下拉选择**（层级缩进 + 根目录）；⑤ 打点不再自动弹属性框（补属性走右键「编辑属性」）。护栏测试 `test/favorites_stack_nav_test.dart` |
 
 > **教训**：平台分支只有一处（`main.dart`），平台能力只有一处（`PlatformCaps`）。
 > 新增平台相关判断时一律走 `PlatformCaps.isDesktop`，**不要写单一平台的 `isXxx`** ——

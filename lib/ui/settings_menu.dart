@@ -71,7 +71,7 @@ Future<void> _confirmReset(BuildContext context, AppState st) async {
     builder: (ctx) => AlertDialog(
       backgroundColor: kPanelBg,
       title: const Text('恢复出厂地图设置？',
-          style: TextStyle(color: Colors.white, fontSize: 16)),
+          style: TextStyle(color: kTextMain, fontSize: 16)),
       content: const Text('将把坐标格式、图源、注记层恢复为默认；不影响已保存的收藏与草稿。',
           style: TextStyle(color: kTextMain, fontSize: 13)),
       actions: [

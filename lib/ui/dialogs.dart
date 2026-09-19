@@ -92,7 +92,7 @@ Future<void> showDarkDialog(
       builder: (ctx) => AlertDialog(
         backgroundColor: kPanelBg,
         title: Text(title,
-            style: const TextStyle(color: Colors.white, fontSize: 16)),
+            style: const TextStyle(color: kTextMain, fontSize: 16)),
         content: content,
         actions: actions,
       ),
@@ -109,7 +109,7 @@ Future<void> showDarkDialog(
     builder: (ctx) => AlertDialog(
       backgroundColor: kPanelBg,
       title: Text(title,
-          style: const TextStyle(color: Colors.white, fontSize: 16)),
+          style: const TextStyle(color: kTextMain, fontSize: 16)),
       content: content,
       actions: actions,
       constraints: BoxConstraints(
@@ -784,26 +784,32 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
     actions: [
       darkTextBtn('新建文件夹', () async {
         final fCtl = TextEditingController();
+        var done = false; // 与左栏 _addFolder 同口径：回车/按钮只许建一次
+        Future<void> submit() async {
+          if (done) return;
+          done = true;
+          Navigator.pop(context);
+          final f = await st.store.addFolder(fCtl.text.trim());
+          await st.refreshCollections();
+          if (context.mounted) {
+            // 重新打开保存对话框并选中新文件夹
+            st.folderId = f.id;
+            showFinishDialog(context, st);
+          }
+        }
+
         await showDarkDialog(context,
             title: '新建文件夹',
             content: TextField(
                 controller: fCtl,
                 autofocus: true,
+                onSubmitted: (_) => submit(),
                 style: const TextStyle(color: kTextMain),
                 decoration: dec('文件夹名称')),
             actions: [
               darkTextBtn('取消', () => Navigator.pop(context),
                   color: kTextSub),
-              darkTextBtn('创建', () async {
-                final f = await st.store.addFolder(fCtl.text.trim());
-                Navigator.pop(context);
-                await st.refreshCollections();
-                if (context.mounted) {
-                  // 重新打开保存对话框并选中新文件夹
-                  st.folderId = f.id;
-                  showFinishDialog(context, st);
-                }
-              }),
+              darkTextBtn('创建', () => submit(), color: kGreen),
             ]);
       }, color: kGreen),
       darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
@@ -1603,7 +1609,7 @@ Future<void> showOfflineDialog(BuildContext context, AppState st,
                 ),
                 Text('$targetZoom',
                     style: const TextStyle(
-                        color: Colors.white,
+                        color: kTextMain,
                         fontSize: 18,
                         fontWeight: FontWeight.bold)),
                 IconButton(
@@ -1713,7 +1719,7 @@ class _OfflineProgressDialogState extends State<_OfflineProgressDialog> {
     return AlertDialog(
       backgroundColor: kPanelBg,
       title: Text(finished ? '离线下载完成' : '正在下载离线瓦片',
-          style: const TextStyle(color: Colors.white, fontSize: 15)),
+          style: const TextStyle(color: kTextMain, fontSize: 15)),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         LinearProgressIndicator(
             value: total == 0 ? 0 : done / total, color: kAccent),

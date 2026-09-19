@@ -44,6 +44,7 @@ class LeftPanel extends StatefulWidget {
     this.searchFocus,
     required this.onNewProject,
     this.onLocate,
+    this.onClose,
   });
 
   final AppState st;
@@ -54,6 +55,9 @@ class LeftPanel extends StatefulWidget {
 
   /// 点击段落/点位行 → 外壳把地图移过去并选中该点（相机归壳，左栏不持 `MapController`）。
   final void Function(MapLabel l)? onLocate;
+
+  /// 面板以叠加方式悬浮在地图上时，标题栏出现「收起」按钮（见 workspace_page）。
+  final VoidCallback? onClose;
 
   @override
   State<LeftPanel> createState() => _LeftPanelState();
@@ -123,9 +127,7 @@ class _LeftPanelState extends State<LeftPanel> {
           _header(context),
           _searchBar(),
           const Divider(height: 1, color: TokC.divider),
-          _folderTree(),
-          const Divider(height: 1, color: TokC.divider),
-          Expanded(child: _collectionList(context)),
+          Expanded(child: _favoritesView(context)),
           _draftSection(),
           _dropZone(context),
         ],
@@ -135,22 +137,25 @@ class _LeftPanelState extends State<LeftPanel> {
 
   Widget _header(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 8, 6),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 4),
       child: Row(
         children: [
+          const Icon(Icons.bookmarks, size: 18, color: kAccent),
+          const SizedBox(width: 6),
           const Expanded(
-            child: Text('工程 / 收藏',
+            child: Text('收藏夹',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: kTextMain,
                     fontSize: TokFs.heading,
                     fontWeight: FontWeight.bold)),
           ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            tooltip: '新建工程',
-            onPressed: widget.onNewProject,
-            icon: const Icon(Icons.add, color: kAccent, size: 20),
-          ),
+          if (widget.onClose != null)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: '收起',
+              onPressed: widget.onClose,
+              icon: const Icon(Icons.close, color: kTextSub, size: 20),
+            ),
         ],
       ),
     );
@@ -173,74 +178,174 @@ class _LeftPanelState extends State<LeftPanel> {
     );
   }
 
-  // ---- 文件夹树 ----
+  // ---- 收藏夹（叠加式多级导航） ----
+  //
+  // 用户反馈「收藏夹最好用叠加功能来实现多级文件夹的访问」：不再一棵树平铺，
+  // 而是**逐级钻入**——列表只显示当前层的子文件夹与工程；点文件夹进入该层，
+  // 面包屑（或「..」）逐级返回。层级状态用 [_nav] 栈表达，天然支持任意深度。
 
-  Widget _folderTree() {
-    final rows = <Widget>[];
-    void add(Folder f, int depth) {
-      rows.add(_folderRow(f, depth));
-      for (final c in st.folders) {
-        if (c.id.isNotEmpty && c.parentId == f.id) add(c, depth + 1);
-      }
-    }
+  /// 导航栈：空 = 根目录；最后一位 = 当前所在文件夹。
+  final List<Folder> _nav = <Folder>[];
 
-    add(const Folder('', '默认'), 0);
-    for (final f in st.folders) {
-      if (f.id.isNotEmpty && f.parentId.isEmpty) add(f, 0);
-    }
+  String get _currentFolderId => _nav.isEmpty ? '' : _nav.last.id;
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 220),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
-      ),
+  /// 收藏夹主视图：面包屑栏 + 当前层内容（子文件夹在上、工程在下）。
+  Widget _favoritesView(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _breadcrumbBar(),
+        Expanded(child: _currentLevelList(context)),
+      ],
     );
   }
 
-  Widget _folderRow(Folder f, int depth) {
-    final selected = st.folderId == f.id;
-    final count = f.id.isEmpty
-        ? st.collections.where((m) => m.folder.isEmpty).length
-        : st.collections.where((m) => m.folder == f.id).length;
+  /// 面包屑栏：根目录显示标题；进入子级后给出可点击的完整路径与「新建文件夹」。
+  Widget _breadcrumbBar() {
+    final crumbs = <Widget>[
+      InkWell(
+        onTap: _nav.isEmpty ? null : _backToRoot,
+        child: Text('收藏夹',
+            style: TextStyle(
+                color: _nav.isEmpty ? kTextMain : kAccent,
+                fontSize: TokFs.body,
+                fontWeight: FontWeight.w600)),
+      ),
+    ];
+    for (var i = 0; i < _nav.length; i++) {
+      final last = i == _nav.length - 1;
+      final f = _nav[i];
+      crumbs.add(const Text(' › ',
+          style: TextStyle(color: kTextHint, fontSize: TokFs.body)));
+      crumbs.add(InkWell(
+        onTap: last ? null : () => setState(() => _nav.removeRange(i + 1, _nav.length)),
+        child: Text(f.name,
+            style: TextStyle(
+                color: last ? kTextMain : kAccent,
+                fontSize: TokFs.body,
+                fontWeight: last ? FontWeight.w600 : FontWeight.normal),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+      ));
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 6, 4),
+      child: Row(children: [
+        ...crumbs,
+        const Spacer(),
+        TextButton(
+          onPressed: () => _addFolder(),
+          child: const Text('新建文件夹',
+              style: TextStyle(color: kAccent, fontSize: TokFs.small)),
+        ),
+      ]),
+    );
+  }
+
+  void _drillInto(Folder f) {
+    setState(() => _nav.add(f));
+    st.folderId = f.id;
+    st.refreshUi();
+  }
+
+  void _backToRoot() {
+    setState(() => _nav.clear());
+    st.folderId = '';
+    st.refreshUi();
+  }
+
+  void _backOneLevel() {
+    setState(() {
+      if (_nav.isNotEmpty) _nav.removeLast();
+    });
+    st.folderId = _currentFolderId;
+    st.refreshUi();
+  }
+
+  /// 当前层内容：搜索时跨全库；否则显示当前文件夹的子文件夹 + 工程。
+  Widget _currentLevelList(BuildContext context) {
+    if (_query.isNotEmpty) return _collectionList(context);
+
+    final fid = _currentFolderId;
+    final subfolders = [
+      for (final f in st.folders)
+        if (f.id.isNotEmpty && f.parentId == fid) f,
+    ];
+
+    final rows = <Widget>[
+      // 「..」返回上级（根目录不显示）。
+      if (_nav.isNotEmpty)
+        InkWell(
+          onTap: _backOneLevel,
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.only(left: 10, right: 8),
+            child: Row(children: [
+              const Icon(Icons.arrow_back_ios_new, size: 13, color: kTextSub),
+              const SizedBox(width: 6),
+              Text('..',
+                  style: const TextStyle(color: kTextSub, fontSize: TokFs.body)),
+            ]),
+          ),
+        ),
+      for (final f in subfolders) _folderRow(f),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
+          ),
+        ),
+        Expanded(child: _collectionList(context)),
+      ],
+    );
+  }
+
+  /// 文件夹行（当前层）：点按钻入，右键出操作菜单，右侧显示内含工程数。
+  Widget _folderRow(Folder f) {
+    final count = st.collections.where((m) => m.folder == f.id).length;
+    final subCount =
+        st.folders.where((c) => c.id.isNotEmpty && c.parentId == f.id).length;
     return InkWell(
-      onTap: () {
-        st.folderId = f.id;
-        st.refreshUi();
-      },
+      onTap: () => _drillInto(f),
       // 桌面惯例是右键；长按保留给触屏（移动端抽屉同一套手势语义）。
-      onSecondaryTapUp: f.id.isEmpty
-          ? null
-          : (d) => _showFolderMenu(f, d.globalPosition),
-      onLongPress: f.id.isEmpty
-          ? null
-          : () {
-              final box = context.findRenderObject() as RenderBox?;
-              final pos = box != null && box.localToGlobal(Offset.zero).dy >= 0
-                  ? box.localToGlobal(const Offset(80, 40))
-                  : Offset.zero;
-              _showFolderMenu(f, pos);
-            },
+      onSecondaryTapUp: (d) => _showFolderMenu(f, d.globalPosition),
+      onLongPress: () {
+        final box = context.findRenderObject() as RenderBox?;
+        final pos = box != null && box.localToGlobal(Offset.zero).dy >= 0
+            ? box.localToGlobal(const Offset(80, 40))
+            : Offset.zero;
+        _showFolderMenu(f, pos);
+      },
       child: Container(
-        height: 30,
-        padding: EdgeInsets.only(left: 12 + depth * 14.0, right: 8),
-        color: selected ? kAccent.withValues(alpha: 0.18) : null,
+        height: 32,
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        padding: const EdgeInsets.only(left: 8, right: 4),
+        decoration: BoxDecoration(
+          color: TokC.field,
+          borderRadius: BorderRadius.circular(TokR.s),
+        ),
         child: Row(
           children: [
-            Icon(f.id.isEmpty ? Icons.folder_open : Icons.folder,
-                size: 15, color: selected ? kAccent : kTextSub),
+            const Icon(Icons.folder, size: 16, color: kAccent),
             const SizedBox(width: 6),
             Expanded(
               child: Text(f.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: selected ? kAccent : kTextMain,
-                      fontSize: TokFs.body)),
+                  style: const TextStyle(
+                      color: kTextMain,
+                      fontSize: TokFs.body,
+                      fontWeight: FontWeight.w500)),
             ),
-            Text('$count',
+            Text('$count 工程 · $subCount 文件夹',
                 style: const TextStyle(
                     color: kTextHint, fontSize: TokFs.micro)),
+            const Icon(Icons.chevron_right, size: 16, color: kTextHint),
           ],
         ),
       ),
@@ -295,42 +400,104 @@ class _LeftPanelState extends State<LeftPanel> {
     });
   }
 
+  /// 新建文件夹（修「新建一个出现 2 个」）。
+  ///
+  /// 旧实现的坑：`onSubmitted` 里 `created.complete(st.store.addFolder(...))`
+  /// —— 回车后**对话框不关闭**；再按一次回车时，`complete` 的参数表达式
+  /// 会先求值（第二个 `addFolder` 已发出去）才抛 StateError，两个并发写盘
+  /// 竞态后文件夹就成了两个。现改为单一提交口 `submit` + `done` 闸门：
+  /// 回车/按钮谁先来都只建一次，且回车立即关框。
   Future<void> _addFolder({String? parentId}) async {
     final ctl = TextEditingController();
-    final parent = parentId ?? st.folderId;
-    final created = Completer<Folder?>();
+    final parent = parentId ?? _currentFolderId;
+    var done = false;
+    Future<void> submit() async {
+      if (done) return;
+      done = true;
+      Navigator.pop(context);
+      final f = await st.store
+          .addFolder(ctl.text.trim(), parent.isEmpty ? '' : parent);
+      await st.refreshCollections();
+      // 新文件夹就在当前层列表里可见（parent 即当前层），不用跳转。
+      st.folderId = parent;
+      st.refreshUi();
+      if (mounted) toast(context, '已创建文件夹「${f.name}」');
+    }
+
     await showDarkDialog(context,
         title: '新建文件夹',
         content: TextField(
             controller: ctl,
             autofocus: true,
-            // 回车直接建——"新建→命名→回车"是高频动作，不该再挪鼠标点按钮。
-            onSubmitted: (_) => created.complete(st.store.addFolder(
-                ctl.text.trim(),
-                parent.isEmpty ? '' : parent)),
+            // 回车直接建并关框——"新建→命名→回车"是高频动作。
+            onSubmitted: (_) => submit(),
             style: const TextStyle(color: kTextMain),
             decoration: dec(parent.isEmpty
                 ? '文件夹名称（建在根目录）'
                 : '文件夹名称（建在「${_folderName(parent)}」内）')),
         actions: [
-          darkTextBtn('取消', () {
-            if (!created.isCompleted) created.complete(null);
-            Navigator.pop(context);
-          }, color: kTextSub),
-          darkTextBtn('创建', () async {
-            if (!created.isCompleted) {
-              created.complete(st.store
-                  .addFolder(ctl.text.trim(), parent.isEmpty ? '' : parent));
-            }
-            Navigator.pop(context);
-          }, color: kGreen),
+          darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+          darkTextBtn('创建', () => submit(), color: kGreen),
         ]);
-    final f = await created.future;
-    if (f == null) return;
+  }
+
+  /// 移动工程到目标文件夹：**下拉选择**（用户指定交互）。
+  ///
+  /// 候选 = 根目录 + 全部文件夹，按层级缩进；一次选择一次确认，不再把每个
+  /// 文件夹摆成一个按钮（文件夹一多旧交互既放不下也看不清层级）。
+  Future<void> _moveToFolderDialog(
+      BuildContext context, CollectionMeta m) async {
+    // 层级深度：用于下拉项缩进。
+    int depthOf(Folder f) {
+      var d = 0;
+      var pid = f.parentId;
+      while (pid.isNotEmpty) {
+        final p = st.folders.where((e) => e.id == pid).toList();
+        if (p.isEmpty) break;
+        pid = p.first.parentId;
+        d++;
+      }
+      return d;
+    }
+
+    var target = m.folder;
+    var moved = false;
+    await showDarkDialog(
+      context,
+      title: '移动「${m.name}」',
+      content: StatefulBuilder(
+        builder: (ctx, setSt) => DropdownButtonFormField<String>(
+          value: target,
+          dropdownColor: TokC.panelSolid,
+          isExpanded: true,
+          style: const TextStyle(color: kTextMain, fontSize: TokFs.body),
+          decoration: dec('移动到…'),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('根目录')),
+            for (final f in st.folders)
+              if (f.id != m.folder)
+                DropdownMenuItem(
+                    value: f.id,
+                    child: Text('${'　' * depthOf(f)}${f.name}')),
+          ],
+          onChanged: (v) => setSt(() => target = v ?? ''),
+        ),
+      ),
+      actions: [
+        darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+        darkTextBtn('移动', () {
+          moved = true;
+          Navigator.pop(context);
+        }, color: kGreen),
+      ],
+    );
+    if (!moved) return;
+    if (target == m.folder) return;
+    await st.store.moveCollection(m.id, target);
     await st.refreshCollections();
-    // 新文件夹立即出现在树中并被选中——用户不用再"找刚才建的那个"。
-    st.folderId = f.id;
-    st.refreshUi();
+    if (context.mounted) {
+      toast(context, '已移动到${target.isEmpty ? '根目录' : '「${_folderName(target)}」'}');
+    }
   }
 
   String _folderName(String fid) {
@@ -397,8 +564,9 @@ class _LeftPanelState extends State<LeftPanel> {
         return m.name.toLowerCase().contains(q) ||
             m.desc.toLowerCase().contains(q);
       }
-      if (st.folderId.isEmpty) return m.folder.isEmpty;
-      return m.folder == st.folderId;
+      final fid = _currentFolderId;
+      if (fid.isEmpty) return m.folder.isEmpty;
+      return m.folder == fid;
     }).toList();
   }
 
@@ -579,7 +747,7 @@ class _LeftPanelState extends State<LeftPanel> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            color: Colors.white, fontSize: TokFs.body)),
+                            color: kTextMain, fontSize: TokFs.body)),
                     const SizedBox(height: 2),
                     Row(children: [
                       _tag(_kindTag(m), _kindColor(m)),
@@ -723,14 +891,7 @@ class _LeftPanelState extends State<LeftPanel> {
         break;
       case 'move':
         if (!context.mounted) return;
-        await showDarkDialog(context, title: '移动到文件夹', actions: [
-          for (final f in st.folders)
-            darkTextBtn(f.name, () async {
-              await st.store.moveCollection(m.id, f.id);
-              Navigator.pop(context);
-              await st.refreshCollections();
-            }),
-        ]);
+        await _moveToFolderDialog(context, m);
         break;
       case 'delete':
         if (!context.mounted) return;
@@ -826,7 +987,7 @@ class _LeftPanelState extends State<LeftPanel> {
             const Expanded(
               child: Text('本工程',
                   style: TextStyle(
-                      color: Colors.white,
+                      color: kTextMain,
                       fontSize: TokFs.body,
                       fontWeight: FontWeight.w500)),
             ),
@@ -1116,7 +1277,7 @@ class _LeftPanelState extends State<LeftPanel> {
               decoration: BoxDecoration(
                   color: hot
                       ? kAccent.withValues(alpha: 0.12)
-                      : const Color(0xFF1A2027),
+                      : TokC.field,
                   borderRadius: BorderRadius.circular(TokR.m),
                   border: Border.all(
                       color: hot ? kAccent : TokC.divider,
