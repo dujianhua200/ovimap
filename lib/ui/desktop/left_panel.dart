@@ -127,7 +127,9 @@ class _LeftPanelState extends State<LeftPanel> {
           _header(context),
           _searchBar(),
           const Divider(height: 1, color: TokC.divider),
-          Expanded(child: _favoritesView(context)),
+          _folderTree(),
+          const Divider(height: 1, color: TokC.divider),
+          Expanded(child: _collectionList(context)),
           _draftSection(),
           _dropZone(context),
         ],
@@ -155,6 +157,13 @@ class _LeftPanelState extends State<LeftPanel> {
             tooltip: '新建工程',
             onPressed: widget.onNewProject,
             icon: const Icon(Icons.note_add, color: kAccent, size: 20),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: '新建文件夹',
+            onPressed: () => _addFolder(),
+            icon: const Icon(Icons.create_new_folder_outlined,
+                color: kAccent, size: 20),
           ),
           if (widget.onClose != null)
             IconButton(
@@ -185,222 +194,159 @@ class _LeftPanelState extends State<LeftPanel> {
     );
   }
 
-  // ---- 收藏夹（叠加式多级导航） ----
+  // ---- 收藏夹树（奥维桌面版样式） ----
   //
-  // 用户反馈「收藏夹最好用叠加功能来实现多级文件夹的访问」：不再一棵树平铺，
-  // 而是**逐级钻入**——列表只显示当前层的子文件夹与工程；点文件夹进入该层，
-  // 面包屑（或「..」）逐级返回。层级状态用 [_nav] 栈表达，天然支持任意深度。
+  // 用户给了奥维截图定版：**整树平铺**——根「收藏夹[n]」+ 各级文件夹缩进排列，
+  // 每行 +/− 折叠、黄色文件夹图标、名称后 [工程数]；点名称选中该层，下方
+  // 工程列表随之过滤；搜索时跨全库。v3.4 的悬浮叠加与逐级钻入按用户截图
+  // 口径废弃（deletion over addition）。
 
-  /// 导航栈：空 = 根目录；最后一位 = 当前所在文件夹。
-  final List<Folder> _nav = <Folder>[];
+  /// 当前选中的文件夹（'' = 根目录）；工程列表与保存对话框默认层都跟随它。
+  String _selFolder = '';
 
-  /// 已展开（显示二级）的文件夹 id 集（+/− 树）。
-  final Set<String> _expanded = <String>{};
+  /// 被手动收起（−）的文件夹 id 集；'' 代表根。**未记录 = 展开**，
+  /// 新建的文件夹天然展开，不用逐个同步。
+  final Set<String> _collapsed = <String>{};
 
-  String get _currentFolderId => _nav.isEmpty ? '' : _nav.last.id;
-
-  /// 收藏夹主视图：面包屑栏 + 当前层内容（子文件夹在上、工程在下）。
-  Widget _favoritesView(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _breadcrumbBar(),
-        Expanded(child: _currentLevelList(context)),
-      ],
-    );
-  }
-
-  /// 面包屑栏：根目录显示标题；进入子级后给出可点击的完整路径与「新建文件夹」。
-  Widget _breadcrumbBar() {
-    final crumbs = <Widget>[
-      InkWell(
-        onTap: _nav.isEmpty ? null : _backToRoot,
-        child: Text('收藏夹',
-            style: TextStyle(
-                color: _nav.isEmpty ? kTextMain : kAccent,
-                fontSize: TokFs.body,
-                fontWeight: FontWeight.w600)),
-      ),
-    ];
-    for (var i = 0; i < _nav.length; i++) {
-      final last = i == _nav.length - 1;
-      final f = _nav[i];
-      crumbs.add(const Text(' › ',
-          style: TextStyle(color: kTextHint, fontSize: TokFs.body)));
-      crumbs.add(InkWell(
-        onTap: last ? null : () => setState(() => _nav.removeRange(i + 1, _nav.length)),
-        child: Text(f.name,
-            style: TextStyle(
-                color: last ? kTextMain : kAccent,
-                fontSize: TokFs.body,
-                fontWeight: last ? FontWeight.w600 : FontWeight.normal),
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-      ));
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 6, 4),
-      child: Row(children: [
-        ...crumbs,
-        const Spacer(),
-        TextButton(
-          onPressed: () => _addFolder(),
-          child: const Text('新建文件夹',
-              style: TextStyle(color: kAccent, fontSize: TokFs.small)),
-        ),
-      ]),
-    );
-  }
-
-  void _drillInto(Folder f) {
-    setState(() => _nav.add(f));
-    st.folderId = f.id;
-    st.refreshUi();
-  }
-
-  void _backToRoot() {
-    setState(() => _nav.clear());
-    st.folderId = '';
-    st.refreshUi();
-  }
-
-  void _backOneLevel() {
-    setState(() {
-      if (_nav.isNotEmpty) _nav.removeLast();
-    });
-    st.folderId = _currentFolderId;
-    st.refreshUi();
-  }
-
-  /// 当前层内容：搜索时跨全库；否则显示当前文件夹的子文件夹（可 +/- 展开）+ 工程。
-  Widget _currentLevelList(BuildContext context) {
-    if (_query.isNotEmpty) return _collectionList(context);
-
-    final fid = _currentFolderId;
-    final subfolders = [
-      for (final f in st.folders)
-        if (f.id.isNotEmpty && f.parentId == fid) f,
-    ];
-
-    final rows = <Widget>[
-      // 「..」返回上级（根目录不显示）。
-      if (_nav.isNotEmpty)
-        InkWell(
-          onTap: _backOneLevel,
-          child: Container(
-            height: 32,
-            padding: const EdgeInsets.only(left: 10, right: 8),
-            child: Row(children: [
-              const Icon(Icons.arrow_back_ios_new, size: 13, color: kTextSub),
-              const SizedBox(width: 6),
-              Text('..',
-                  style: const TextStyle(color: kTextSub, fontSize: TokFs.body)),
-            ]),
-          ),
-        ),
-      // 子文件夹树：+/− 展开/收缩二级（用户指定交互），点名称仍可钻入。
-      ..._folderRows(subfolders, 0),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Flexible(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
-          ),
-        ),
-        Expanded(child: _collectionList(context)),
-      ],
-    );
-  }
-
-  /// 递归构建文件夹行：展开的文件夹其子级缩进显示。
-  List<Widget> _folderRows(List<Folder> roots, int baseDepth) {
-    final rows = <Widget>[];
+  /// 收藏夹树：根行 + 各级文件夹（+/− 折叠、缩进、[n] 计数）。
+  Widget _folderTree() {
+    final rows = <Widget>[_rootRow()];
     void rec(Folder f, int depth) {
       rows.add(_folderRow(f, depth));
-      if (_expanded.contains(f.id)) {
+      if (!_collapsed.contains(f.id)) {
         for (final c in st.folders) {
           if (c.id.isNotEmpty && c.parentId == f.id) rec(c, depth + 1);
         }
       }
     }
 
-    for (final f in roots) {
-      rec(f, baseDepth);
+    for (final f in st.folders) {
+      if (f.id.isNotEmpty && f.parentId.isEmpty) rec(f, 0);
     }
-    return rows;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 300),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
+      ),
+    );
   }
 
-  /// 文件夹行：**有子级时前缀 +/− 号**——点 + 展开二级（变 −），点 − 收缩；
-  /// 点名称/行钻入该层（面包屑导航仍在）。右侧显示内含工程数。
+  /// 根行「收藏夹[n]」：选中 = 看全部根目录工程；有顶级文件夹时可折叠。
+  Widget _rootRow() {
+    final hasKids = st.folders.any((f) => f.id.isNotEmpty && f.parentId.isEmpty);
+    return _treeRow(
+      depth: 0,
+      hasKids: hasKids,
+      expanded: !_collapsed.contains(''),
+      onToggle: hasKids
+          ? () => setState(() {
+                _collapsed.contains('') ? _collapsed.remove('') : _collapsed.add('');
+              })
+          : null,
+      icon: Icons.bookmarks,
+      iconColor: kAccent,
+      name: '收藏夹',
+      count: st.collections.length,
+      selected: _selFolder.isEmpty,
+      onTap: () => _selectFolder(''),
+    );
+  }
+
+  void _selectFolder(String fid) {
+    setState(() => _selFolder = fid);
+    st.folderId = fid; // 保存对话框「所属文件夹」默认落这层
+    st.refreshUi();
+  }
+
+  /// 树行通用骨架：[+/-] 图标 名称[n]；右键出文件夹菜单。
+  Widget _treeRow({
+    required int depth,
+    required bool hasKids,
+    required bool expanded,
+    VoidCallback? onToggle,
+    required IconData icon,
+    required Color iconColor,
+    required String name,
+    required int count,
+    required bool selected,
+    VoidCallback? onTap,
+    void Function(Offset pos)? onSecondary,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      onSecondaryTapUp:
+          onSecondary == null ? null : (d) => onSecondary(d.globalPosition),
+      onLongPress: onSecondary == null
+          ? null
+          : () {
+              final box = context.findRenderObject() as RenderBox?;
+              onSecondary.call(box != null &&
+                      box.localToGlobal(Offset.zero).dy >= 0
+                  ? box.localToGlobal(const Offset(80, 40))
+                  : Offset.zero);
+            },
+      child: Container(
+        height: 30,
+        padding: EdgeInsets.only(left: 8.0 + depth * 16.0, right: 10),
+        color: selected ? kAccent.withValues(alpha: 0.14) : null,
+        child: Row(children: [
+          if (hasKids)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggle,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+                child: Icon(expanded ? Icons.remove : Icons.add,
+                    size: 13, color: kTextSub),
+              ),
+            )
+          else
+            const SizedBox(width: 23),
+          Icon(icon, size: 16, color: iconColor),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: selected ? kAccent : kTextMain,
+                    fontSize: TokFs.body,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.normal)),
+          ),
+          Text('[$count]',
+              style:
+                  const TextStyle(color: kTextHint, fontSize: TokFs.micro)),
+        ]),
+      ),
+    );
+  }
+
+  /// 文件夹行：+/− 折叠、黄色文件夹图标（奥维同款观感）、名称[工程数]；
+  /// 点名称选中（下方列表过滤到该层），右键出操作菜单。
   Widget _folderRow(Folder f, int depth) {
     final count = st.collections.where((m) => m.folder == f.id).length;
-    final kids =
-        st.folders.where((c) => c.id.isNotEmpty && c.parentId == f.id).toList();
-    final expanded = _expanded.contains(f.id);
-    return InkWell(
-      onTap: () => _drillInto(f),
-      // 桌面惯例是右键；长按保留给触屏（移动端抽屉同一套手势语义）。
-      onSecondaryTapUp: (d) => _showFolderMenu(f, d.globalPosition),
-      onLongPress: () {
-        final box = context.findRenderObject() as RenderBox?;
-        final pos = box != null && box.localToGlobal(Offset.zero).dy >= 0
-            ? box.localToGlobal(const Offset(80, 40))
-            : Offset.zero;
-        _showFolderMenu(f, pos);
-      },
-      child: Container(
-        height: 32,
-        margin: EdgeInsets.only(left: 6.0 + depth * 14.0, right: 6, top: 1, bottom: 1),
-        padding: const EdgeInsets.only(left: 6, right: 4),
-        decoration: BoxDecoration(
-          color: TokC.field,
-          borderRadius: BorderRadius.circular(TokR.s),
-        ),
-        child: Row(
-          children: [
-            if (kids.isEmpty)
-              const Icon(Icons.folder, size: 15, color: kTextSub)
-            else
-              // 加号=收起（可展开），减号=已展开（点击收缩）。
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => setState(() {
-                  if (expanded) {
-                    _expanded.remove(f.id);
-                  } else {
-                    _expanded.add(f.id);
-                  }
-                }),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
-                  child: Icon(
-                    expanded ? Icons.remove : Icons.add,
-                    size: 14,
-                    color: kAccent,
-                  ),
-                ),
-              ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(f.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: kTextMain,
-                      fontSize: TokFs.body,
-                      fontWeight: FontWeight.w500)),
-            ),
-            Text('$count 工程',
-                style: const TextStyle(
-                    color: kTextHint, fontSize: TokFs.micro)),
-            const Icon(Icons.chevron_right, size: 15, color: kTextHint),
-          ],
-        ),
-      ),
+    final hasKids =
+        st.folders.any((c) => c.id.isNotEmpty && c.parentId == f.id);
+    return _treeRow(
+      depth: depth,
+      hasKids: hasKids,
+      expanded: !_collapsed.contains(f.id),
+      onToggle: () => setState(() {
+        _collapsed.contains(f.id)
+            ? _collapsed.remove(f.id)
+            : _collapsed.add(f.id);
+      }),
+      icon: Icons.folder,
+      iconColor: const Color(0xFFE6A23C),
+      name: f.name,
+      count: count,
+      selected: _selFolder == f.id,
+      onTap: () => _selectFolder(f.id),
+      onSecondary: (pos) => _showFolderMenu(f, pos),
     );
   }
 
@@ -461,7 +407,7 @@ class _LeftPanelState extends State<LeftPanel> {
   /// 回车/按钮谁先来都只建一次，且回车立即关框。
   Future<void> _addFolder({String? parentId}) async {
     final ctl = TextEditingController();
-    final parent = parentId ?? _currentFolderId;
+    final parent = parentId ?? _selFolder;
     var done = false;
     Future<void> submit() async {
       if (done) return;
@@ -597,7 +543,10 @@ class _LeftPanelState extends State<LeftPanel> {
           darkTextBtn('删除', () async {
             Navigator.pop(context);
             await st.store.deleteFolder(f.id);
-            if (st.folderId == f.id) st.folderId = '';
+            if (_selFolder == f.id) {
+              _selFolder = '';
+              st.folderId = '';
+            }
             await st.refreshCollections();
             st.refreshUi();
             toast(context, '已删除文件夹「${f.name}」'
@@ -616,9 +565,8 @@ class _LeftPanelState extends State<LeftPanel> {
         return m.name.toLowerCase().contains(q) ||
             m.desc.toLowerCase().contains(q);
       }
-      final fid = _currentFolderId;
-      if (fid.isEmpty) return m.folder.isEmpty;
-      return m.folder == fid;
+      if (_selFolder.isEmpty) return m.folder.isEmpty;
+      return m.folder == _selFolder;
     }).toList();
   }
 

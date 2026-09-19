@@ -7,7 +7,13 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.5.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.6.0**（Windows x64 / macOS Universal / Android）
+
+> **v3.6.0 更新**（按奥维桌面版截图定版）：① 收藏夹改**常驻停靠面板**
+> （可拖宽、可收起成图标轨道），不再悬浮遮挡地图；② 文件夹改**整树平铺**——
+> 根「收藏夹[n]」+ 各级缩进，+/− 折叠展开、黄色文件夹图标、名称后 [工程数]，
+> 与奥维同款观感；③ 点文件夹名即选中该层，下方工程列表随之过滤；
+> ④ 测试员走查：全量 592 用例通过，树/选层/折叠/删除/新建/搜索链路各上护栏。
 
 > **v3.5.0 更新**：① 修复「点击打点总是接上一次工程末端且取消不了」——打开收藏 /
 > 新建工程后第一笔**绝不接旧线**，右键新增「**断开续画（下一点另起）**」手动控制；

@@ -74,13 +74,16 @@ class _WorkspacePageState extends State<WorkspacePage> {
   //     **悬浮面板**叠加在地图上（不挤压地图宽度），再点或 Esc 收起；
   //   · 右栏保持默认收起，且选中点**不再自动展开**——要看属性时从工具栏手动开；
   //   · 默认视口 1440 下地图占 (1440-52-0)/1440 ≈ 96%。
+  double _leftW = 300;
   double _rightW = 280;
   bool _rightCollapsed = true;
 
-  /// 收藏夹悬浮面板开关。
-  bool _favOpen = false;
+  /// 收藏夹面板开关。**默认打开**（奥维桌面版收藏夹常驻停靠，用户截图定版）；
+  /// 收起后只留 52px 图标轨道，点「收藏夹」再展开。
+  bool _favOpen = true;
 
-  /// 「专注地图」进入前的右栏状态（再按一次还原，而不是盲目全展开）。
+  /// 「专注地图」进入前的面板状态（再按一次还原，而不是盲目全展开）。
+  bool _prevLeftOpen = true;
   bool _prevRightOpen = false;
 
   // ---- 选中（右栏展示） ----
@@ -276,10 +279,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
     setState(() {
       final anyOpen = _favOpen || !_rightCollapsed;
       if (anyOpen) {
+        _prevLeftOpen = _favOpen;
         _prevRightOpen = !_rightCollapsed;
         _favOpen = false;
         _rightCollapsed = true;
       } else {
+        _favOpen = _prevLeftOpen;
         _rightCollapsed = !_prevRightOpen;
       }
     });
@@ -802,29 +807,13 @@ class _WorkspacePageState extends State<WorkspacePage> {
         return Row(
           children: [
             _favRail(st),
-            Expanded(
-              child: Stack(
-                children: [
-                  _mapStack(st),
-                  // 收藏夹悬浮面板：叠加在地图上，只在打开时出现。
-                  if (_favOpen)
-                    Positioned(
-                      left: 8,
-                      top: 8,
-                      bottom: 8,
-                      width: 320,
-                      child: Material(
-                        color: TokC.panelSolid,
-                        elevation: 6,
-                        shadowColor: Colors.black38,
-                        borderRadius: BorderRadius.circular(TokR.m),
-                        clipBehavior: Clip.antiAlias,
-                        child: _leftPanel(st),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+            // 收藏夹停靠面板（奥维桌面版同款布局：常驻左侧、可拖宽、可收起）。
+            if (_favOpen) ...[
+              SizedBox(width: _leftW, child: _leftPanel(st)),
+              _dragDivider((dx) => setState(
+                  () => _leftW = (_leftW + dx).clamp(220.0, 460.0))),
+            ],
+            Expanded(child: _mapStack(st)),
             if (showRight)
               _dragDivider((dx) => setState(
                   () => _rightW = (_rightW - dx).clamp(240.0, 460.0))),

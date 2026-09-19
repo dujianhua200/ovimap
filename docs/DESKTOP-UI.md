@@ -34,6 +34,7 @@
 | 「添加的轨迹和标签没有保存功能」（v3.3.0） | `openCollection` 后打点 / 删点 / 撤销 / 续画只写 `draft.json`，收藏文件停在打开时的旧内容，重启即丢 | `app_state.dart` 的 `_saveDraft()` 收口：`activeCollectionId` 非空时同步写回 `collection_<cid>.json`；新增 `startNewDraft()` 保证「先脱离收藏再清空」。护栏测试 `test/collection_autosave_indep_test.dart` |
 | 「新建一个（文件夹）就出现 2 个」（v3.4.0） | `_addFolder` 的 `onSubmitted` 里 `created.complete(st.store.addFolder(...))`：回车后**对话框不关闭**；再按回车时 `complete` 的参数表达式**先求值**（第二个 `addFolder` 已发出）才抛 StateError，两个并发写盘竞态后同名文件夹出现两个 | `left_panel.dart`：改为单一提交口 `submit()` + `done` 闸门，回车/按钮谁先来都只建一次，**回车立即关框**；`showFinishDialog` 内的「新建文件夹」同口径封堵 |
 | 「收藏夹用叠加功能实现多级访问」「左栏做个收藏夹图标」「右栏鸡肋」「移动文件不满意」「打点弹属性框烦」（v3.4.0） | 文件夹树平铺全树、移动是逐文件夹按钮、左右栏常驻挤占地图、竣工模式逐点弹属性框 | `left_panel.dart` + `workspace_page.dart` + `map_canvas.dart` 全面重排：① 文件夹树改**叠加式导航**（`_nav` 栈逐级钻入，「..」/面包屑返回，列表只显示当前层，搜索跨全库）；② 左栏收成 52px **图标轨道**，点「收藏夹」以 320px 悬浮面板**叠加**在地图上（Esc/再点收起）；③ 右栏默认隐藏，选中点**不再自动展开**；④ 移动工程改**下拉选择**（层级缩进 + 根目录）；⑤ 打点不再自动弹属性框（补属性走右键「编辑属性」）。护栏测试 `test/favorites_stack_nav_test.dart` |
+| 「界面像奥维：收藏夹/文件夹树定版」（v3.6.0，用户给奥维截图） | v3.4 的悬浮叠加面板遮挡地图、逐级钻入不如整树直观；截图里奥维是**常驻停靠左栏 + 整树平铺** | `workspace_page.dart`：面板改回**停靠**（默认打开、可拖宽 220~460、可收起成 52px 图标轨道）；`left_panel.dart`：删掉 `_nav` 钻入栈与面包屑，改**整树平铺**——根「收藏夹[n]」+ 各级文件夹，+/− 折叠（`_collapsed` 记录收起项，未记录=展开）、黄色文件夹图标 `0xFFE6A23C`、名称后 `[工程数]`；点名称选层过滤下方列表（`_selFolder` 同步 `st.folderId`），删除文件夹后选中复位；护栏测试 `test/favorites_stack_nav_test.dart` 重写为树口径 |
 
 > **教训**：平台分支只有一处（`main.dart`），平台能力只有一处（`PlatformCaps`）。
 > 新增平台相关判断时一律走 `PlatformCaps.isDesktop`，**不要写单一平台的 `isXxx`** ——
