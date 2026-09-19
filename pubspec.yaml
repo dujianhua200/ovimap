@@ -1,7 +1,7 @@
 name: ovimap
 description: "滑洲云图 - 通信线路工程勘察设计与竣工测量工具"
 publish_to: 'none'
-version: 3.1.0+10
+version: 3.2.0+11
 
 environment:
   sdk: ^3.13.2
@@ -32,6 +32,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   path_provider_platform_interface: ^2.1.3
+  shared_preferences_platform_interface: ^2.4.0
 
 # file_picker 9.x 的 Android 端把 compileSdk 固定为 34，而其依赖 flutter_plugin_android_lifecycle
 # 在 2.0.28+ 起改为 `flutter.compileSdkVersion`（=36），导致 AGP 的 AAR 元数据校验失败。

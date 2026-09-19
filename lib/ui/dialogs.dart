@@ -27,26 +27,49 @@ import '../services/photos.dart';
 import '../services/platform_caps.dart';
 import '../services/tile_cache.dart';
 import '../state/app_state.dart';
+import 'design_tokens.dart';
+import 'desktop/source_panel.dart';
 
 // ================= 通用样式 =================
 
-const Color kPanelBg = Color(0xF51C2127);
-const Color kBarBg = Color(0xE6161B20);
-const Color kAccent = Color(0xFF40C4FF);
-const Color kGreen = Color(0xFF69F0AE);
-const Color kTextMain = Color(0xFFE8EDF2);
-const Color kTextSub = Color(0xFFB8C2CC);
+// 颜色真源已迁到 `design_tokens.dart`（TokC）。下面这些名字保留为**编译期转发
+// 别名**：历史调用点（散布在几十个文件里）一行都不用改，但值只有一份，
+// 以后调整配色只改令牌文件一处。
+const Color kPanelBg = TokC.panel;
+const Color kBarBg = TokC.bar;
+const Color kAccent = TokC.accent;
+const Color kGreen = TokC.ok;
+const Color kTextMain = TokC.textMain;
+const Color kTextSub = TokC.textSub;
+
+/// 常驻侧栏底色（不透明，避免侧栏透出地图）。
+const Color kPanelSolidBg = TokC.panelSolid;
+
+/// 浮起卡片 / 列表项底色。
+const Color kCardBg = TokC.card;
+
+/// 输入框填充底色。
+const Color kFieldBg = TokC.field;
+
+/// 危险操作色（删除、体检 error）。
+const Color kDanger = TokC.danger;
+
+/// 警示色（竣工模式、体检 warn、超限）。
+const Color kWarn = TokC.warn;
+
+/// 提示 / 占位文字色。
+const Color kTextHint = TokC.textHint;
 
 InputDecoration dec(String hint) => InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: Color(0xFF78828E), fontSize: 13),
+      hintStyle: const TextStyle(color: kTextHint, fontSize: TokFs.body),
       filled: true,
-      fillColor: const Color(0xFF232A31),
+      fillColor: kFieldBg,
       isDense: true,
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(TokR.m),
         borderSide: BorderSide.none,
       ),
     );
@@ -57,7 +80,29 @@ Future<void> showDarkDialog(
   Widget? content,
   List<Widget>? actions,
   bool barrierDismissible = true,
+  double? width, // null = 沿用 Flutter 默认；传入则固定该宽度（不撑满整窗）
+  double maxHeightFactor = 0.8, // 指定 width 时，内容区最高占视口比例
 }) {
+  // 默认调用方（不传 width）完全保持旧行为：title/content/actions 走 AlertDialog 默认槽位，
+  // 不改 insetPadding / contentPadding / constraints，视觉不变。只有传 width 的新面板才收口。
+  if (width == null) {
+    return showDialog(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kPanelBg,
+        title: Text(title,
+            style: const TextStyle(color: Colors.white, fontSize: 16)),
+        content: content,
+        actions: actions,
+      ),
+    );
+  }
+
+  // 传 width 时：本 Flutter 版本的 AlertDialog 会按视口把对话框撑满（仅用 SizedBox 包 content
+  // 无法收口），故直接约束对话框自身：min==max==width 锁定宽度，maxHeight 限制高度（内容可滚动）。
+  // insetPadding 保留默认（不贴边）。默认分支不传 constraints，旧对话框视觉完全不变。
+  final vh = MediaQuery.of(context).size.height;
   return showDialog(
     context: context,
     barrierDismissible: barrierDismissible,
@@ -67,6 +112,12 @@ Future<void> showDarkDialog(
           style: const TextStyle(color: Colors.white, fontSize: 16)),
       content: content,
       actions: actions,
+      constraints: BoxConstraints(
+        minWidth: width,
+        maxWidth: width,
+        maxHeight: vh * maxHeightFactor,
+      ),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
     ),
   );
 }
@@ -96,12 +147,12 @@ Widget sheetGroupTitle(String text) => Padding(
       child: Text(text, style: const TextStyle(color: kTextSub, fontSize: 12)),
     );
 
-/// 段标注自动补距离：用 [GeoUtil.fmtSegLen] 口径格式化，但去掉整数时的 ".0"
-/// 毛刺（例如 42.0 → "42"），避免出现"埋42.0"这种不自然写法。
-String _segAutoDistText(double d) {
-  final s = GeoUtil.fmtSegLen(d);
-  return s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
-}
+/// 段标注自动补距离：委托 [GeoUtil.segDistText]（米、整数不留 ".0"）。
+///
+/// 这里曾经自己调 `fmtSegLen` 再手动去尾 —— 与地图段标、DXF 标注是两套实现，
+/// 一到 ≥1km 的长杆档就会分叉（一处 "1.05km"、一处 "1050"）。规则已收敛到
+/// [GeoUtil.segDistText]，本函数只作既有调用点的兼容壳。
+String _segAutoDistText(double d) => GeoUtil.segDistText(d);
 
 /// 段标注敷设前缀快捷键：埋/管/吊/架/钉/槽/桥/顶棚/暗/竖 + 数字（如 管45.3）
 /// 点击 = 把前缀替换到距离数字前面：
@@ -1420,86 +1471,11 @@ Future<double?> _promptCustomRange(BuildContext context, double current) async {
 
 // ================= 图源管理 =================
 
+/// 图源 / 图层对话框入口。实现已整体迁移到 `desktop/source_panel.dart` 的
+/// `showSourcePanel`（定宽 480 的紧凑面板），此处仅做薄委托，保持既有调用方
+/// （toolbar / home_page / settings_menu / menu_model）无感。
 Future<void> showSourceDialog(BuildContext context, AppState st) async {
-  await showDarkDialog(
-    context,
-    title: '地图源',
-    content: SizedBox(
-      width: double.maxFinite,
-      child: StatefulBuilder(
-        builder: (ctx, setSt) => SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('— 主图源 —',
-                  style: TextStyle(color: kTextSub, fontSize: 11)),
-              for (final e in st.allSources.where((s) => !s.overlay))
-                RadioListTile<String>(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                      '${e.name}　[${GeoConvert.datumName(e.datum)}]',
-                      style: const TextStyle(color: kTextMain, fontSize: 13)),
-                  value: e.id,
-                  groupValue: st.curSource.id,
-                  activeColor: kAccent,
-                  onChanged: (v) {
-                    st.applySource(e);
-                    setSt(() {});
-                  },
-                ),
-              const Divider(color: Colors.white12),
-              const Text('— 注记叠加层 —',
-                  style: TextStyle(color: kTextSub, fontSize: 11)),
-              CheckboxListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('无',
-                    style: TextStyle(color: kTextMain, fontSize: 13)),
-                value: st.overlayId == null,
-                activeColor: kAccent,
-                onChanged: (v) {
-                  st.applyOverlay(null);
-                  setSt(() {});
-                },
-              ),
-              for (final e in st.allOverlays)
-                CheckboxListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(e.name,
-                      style: const TextStyle(color: kTextMain, fontSize: 13)),
-                  value: st.overlayId == e.id,
-                  activeColor: kAccent,
-                  onChanged: (v) {
-                    st.applyOverlay(v == true ? e.id : null);
-                    setSt(() {});
-                  },
-                ),
-              const Divider(color: Colors.white12),
-              Row(children: [
-                darkTextBtn('＋ 添加自定义图源', () {
-                  Navigator.pop(context);
-                  showAddCustomSource(context, st);
-                }),
-                if (st.curSource.custom)
-                  darkTextBtn('删除当前自定义源', () {
-                    st.removeCustomSource(st.curSource.id);
-                    Navigator.pop(context);
-                    toast(context, '已删除');
-                  }, color: const Color(0xFFFF5252)),
-              ]),
-              const Text(
-                  '自定义源支持 {x} {y} {z} 模板（也兼容 {\$x} 旧写法），可填高德/天地图/自建瓦片服务',
-                  style: TextStyle(color: kTextSub, fontSize: 10.5)),
-            ],
-          ),
-        ),
-      ),
-    ),
-    actions: [darkTextBtn('完成', () => Navigator.pop(context))],
-  );
+  await showSourcePanel(context, st);
 }
 
 Future<void> showAddCustomSource(BuildContext context, AppState st) async {

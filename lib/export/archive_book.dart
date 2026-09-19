@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
 
+import '../geo/geo_util.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
 import 'csv.dart';
@@ -146,30 +146,9 @@ class ArchiveBookExporter {
     return total;
   }
 
-  static double _segDist(MapLabel a, MapLabel b) {
-    final t = b.distLabel.trim();
-    if (t.isNotEmpty) {
-      final m = RegExp(r'[\d.]+').firstMatch(t);
-      final v = m == null ? null : double.tryParse(m.group(0) ?? '');
-      if (v != null && v > 0) return v;
-    }
-    final dm = b.distanceM;
-    if (dm != null && dm > 0) return dm;
-    return _haversine(a.lat, a.lon, b.lat, b.lon);
-  }
-
-  static double _haversine(double la1, double lo1, double la2, double lo2) {
-    const r = 6371000.0;
-    double rad(double d) => d * math.pi / 180;
-    final dLat = rad(la2 - la1);
-    final dLon = rad(lo2 - lo1);
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(rad(la1)) *
-            math.cos(rad(la2)) *
-            math.sin(dLon / 2) *
-            math.sin(dLon / 2);
-    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-  }
+  /// 段距（标注优先口径）——唯一实现见 [GeoUtil.segLenLabelFirst]。
+  static double _segDist(MapLabel a, MapLabel b) =>
+      GeoUtil.segLenLabelFirst(a, b);
 
   static String _two(int v) => v.toString().padLeft(2, '0');
 }

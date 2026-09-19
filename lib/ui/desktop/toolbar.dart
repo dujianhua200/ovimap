@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../state/app_state.dart';
 import '../../sync/sync_controller.dart';
 import '../../sync/sync_models.dart';
+import '../design_tokens.dart';
 import '../dialogs.dart';
 import 'symbol_library.dart';
 
@@ -34,6 +35,7 @@ class Toolbar extends StatelessWidget {
     required this.onDeleteSelection,
     required this.onExport,
     required this.onSync,
+    required this.onInspect,
     required this.leftCollapsed,
     required this.rightCollapsed,
     required this.onToggleLeft,
@@ -52,6 +54,9 @@ class Toolbar extends StatelessWidget {
   final VoidCallback onDeleteSelection;
   final VoidCallback onExport;
   final VoidCallback onSync;
+
+  /// 出图体检（放在「导出成果」旁边：先体检、再出图）。
+  final VoidCallback onInspect;
   final bool leftCollapsed;
   final bool rightCollapsed;
   final VoidCallback onToggleLeft;
@@ -104,6 +109,12 @@ class Toolbar extends StatelessWidget {
           _btn(Icons.layers_outlined,
               tooltip: '图源 / 图层',
               onTap: () => showSourceDialog(context, st)),
+          // 体检放在导出左侧：把"先查错、再出图"变成肌肉记忆。
+          // 图标用 fact_check（清单打勾），比"放大镜"更像"逐项核对"而不是"搜索"。
+          _btn(Icons.fact_check_outlined,
+              tooltip: '出图体检 Alt+Ctrl+K（查段距/敷设方式/编号/标注一致性）',
+              enabled: st.labels.isNotEmpty,
+              onTap: onInspect),
           _btn(Icons.ios_share, tooltip: '导出成果 Ctrl+E', onTap: onExport),
           _syncBtn(context),
           const Spacer(),
@@ -149,7 +160,7 @@ class Toolbar extends StatelessWidget {
               ),
               child: Text(glyph,
                   style: const TextStyle(
-                      color: Colors.white, fontSize: 11.5, height: 1.1)),
+                      color: Colors.white, fontSize: TokFs.small, height: 1.1)),
             ),
           ),
         ),
@@ -175,11 +186,11 @@ class Toolbar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(TokR.m),
                 border: Border.all(color: color.withValues(alpha: 0.7)),
               ),
               child: Text(completion ? '竣工' : '设计',
-                  style: TextStyle(color: color, fontSize: 11.5)),
+                  style: TextStyle(color: color, fontSize: TokFs.small)),
             ),
           ),
         ),

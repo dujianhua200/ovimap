@@ -58,22 +58,108 @@ class GeoUtil {
     return '${(m / 1000).toStringAsFixed(2)}km';
   }
 
-  /// 段标注显示口径（地图 / 导出唯一真源）。
+  /// 敷设方式 → 段标前缀（架空→架 / 埋地→埋 / 管道→管）；0 或其他 → null。
   ///
-  /// 决策逻辑唯一收敛在此，避免各出口各写一遍三目、导致前缀口径漂移：
-  /// - [b.distLabel] 非空 → 原样用（用户手填，优先级最高）；
-  /// - 否则 → [prefix] + [autoDistText]（[autoDistText] 由各出口按自身数字口径
-  ///   预先格式化好：地图段标注用 [fmtSegLen]，DXF 用无单位米；本函数**不再二次
-  ///   格式化**，以保住各出口既有的数字显示不变，例如 DXF 长段显示整数米而非 km）；
-  ///   若 [prefix] 为空串则只显示距离数字。
+  /// 词表与 UI 的 segPrefixChips 保持一致。前缀**不落地成字符串**，始终从
+  /// [MapLabel.segKind] 实时推导——这正是修掉"把前缀写死进 distLabel、挪点后图上
+  /// 焊死旧数字"出图事故的关键：距离变了，段标自动跟着变。
+  static String? kindPrefixOf(int kind) =>
+      const {1: '架', 2: '埋', 3: '管'}[kind];
+
+  /// 段标注显示口径（地图 / 导出唯一真源，旧名 [segLabelFor] 的同义委托）。
+  ///
+  /// 旧出口用 [segLabelFor]（[autoKindPrefix]=false，只看全局 [prefix]）行为完全不变；
+  /// 新出口请用 [segTextFor]，让敷设方式前缀从 [MapLabel.segKind] 实时带出。
   ///
   /// 注意：渲染/导出一律走这里，不要把"前缀 + 距离"写死进 [MapLabel.distLabel]
   /// （距离是动态的，落点写死会随段长变化而失真；要的是"设一次前缀、所有段自动带"）。
   static String segLabelFor(MapLabel b, String autoDistText,
       {String prefix = ''}) {
-    final label = b.distLabel.trim();
-    if (label.isNotEmpty) return label;
-    return prefix.isEmpty ? autoDistText : '$prefix$autoDistText';
+    return segTextFor(b, autoDistText, prefix: prefix, autoKindPrefix: false);
+  }
+
+  /// 段标最终文字（**新的唯一真源**）。
+  ///
+  /// 优先级：
+  /// 1. [b.distLabel] 非空 → 原样返回（用户手写，优先级最高）；
+  /// 2. 自动前缀：[autoKindPrefix] 为真且该段有敷设方式 → 用 [kindPrefixOf]；
+  ///    否则用全局 [prefix]；
+  /// 3. 拼 [autoDistText]；两者都空则只返回距离。
+  ///
+  /// 前缀始终从 [MapLabel.segKind] 实时推导，不写进 distLabel——
+  /// 距离变了段标自动跟着变，杜绝"图上焊死旧数字"的出图事故。
+  ///
+  /// 实现全权交给 [segTextPreview]（同一份规则，避免出现第二种拼法）。
+  static String segTextFor(MapLabel b, String autoDistText,
+          {String prefix = '', bool autoKindPrefix = true}) =>
+      segTextPreview(b.distLabel, autoKindPrefix ? b.segKind : 0, autoDistText,
+          prefix: prefix);
+
+  /// 段标注**未落盘**时的预览文字：把"输入框里正打着的字 + 刚点的敷设方式"喂进来，
+  /// 就能算出图上将显示什么。
+  ///
+  /// 存在的理由：属性面板的「本段标注」输入框、敷设方式 chip 都是**编辑态**，
+  /// 此刻 `MapLabel` 上还是旧值。若预览另写一套拼法，就会出现"预览写 埋42、出图写 架42"
+  /// 这种最伤人的不一致。规则只此一处。
+  static String segTextPreview(String typedLabel, int segKind, String autoDistText,
+      {String prefix = ''}) {
+    final t = typedLabel.trim();
+    if (t.isNotEmpty) return t;
+    final kp = kindPrefixOf(segKind) ?? '';
+    final eff = kp.isNotEmpty ? kp : prefix;
+    return eff.isEmpty ? autoDistText : '$eff$autoDistText';
+  }
+
+  /// 去掉整数后的小数尾巴：`"42.0"` → `"42"`，`"42.5"` 原样，`"1.23km"` 原样。
+  ///
+  /// 抽成独立方法是为了让**所有**距离文字出口共用同一条规则 —— 原先地图段标、
+  /// DXF 标注、UI 编辑框各自处理这个毛刺（有的去、有的不去），于是同一段路在
+  /// 屏幕上写 42、在图上写 42.0，出图对不上账。规则收敛到这一处。
+  static String stripDotZero(String s) =>
+      s.endsWith('.0') ? s.substring(0, s.length - 2) : s;
+
+  /// 段标注距离文字：**一律用米**，整数去掉 ".0" 毛刺。
+  ///
+  /// `42.0 → "42"`、`42.5 → "42.5"`、`1050.0 → "1050"`、`1050.5 → "1050.5"`。
+  ///
+  /// ## 为什么段标不用 [fmtSegLen] 的 "km"
+  /// 段标是屏上与图纸**共用**的一个数字（screen 段标、DXF 标注、左侧段落表、编辑框
+  /// 自动补距都是它）。[fmtSegLen] 超过 1km 会切成 "1.05km"，而 DXF 的标注图层单位
+  /// 就是米——于是同一条长杆档在屏幕上写「埋1.05km」、在图上写「埋1050」，审图时
+  /// 对不上账。通信线路的档距/段距行业口径本来就是米，段标统一用米既合规又不分叉。
+  ///
+  /// 需要"米 + 公里"混合单位的**概览文字**（如"总长 1.23 公里"）请用 [fmtSegLen]/
+  /// [fmtDist]，不要拿本方法当通用距离格式化用。
+  static String segDistText(double m) =>
+      m.isFinite ? stripDotZero(m.toStringAsFixed(1)) : '-';
+
+  /// 段长（**标注优先**口径）：先解析 [b.distLabel] 里的数字，其次 [MapLabel.distanceM]，
+  /// 最后回退到 [haversine] 计算值。
+  ///
+  /// ## 为什么"标注优先"
+  /// 图上写的数字就是审图与结算读到的数字。标注、里程表、材料表必须引用同一个数，
+  /// 否则同一个段落在屏幕上是 42、在 CSV 里是 43，审图时对不上账。
+  ///
+  /// ## 与 [RouteSegment.lengthM] 的分工（别互相替换）
+  /// - `RouteSegment.lengthM` 是**几何段长**：只看 `distanceM` 与坐标。标注只是"图上写
+  ///   什么"，不该反过来推动几何与桩号（否则用户在标注里手写一句备注就能挪动里程桩）。
+  /// - 本函数是**结算/里程口径**：标注文字优先。
+  /// 两者服务不同用途，各有其位。
+  ///
+  /// ## 为什么要有这个方法
+  /// 原先 `dxf.dart` / `csv.dart` / `archive_book.dart` 各有一份**逐字相同**的私有实现。
+  /// 三份拷贝各自演化，任何一处被改动都会让同一段路在不同导出里得出不同数字。此处
+  /// 收敛为唯一实现，那三处一律委托过来。
+  static double segLenLabelFirst(MapLabel a, MapLabel b) {
+    final t = b.distLabel.trim();
+    if (t.isNotEmpty) {
+      final m = RegExp(r'[\d.]+').firstMatch(t);
+      final v = m == null ? null : double.tryParse(m.group(0) ?? '');
+      if (v != null && v > 0) return v;
+    }
+    final dm = b.distanceM;
+    if (dm != null && dm > 0) return dm;
+    return haversine(a.lat, a.lon, b.lat, b.lon);
   }
 
   /// 面积显示：平方米/公顷/平方公里自动切换，附亩。

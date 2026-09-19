@@ -7,7 +7,7 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.1.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.2.0**（Windows x64 / macOS Universal / Android）
 **技术栈：** Flutter 3.47.2 · flutter_map 8 · Provider · DXF(R12/R2000) · Cloudflare Workers + D1 + R2
 
 ---
@@ -145,11 +145,24 @@
 | **设计↔竣工对照** | 设计模式与竣工模式两份数据做变更对照，输出差异报告 |
 | **杆路点表** | 就地查看全部杆点坐标、编号、档距一览 |
 
-### 3.3 导出成果（7 类）
+### 3.3 出图前质检（v3.2.0 新增）
+
+线路设计的交付物是**图纸**，图纸要拿去施工，所以出图前最贵的成本不是画图而是**返工**。
+以下能力都在出图前拦一道：
+
+| 功能 | 说明 |
+|---|---|
+| **出图体检** | 一键扫全线，按 错误 / 警告 / 提示 分级列出可疑项（段距过短·过长、未填敷设方式、点重名、序号跳号、标注与实测不符、疑似打点错位），每条带具体数字与修改建议，点「定位」直接跳到图上那一档 |
+| **批量设敷设方式** | 框选一排点 → 选「架空/埋地/管道」→ **全线段标自动变成 `架38` / `埋42.5`**，不用逐档填 |
+| **段标自动前缀** | 段标 = 手填文字（优先）∪ 敷设方式前缀 + 实测段距，**实时推导**。挪一个点，段标跟着变，图纸上不会残留旧数字 |
+| **左栏段落表** | 全线各段按顺序铺出，**在哪一档改哪一档**，内联编辑含 `架/埋/管` 前缀快捷键（`42` 一键变 `埋42`） |
+| **段标实时预览** | 右栏改属性时直接显示「图上显示：埋42」，不必切回地图核对 |
+
+### 3.4 导出成果（7 类）
 
 见 [第 6 节](#6-导出成果)。
 
-### 3.4 底图与离线
+### 3.5 底图与离线
 
 | 功能 | 说明 |
 |---|---|
@@ -159,7 +172,7 @@
 | **GeoJSON 底图导入** | 从文件导入开源矢量底图（建筑轮廓 / 道路 / 水系），无网也能出图 |
 | **自建图源** | 支持自定义 XYZ 瓦片 URL 模板与坐标系基准 |
 
-### 3.5 云同步
+### 3.6 云同步
 
 | 功能 | 说明 |
 |---|---|
@@ -168,7 +181,7 @@
 | **版本历史** | 每次同步留下版本记录，可回滚到任一历史版本 |
 | **状态指示** | 工具栏同步按钮上的圆点显示状态（仅本地 / 待上传 / 已同步 / 冲突） |
 
-### 3.6 桌面端增强（Windows / macOS / Linux 桌面壳）
+### 3.7 桌面端增强（Windows / macOS / Linux 桌面壳）
 
 | 功能 | 说明 |
 |---|---|
@@ -594,6 +607,8 @@ ovimap/
 | 文档 | 内容 |
 |---|---|
 | [`docs/USAGE.md`](docs/USAGE.md) | **使用手册**：分场景操作流程（架空 / 管道 / 箱体配线 / 竣工四类）+ 功能详解 + 数据备份 |
+| [`docs/OUT-DRAWING-EFFICIENCY.md`](docs/OUT-DRAWING-EFFICIENCY.md) | **出图效率专项**：段落/段标单一真源、出图体检、批量设敷设方式、左栏段落表的取舍与验证 |
+| [`docs/DESKTOP-UI.md`](docs/DESKTOP-UI.md) | **桌面界面设计说明**：菜单架构、地图占屏口径、快捷键、尺度令牌（§3.3） |
 | [`docs/BUILD-windows.md`](docs/BUILD-windows.md) | Windows 本地构建完整指南（含踩坑） |
 | [`docs/BUILD-macos.md`](docs/BUILD-macos.md) | macOS 本地构建完整指南（含签名与打包） |
 | [`docs/BUILD-desktop-ci.md`](docs/BUILD-desktop-ci.md) | GitHub Actions 双平台构建说明 + 版本发布流程 |

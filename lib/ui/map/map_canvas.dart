@@ -660,7 +660,10 @@ List<SegText> collectSegTexts(AppState st, MapCamera cam) {
       final pxDist = math.sqrt(dx * dx + dy * dy);
       if (pxDist < 30) continue;
       final dist = b.distanceM ?? GeoUtil.haversine(a.lat, a.lon, b.lat, b.lon);
-      final segText = GeoUtil.segLabelFor(b, GeoUtil.fmtSegLen(dist),
+      // 段标走 segTextFor（真源）：distLabel 未手填时，前缀**实时**取自本段敷设方式
+      // （架空→架 / 埋地→埋 / 管道→管），退而用全局段标前缀。距离用 segDistText
+      // 去掉整数的 ".0" 毛刺，与 DXF 标注、左侧段落表口径一致。
+      final segText = GeoUtil.segTextFor(b, GeoUtil.segDistText(dist),
           prefix: st.segPrefix);
       if (segText.isEmpty) continue;
       var ang = math.atan2(dy, dx);
@@ -693,7 +696,8 @@ List<SegText> collectSegTexts(AppState st, MapCamera cam) {
       out.add(SegText(
           Offset((spa.dx + spb.dx) / 2, (spa.dy + spb.dy) / 2),
           ang,
-          GeoUtil.fmtSegLen(dist)));
+          // 测量线没有敷设方式，只统一数字口径（去整数 ".0"）。
+          GeoUtil.segDistText(dist)));
     }
   }
   return out;

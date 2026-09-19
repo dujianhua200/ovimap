@@ -35,6 +35,7 @@ import 'package:flutter/services.dart';
 /// | Alt+Ctrl+L / ⌥⌘L | [ToggleLeftIntent] | 折叠 / 展开左栏 | 始终 |
 /// | Alt+Ctrl+R / ⌥⌘R | [ToggleRightIntent] | 折叠 / 展开右栏 | 始终 |
 /// | Alt+Ctrl+M / ⌥⌘M | [FocusMapIntent] | 专注地图（两侧全收 / 还原） | 始终 |
+/// | Alt+Ctrl+K / ⌥⌘K | [InspectIntent] | 出图体检（查段距/敷设方式/编号/标注） | 始终 |
 /// | `+` / `=` / `-`（含小键盘） | [ZoomInIntent] / [ZoomOutIntent] | 同 Ctrl± | 非编辑态 |
 /// | Esc | [EscapeIntent] | 取消当前操作 / 结束模式 | 非编辑态 |
 /// | Backspace | [UndoPointIntent] | 退掉最后一个点/连线 | 非编辑态 |
@@ -113,6 +114,11 @@ class FocusMapIntent extends Intent {
   const FocusMapIntent();
 }
 
+/// Alt+Ctrl+K / ⌥⌘K：出图体检（出图前的查错清单）。
+class InspectIntent extends Intent {
+  const InspectIntent();
+}
+
 /// 桌面快捷键容器：把一组回调接到对应 Intent 上。
 class DesktopShortcuts extends StatefulWidget {
   const DesktopShortcuts({
@@ -133,6 +139,7 @@ class DesktopShortcuts extends StatefulWidget {
     required this.onToggleLeft,
     required this.onToggleRight,
     required this.onFocusMap,
+    required this.onInspect,
   });
 
   final Widget child;
@@ -151,6 +158,7 @@ class DesktopShortcuts extends StatefulWidget {
   final VoidCallback onToggleLeft;
   final VoidCallback onToggleRight;
   final VoidCallback onFocusMap;
+  final VoidCallback onInspect;
 
   @override
   State<DesktopShortcuts> createState() => _DesktopShortcutsState();
@@ -252,12 +260,16 @@ class _DesktopShortcutsState extends State<DesktopShortcuts> {
           const ToggleRightIntent(),
       const SingleActivator(LogicalKeyboardKey.keyM, control: true, alt: true):
           const FocusMapIntent(),
+      const SingleActivator(LogicalKeyboardKey.keyK, control: true, alt: true):
+          const InspectIntent(),
       const SingleActivator(LogicalKeyboardKey.keyL, meta: true, alt: true):
           const ToggleLeftIntent(),
       const SingleActivator(LogicalKeyboardKey.keyR, meta: true, alt: true):
           const ToggleRightIntent(),
       const SingleActivator(LogicalKeyboardKey.keyM, meta: true, alt: true):
           const FocusMapIntent(),
+      const SingleActivator(LogicalKeyboardKey.keyK, meta: true, alt: true):
+          const InspectIntent(),
 
       // ---- 裸键：仅在非文本编辑态注册（规则 1）----
       if (!_editing) ...{
@@ -316,6 +328,8 @@ class _DesktopShortcutsState extends State<DesktopShortcuts> {
               onInvoke: (_) => _run(widget.onToggleRight)),
           FocusMapIntent: CallbackAction<FocusMapIntent>(
               onInvoke: (_) => _run(widget.onFocusMap)),
+          InspectIntent: CallbackAction<InspectIntent>(
+              onInvoke: (_) => _run(widget.onInspect)),
         },
         // autofocus 保证快捷键在无其它可聚焦控件时也能命中。
         child: Focus(autofocus: true, child: widget.child),

@@ -3,26 +3,45 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../geo/geo_util.dart';
+import '../../geo/route_segments.dart';
+import '../../models/map_label.dart';
 import '../../services/store.dart';
 import '../../state/app_state.dart';
 import '../../sync/sync_controller.dart';
 import '../../sync/sync_models.dart';
+import '../design_tokens.dart';
 import '../dialogs.dart';
 import '../export_center.dart';
 import '../sync/sync_panel.dart';
 import 'batch_export.dart';
 
+/// 段标就地编辑输入框的 Key。
+///
+/// 左栏里有两个 `TextField`（顶部工程搜索框 + 这里的段标输入框），
+/// 测试/finder 必须能精确命中后者，否则会撞上 `Too many elements`。
+const Key kSegLabelEditorKey = ValueKey<String>('segLabelEditor');
+
 /// 桌面左栏（架构文档 §3.2 / T09）。
 ///
 /// 内容自上而下：标题 + 新建工程 → 搜索框 → 文件夹树 → 工程列表（每项带
 /// **同步徽标** ✓/↑/⚠/●；支持 **Ctrl/Shift 多选** → 右键「批量导出 DXF」）→
+/// **本工程段落 / 点位表**（可就地改段标，见 [LeftPanel.onLocate]）→
 /// 底部「导入区」（点击选文件 / 应用内拖拽 → `.ovimap`/`.geojson` 分派，T21）。
+///
+/// ## 为什么左栏要有「段落表」
+///
+/// 线路设计人员最高频的修改动作是「改某一档的标注」——现场量了 42.5 米，要把图上
+/// 那一段改成「埋42.5」。原先只能在图上点中该点、再去右栏属性面板找「本段标注」，
+/// 一档一档来；几十档的线路就是几十次「地图找点 → 点中 → 右栏改」。左栏段落表把
+/// 全线的段按顺序铺出来，**在哪一档改哪一档**，还能一眼看到整条线路的段距分布。
 class LeftPanel extends StatefulWidget {
   const LeftPanel({
     super.key,
     required this.st,
     this.searchFocus,
     required this.onNewProject,
+    this.onLocate,
   });
 
   final AppState st;
@@ -30,6 +49,9 @@ class LeftPanel extends StatefulWidget {
 
   /// 新建工程（清空草稿进入空白编辑态）。
   final VoidCallback onNewProject;
+
+  /// 点击段落/点位行 → 外壳把地图移过去并选中该点（相机归壳，左栏不持 `MapController`）。
+  final void Function(MapLabel l)? onLocate;
 
   @override
   State<LeftPanel> createState() => _LeftPanelState();
@@ -45,6 +67,50 @@ class _LeftPanelState extends State<LeftPanel> {
   /// Shift 范围选择的锚点（上一次 Ctrl/普通点击的工程 id）。
   String _anchor = '';
 
+  /// 底部「本工程」区是否展开；默认收起，避免新用户一进来就看到一片列表。
+  bool _draftOpen = false;
+
+  /// 当前用哪个视图看草稿：「段落」（默认，出图改标注用）或「点位」。
+  bool _segView = true;
+
+  /// 正在就地编辑段标的点 id（空 = 没有在编辑）。
+  String _editingId = '';
+  final TextEditingController _segCtl = TextEditingController();
+  final FocusNode _segFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _segCtl.dispose();
+    _segFocus.dispose();
+    super.dispose();
+  }
+
+  /// 开始就地编辑某一段的段标。
+  void _beginEdit(MapLabel to) {
+    setState(() {
+      _editingId = to.id;
+      _segCtl.text = to.distLabel;
+    });
+    // 下一帧再聚焦：本帧该输入框还没进树。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _segFocus.requestFocus();
+        _segCtl.selection = TextSelection(
+            baseOffset: 0, extentOffset: _segCtl.text.length);
+      }
+    });
+  }
+
+  void _commitEdit(MapLabel to) {
+    final changed = st.setSegLabel(to, _segCtl.text);
+    setState(() => _editingId = '');
+    if (changed) {
+      toast(context, _segCtl.text.trim().isEmpty
+          ? '已清除手填标注，该段改按敷设方式 + 实测距离自动显示'
+          : '段标已更新（Ctrl+Z 可撤销）');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -58,6 +124,7 @@ class _LeftPanelState extends State<LeftPanel> {
           _folderTree(),
           const Divider(height: 1, color: Colors.white12),
           Expanded(child: _collectionList(context)),
+          _draftSection(),
           _dropZone(context),
         ],
       ),
@@ -73,7 +140,7 @@ class _LeftPanelState extends State<LeftPanel> {
             child: Text('工程 / 收藏',
                 style: TextStyle(
                     color: Colors.white,
-                    fontSize: 15,
+                    fontSize: TokFs.heading,
                     fontWeight: FontWeight.bold)),
           ),
           IconButton(
@@ -93,7 +160,7 @@ class _LeftPanelState extends State<LeftPanel> {
       child: TextField(
         focusNode: widget.searchFocus,
         onChanged: (v) => setState(() => _query = v.trim()),
-        style: const TextStyle(color: kTextMain, fontSize: 13),
+        style: const TextStyle(color: kTextMain, fontSize: TokFs.body),
         decoration: dec('搜索工程名/备注（跨文件夹）').copyWith(
           prefixIcon: const Icon(Icons.search, color: kTextSub, size: 18),
           isDense: true,
@@ -151,7 +218,7 @@ class _LeftPanelState extends State<LeftPanel> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      color: selected ? kAccent : kTextMain, fontSize: 12.5)),
+                      color: selected ? kAccent : kTextMain, fontSize: TokFs.body)),
             ),
           ],
         ),
@@ -281,7 +348,7 @@ class _LeftPanelState extends State<LeftPanel> {
           child: Text(
             _query.isNotEmpty ? '没有匹配「$_query」的工程' : '本文件夹暂无收藏',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: kTextSub, fontSize: 12.5, height: 1.6),
+            style: const TextStyle(color: kTextSub, fontSize: TokFs.body, height: 1.6),
           ),
         ),
       );
@@ -294,27 +361,27 @@ class _LeftPanelState extends State<LeftPanel> {
           child: selectedCount > 0
               ? Row(children: [
                   Text('已选 $selectedCount 项',
-                      style: const TextStyle(color: kAccent, fontSize: 11)),
+                      style: const TextStyle(color: kAccent, fontSize: TokFs.caption)),
                   const Spacer(),
                   TextButton(
                     onPressed: _batchExportSelected,
                     child: const Text('批量导出 DXF',
-                        style: TextStyle(color: kAccent, fontSize: 11.5)),
+                        style: TextStyle(color: kAccent, fontSize: TokFs.small)),
                   ),
                   TextButton(
                     onPressed: () => setState(() => _selected.clear()),
                     child: const Text('清除',
-                        style: TextStyle(color: kTextSub, fontSize: 11.5)),
+                        style: TextStyle(color: kTextSub, fontSize: TokFs.small)),
                   ),
                 ])
               : Row(children: [
                   Text('共 ${items.length} 项',
-                      style: const TextStyle(color: kTextSub, fontSize: 11)),
+                      style: const TextStyle(color: kTextSub, fontSize: TokFs.caption)),
                   const Spacer(),
                   TextButton(
                     onPressed: () => _addFolder(),
                     child: const Text('新建文件夹',
-                        style: TextStyle(color: kAccent, fontSize: 11.5)),
+                        style: TextStyle(color: kAccent, fontSize: TokFs.small)),
                   ),
                 ]),
         ),
@@ -349,7 +416,7 @@ class _LeftPanelState extends State<LeftPanel> {
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: selected ? kAccent.withValues(alpha: 0.14) : const Color(0xFF1D242C),
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(TokR.m),
         border: Border.all(
             color: selected
                 ? kAccent
@@ -358,7 +425,7 @@ class _LeftPanelState extends State<LeftPanel> {
                     : Colors.transparent)),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(9),
+        borderRadius: BorderRadius.circular(TokR.m),
         onTap: () => _onItemTap(m),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 7, 2, 7),
@@ -378,14 +445,14 @@ class _LeftPanelState extends State<LeftPanel> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            color: Colors.white, fontSize: 13)),
+                            color: Colors.white, fontSize: TokFs.body)),
                     const SizedBox(height: 2),
                     Row(children: [
                       _tag(_kindTag(m), _kindColor(m)),
                       const SizedBox(width: 6),
                       Text('${m.count} 点',
                           style: const TextStyle(
-                              color: kTextSub, fontSize: 10.5)),
+                              color: kTextSub, fontSize: TokFs.micro)),
                       const SizedBox(width: 6),
                       SyncBadge(status: status),
                     ]),
@@ -440,9 +507,9 @@ class _LeftPanelState extends State<LeftPanel> {
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(TokR.s),
         ),
-        child: Text(text, style: TextStyle(color: color, fontSize: 9.5)),
+        child: Text(text, style: TextStyle(color: color, fontSize: TokFs.micro)),
       );
 
   Future<void> _onAction(
@@ -515,7 +582,7 @@ class _LeftPanelState extends State<LeftPanel> {
         await showDarkDialog(context,
             title: '删除收藏',
             content: Text('确定删除「${m.name}」（${m.count} 点）？',
-                style: const TextStyle(color: kTextMain, fontSize: 13)),
+                style: const TextStyle(color: kTextMain, fontSize: TokFs.body)),
             actions: [
               darkTextBtn('取消', () => Navigator.pop(context),
                   color: kTextSub),
@@ -555,6 +622,323 @@ class _LeftPanelState extends State<LeftPanel> {
     if (mounted) toast(context, msg);
   }
 
+  // ================= 本工程（草稿）段落 / 点位表 =================
+
+  /// 底部「本工程」区：默认收起（一行标题），展开后固定高度内滚动。
+  ///
+  /// 为什么固定高度而不是跟着内容长：左栏同时还要放工程列表与导入区，
+  /// 段落表若自由增长会把上面两块挤没。固定 264 高刚好显示 5~6 行段落，
+  /// 再用内部滚动承载长线路。
+  Widget _draftSection() {
+    final n = st.labels.length;
+    final segs = st.segments;
+    return Container(
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Colors.white12)),
+      ),
+      child: Column(
+        children: [
+          _draftHeader(n, segs.length),
+          if (_draftOpen)
+            SizedBox(
+              height: 264,
+              child: n == 0
+                  ? _draftEmpty()
+                  : Column(
+                      children: [
+                        _draftTabs(n, segs.length),
+                        Expanded(
+                          child: _segView ? _segList(segs) : _labelList(),
+                        ),
+                      ],
+                    ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _draftHeader(int nPoints, int nSegs) {
+    return InkWell(
+      onTap: () => setState(() => _draftOpen = !_draftOpen),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+        child: Row(
+          children: [
+            Icon(_draftOpen ? Icons.expand_more : Icons.chevron_right,
+                size: 16, color: kTextSub),
+            const SizedBox(width: 4),
+            const Expanded(
+              child: Text('本工程',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: TokFs.body,
+                      fontWeight: FontWeight.w500)),
+            ),
+            Text('$nPoints 点 · $nSegs 段',
+                style: const TextStyle(color: kTextHint, fontSize: TokFs.micro)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _draftTabs(int nPoints, int nSegs) {
+    Widget tab(String text, bool active, VoidCallback onTap) => Expanded(
+          child: InkWell(
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                      color: active ? kAccent : Colors.transparent, width: 2),
+                ),
+              ),
+              child: Text(text,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: active ? kAccent : kTextSub, fontSize: TokFs.small)),
+            ),
+          ),
+        );
+    return Row(
+      children: [
+        tab('段落 $nSegs', _segView, () => setState(() => _segView = true)),
+        tab('点位 $nPoints', !_segView, () => setState(() => _segView = false)),
+      ],
+    );
+  }
+
+  Widget _draftEmpty() => const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text('还没有点。\n在地图上打点并连线后，这里会列出全线段落，可直接改段标。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: kTextHint, fontSize: TokFs.caption, height: 1.6)),
+        ),
+      );
+
+  String _lblName(MapLabel l) =>
+      l.name.trim().isNotEmpty ? l.name.trim() : l.type.name;
+
+  Widget _segList(List<RouteSegment> segs) {
+    if (segs.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Text('还没有连成线的段落（同一线组至少两个点才会成段）。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: kTextHint, fontSize: TokFs.caption, height: 1.6)),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      itemCount: segs.length,
+      itemBuilder: (ctx, i) => _segRow(segs[i]),
+    );
+  }
+
+  Widget _segRow(RouteSegment s) {
+    final editing = _editingId == s.to.id;
+    return InkWell(
+      // 点在编辑框上时不要抢走点击（否则点一下输入框就跳地图了）。
+      onTap: editing ? null : () => widget.onLocate?.call(s.to),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: TokC.kind(s.kind),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text('#${s.segIndex}',
+                    style: const TextStyle(color: kTextHint, fontSize: TokFs.micro)),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text('${_lblName(s.from)} → ${_lblName(s.to)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: kTextMain, fontSize: TokFs.small)),
+                ),
+                Text('${GeoUtil.segDistText(s.lengthM)}m',
+                    style: const TextStyle(color: kTextSub, fontSize: TokFs.micro)),
+              ],
+            ),
+            const SizedBox(height: 3),
+            if (editing)
+              _segEditor(s)
+            else
+              Row(
+                children: [
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _beginEdit(s.to),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: s.to.distLabel.trim().isEmpty
+                              ? Colors.transparent
+                              : TokC.accent.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(TokR.s),
+                          border: Border.all(
+                            color: s.to.distLabel.trim().isEmpty
+                                ? Colors.white12
+                                : TokC.accent.withValues(alpha: 0.55),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Text(
+                          s.text.isEmpty ? '（未标）' : s.text,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: s.to.distLabel.trim().isEmpty
+                                  ? kTextSub
+                                  : kAccent,
+                              fontSize: TokFs.small),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.edit, size: 12, color: kTextHint),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 段标就地编辑：输入框 + 敷设方式前缀快捷键 + 清除。
+  ///
+  /// 前缀 chip 用工程习惯的简称（架/埋/管），点一下就把前缀套到已有数字前面，
+  /// 没有数字时自动补上本段实测距离——这就是"42 → 埋42"一步到位。
+  ///
+  /// **为什么整块要套 [TextFieldTapRegion]**：输入框上的 `onTapOutside` 会在
+  /// 指针按下时就提交并关闭编辑态。若不加这层分组，用户点「埋」chip 会被当成
+  /// "点到框外"——先提交半截文字、编辑器随即消失，chip 永远点不中。把它标成
+  /// 输入框的**同组区域**后，这排操作才算"框内点击"。
+  Widget _segEditor(RouteSegment s) {
+    return TextFieldTapRegion(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(width: 12),
+          Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: TextField(
+              key: kSegLabelEditorKey,
+              controller: _segCtl,
+              focusNode: _segFocus,
+              style: const TextStyle(color: kTextMain, fontSize: TokFs.small),
+              decoration: dec('如 埋42.5，留空=按敷设方式自动'),
+              onSubmitted: (_) => _commitEdit(s.to),
+              onTapOutside: (_) => _commitEdit(s.to),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                for (final p in const ['架', '埋', '管'])
+                  _chip(p, () {
+                    final m = RegExp(r'[0-9][0-9.]*').firstMatch(_segCtl.text);
+                    _segCtl.text =
+                        p + (m?.group(0) ?? GeoUtil.segDistText(s.lengthM));
+                    _segCtl.selection = TextSelection(
+                        baseOffset: 0, extentOffset: _segCtl.text.length);
+                  }, color: kTextMain),
+                _chip('清除', () => _segCtl.text = '', color: kTextSub),
+                _chip('确定', () => _commitEdit(s.to),
+                    bg: kAccent, color: Colors.black),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 段标编辑器里的小按钮（前缀 chip / 清除 / 确定）。
+  Widget _chip(String label, VoidCallback onTap,
+      {Color? bg, Color color = kTextMain}) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: bg ?? TokC.field,
+          borderRadius: BorderRadius.circular(TokR.s),
+        ),
+        child: Text(label, style: TextStyle(color: color, fontSize: TokFs.caption)),
+      ),
+    );
+  }
+
+  Widget _labelList() {
+    final ls = st.labels;
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      itemCount: ls.length,
+      itemBuilder: (ctx, i) {
+        final l = ls[i];
+        return InkWell(
+          onTap: () => widget.onLocate?.call(l),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
+            child: Row(
+              children: [
+                Container(
+                  width: 14,
+                  height: 14,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: l.type.color,
+                    borderRadius: BorderRadius.circular(
+                        l.type.shape == 'box' ? 3 : 999),
+                  ),
+                  child: Text(
+                      l.type.symbol.isNotEmpty
+                          ? l.type.symbol
+                          : _lblName(l).substring(0, 1),
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: TokFs.micro, height: 1.0)),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(_lblName(l),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: kTextMain, fontSize: TokFs.small)),
+                ),
+                Text('#${l.seq}',
+                    style: const TextStyle(color: kTextHint, fontSize: TokFs.micro)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _dropZone(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(8),
@@ -570,7 +954,7 @@ class _LeftPanelState extends State<LeftPanel> {
           final hot = candidate.isNotEmpty;
           return InkWell(
             onTap: _importExternal,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(TokR.m),
             child: Container(
               height: 54,
               alignment: Alignment.center,
@@ -578,14 +962,14 @@ class _LeftPanelState extends State<LeftPanel> {
                   color: hot
                       ? kAccent.withValues(alpha: 0.12)
                       : const Color(0xFF1A2027),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(TokR.m),
                   border: Border.all(
                       color: hot ? kAccent : Colors.white24,
                       width: 1,
                       style: BorderStyle.solid)),
               child: const Text('点击导入文件，或拖入窗口\n（.ovimap 工程 / .geojson 底图）',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: kTextSub, fontSize: 10.5, height: 1.4)),
+                  style: TextStyle(color: kTextSub, fontSize: TokFs.micro, height: 1.4)),
             ),
           );
         },

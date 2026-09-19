@@ -116,6 +116,7 @@ void main() {
               onToggleLeft: () {},
               onToggleRight: () {},
               onFocusMap: () {},
+              onInspect: () {},
               child: Column(
                 children: [
                   TextField(focusNode: tf, controller: ctl),

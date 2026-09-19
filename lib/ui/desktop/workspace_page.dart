@@ -16,6 +16,7 @@ import '../../services/tile_cache.dart';
 import '../../services/track_check.dart';
 import '../../state/app_state.dart';
 import '../../sync/sync_controller.dart';
+import '../design_tokens.dart';
 import '../dialogs.dart';
 import '../export_center.dart';
 import '../map/map_canvas.dart';
@@ -23,6 +24,7 @@ import '../sync/sync_panel.dart';
 import 'app_menu_bar.dart';
 import 'app_platform_menu_bar.dart';
 import 'context_menu.dart';
+import 'inspect_dialog.dart';
 import 'left_panel.dart';
 import 'menu_model.dart';
 import 'right_panel.dart';
@@ -410,6 +412,54 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   // ---- 工具：杆路点表 / 轨迹核查（桌面精简版，复用共享逻辑） ----
 
+  /// 出图体检（Alt+Ctrl+K）。
+  ///
+  /// 「定位」回调用到了地图相机 —— 这正是体检结果必须由**壳**来打开的原因：
+  /// 引擎（route_check）与面板（inspect_dialog）都不持有 `MapController`，
+  /// 保持"纯逻辑 / 纯呈现 / 相机归壳"的分层。
+  Future<void> _inspect() async {
+    final st = _st;
+    if (st.labels.isEmpty) {
+      toast(context, '当前项目没有点，无需体检');
+      return;
+    }
+    await showRouteInspectDialog(
+      context,
+      st,
+      onLocate: _locateLabels,
+    );
+  }
+
+  /// 把体检报出的点选中并把地图移过去。
+  ///
+  /// 取所有相关点的重心作为落点（段级问题给的是两个端点，看重心才能同时看到两端），
+  /// 并把缩放抬到 18 以上 —— 出图体检关心的是"这一档"，级别太低看不见细节。
+  void _locateLabels(List<String> ids) {
+    final hits = labelsByIds(_st, ids);
+    if (hits.isEmpty) return;
+    _st.selectedIds
+      ..clear()
+      ..addAll(ids);
+    var lat = 0.0, lon = 0.0;
+    for (final l in hits) {
+      lat += l.lat;
+      lon += l.lon;
+    }
+    lat /= hits.length;
+    lon /= hits.length;
+    final d = _st.toDisplay(lat, lon);
+    if (_mapReady) {
+      _mc.move(LatLng(d[0], d[1]),
+          _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom);
+    }
+    setState(() {
+      _selLabel = hits.first;
+      _selCid = ''; // 体检针对草稿点；收藏点不在这里编辑
+      _rightCollapsed = false; // 让属性面板出来，用户可立刻改
+    });
+    toast(context, '已定位到选中点（${hits.length} 个），可直接在右栏修改');
+  }
+
   Future<void> _showPoleTable() async {
     final st = _st;
     if (st.labels.isEmpty) {
@@ -427,7 +477,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
             ? const Center(
                 child: Text('没有参与连线的点（箱体请从地图上直接点选）',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: kTextSub, fontSize: 13)))
+                    style: TextStyle(color: kTextSub, fontSize: TokFs.body)))
             : ListView(
                 children: [
                   for (var ci = 0; ci < chains.length; ci++) ...[
@@ -446,7 +496,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                         child: Text(
                             '链 ${ci + 1} · ${chains[ci].length} 点 · 全长 ${_fmtChainLen(len)}',
                             style: const TextStyle(
-                                color: kAccent, fontSize: 12.5)),
+                                color: kAccent, fontSize: TokFs.body)),
                       );
                     }),
                     for (final l in chains[ci])
@@ -462,15 +512,15 @@ class _WorkspacePageState extends State<WorkspacePage> {
                                       ? l.type.name.substring(0, 1)
                                       : l.type.symbol),
                               style: const TextStyle(
-                                  color: Colors.white, fontSize: 11)),
+                                  color: Colors.white, fontSize: TokFs.caption)),
                         ),
                         title: Text(
                             l.name.trim().isNotEmpty ? l.name.trim() : l.type.name,
                             style: const TextStyle(
-                                color: kTextMain, fontSize: 13.5)),
+                                color: kTextMain, fontSize: TokFs.title)),
                         subtitle: Text(_poleSub(l, chains[ci]),
                             style: const TextStyle(
-                                color: kTextSub, fontSize: 11)),
+                                color: kTextSub, fontSize: TokFs.caption)),
                         onTap: () {
                           Navigator.pop(context);
                           final d = st.toDisplay(l.lat, l.lon);
@@ -534,9 +584,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
               ListTile(
                 dense: true,
                 title: Text(m.name.isEmpty ? '未命名轨迹' : m.name,
-                    style: const TextStyle(color: kTextMain, fontSize: 13.5)),
+                    style: const TextStyle(color: kTextMain, fontSize: TokFs.title)),
                 subtitle: Text('${m.count} 点',
-                    style: const TextStyle(color: kTextSub, fontSize: 11)),
+                    style: const TextStyle(color: kTextSub, fontSize: TokFs.caption)),
                 onTap: () async {
                   Navigator.pop(context);
                   final trackPts = await st.store.loadCollection(m.id);
@@ -564,12 +614,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('轨迹：$trackName',
-                style: const TextStyle(color: kTextSub, fontSize: 12)),
+                style: const TextStyle(color: kTextSub, fontSize: TokFs.small)),
             const SizedBox(height: 6),
             Text(
                 '杆数 ${r.poleCount} · 轨迹全长 ${_fmtChainLen(r.trackLen)}\n'
                 '平均偏移 ${r.avgOffset.toStringAsFixed(0)} 米（阈值 ${r.threshold.toStringAsFixed(0)} 米）',
-                style: const TextStyle(color: kTextMain, fontSize: 13)),
+                style: const TextStyle(color: kTextMain, fontSize: TokFs.body)),
             const SizedBox(height: 10),
             Text(
                 r.outliers.isEmpty
@@ -579,14 +629,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
                     color: r.outliers.isEmpty
                         ? const Color(0xFF69F0AE)
                         : const Color(0xFFFFB74D),
-                    fontSize: 13)),
+                    fontSize: TokFs.body)),
             for (final (pole, off) in r.outliers.take(10))
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Text(
                     '· ${pole.name.trim().isNotEmpty ? pole.name.trim() : pole.type.name}：偏移 ${off.toStringAsFixed(0)} 米',
                     style: const TextStyle(
-                        color: Color(0xFFFFB74D), fontSize: 12.5)),
+                        color: Color(0xFFFFB74D), fontSize: TokFs.body)),
               ),
           ],
         ),
@@ -618,7 +668,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
               CircularProgressIndicator(color: kAccent),
               SizedBox(height: 14),
               Text('滑洲云图 启动中…',
-                  style: TextStyle(color: kTextSub, fontSize: 13)),
+                  style: TextStyle(color: kTextSub, fontSize: TokFs.body)),
             ],
           ),
         ),
@@ -658,6 +708,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       onToggleLeft: () => setState(() => _leftCollapsed = !_leftCollapsed),
       onToggleRight: () => setState(() => _rightCollapsed = !_rightCollapsed),
       onFocusMap: _focusMap,
+      onInspect: _inspect,
       // macOS：把菜单交给**系统菜单栏**（`PlatformMenuBar`）。它不占窗口面积、
       // 悬停即展开、⌘ 快捷键由系统绘制，并且**整体接管主菜单** —— 屏幕顶部
       // 那排英文菜单（App / Edit / View / Window / Help）由这份中文菜单取代。
@@ -687,6 +738,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 onDeleteSelection: _deleteSelection,
                 onExport: _export,
                 onSync: _showSyncInfo,
+                onInspect: _inspect,
                 leftCollapsed: _leftCollapsed,
                 rightCollapsed: _rightCollapsed,
                 onToggleLeft: () =>
@@ -727,6 +779,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         onDeleteSelection: _deleteSelection,
         onPoleTable: _showPoleTable,
         onTrackCheck: _showTrackCheck,
+        onInspect: _inspect,
         onOffline: _onOffline,
         onStorageCleanup: _storageCleanup,
         onSync: _showSyncInfo,
@@ -772,6 +825,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
         st: st,
         searchFocus: _searchFocus,
         onNewProject: _newProject,
+        // 段落/点位行点击 → 与体检「定位」同一条路径（相机归壳）。
+        onLocate: (l) => _locateLabels([l.id]),
       );
 
   Widget _rightPanel(AppState st) => RightPanel(
@@ -871,22 +926,22 @@ class _WorkspacePageState extends State<WorkspacePage> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(TokR.s),
               border: Border.all(color: color.withValues(alpha: 0.55)),
             ),
             child: Text(tag,
                 style: TextStyle(
-                    color: color, fontSize: 11.5, fontWeight: FontWeight.w600)),
+                    color: color, fontSize: TokFs.small, fontWeight: FontWeight.w600)),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(hint,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kTextSub, fontSize: 11.5)),
+                style: const TextStyle(color: kTextSub, fontSize: TokFs.small)),
           ),
           if (stat.isNotEmpty)
-            Text(stat, style: const TextStyle(color: kAccent, fontSize: 11.5)),
+            Text(stat, style: const TextStyle(color: kAccent, fontSize: TokFs.small)),
           if (closable) ...[
             const SizedBox(width: 10),
             _hintBtn('完成 (Esc)', _escape),
@@ -897,16 +952,16 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Widget _hintBtn(String text, VoidCallback onTap) => InkWell(
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(TokR.s),
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
             color: Colors.white10,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(TokR.s),
           ),
           child: Text(text,
-              style: const TextStyle(color: Color(0xFFD6DEE6), fontSize: 11)),
+              style: const TextStyle(color: Color(0xFFD6DEE6), fontSize: TokFs.caption)),
         ),
       );
 

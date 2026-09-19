@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../geo/geo_convert.dart';
+import '../geo/geo_util.dart';
 import '../geo/route_layout.dart';
+import '../geo/route_segments.dart';
 import '../export/basemap_file_import.dart';
 import '../export/kml_import.dart';
 import '../models/diff_report.dart';
@@ -619,6 +621,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 段落单一真源视图：所有功能（连线/导出/属性面板）都读它，不再各自算段距。
+  ///
+  /// 在 [buildLabelChains] 之上由 [RouteSegment.build] 统一构建；段标前缀沿用
+  /// [segPrefix]，保证与地图渲染 / 导出口径完全一致。这是本轮"段落单一真源"
+  /// 的核心入口，任何需要段距 / 段标注的地方都应走这里，而不是自己分组计算。
+  List<RouteSegment> get segments =>
+      RouteSegment.build(labels, prefix: segPrefix);
+
   void _saveDraft() {
     store.saveDraft(labels, projectName, folderId, editModeName);
   }
@@ -806,6 +816,90 @@ class AppState extends ChangeNotifier {
       return prefix.isEmpty ? num : '$prefix-$num';
     }
     return prefix;
+  }
+
+  /// 批量生成段标注（**固化**用途，非日常主力）：把当前自动显示写死成静态文字。
+  ///
+  /// ⚠️ 代价与用途：本方法把"前缀+距离"作为硬字符串写入 [MapLabel.distLabel]。
+  /// 固化后段距变化**不会**再自动跟随——挪一个点，图上仍标着旧数字，可能造成
+  /// 与实际不符。因此日常请改用「批量设置敷设方式」，让段标经 [GeoUtil.segTextFor]
+  /// 从 [MapLabel.segKind] 实时带前缀、随段距自动变化；本方法仅在需要给纸质图纸
+  /// 写死数字时使用。
+  ///
+  /// 写入值 = 前缀 + [GeoUtil.segDistText](段距)：
+  /// · 本段敷设方式经 [GeoUtil.kindPrefixOf](从 [MapLabel.segKind] 实时推导，如架空→"架"）
+  ///   优先；否则用全局段标前缀 [segPrefix]；两者都空则只写距离纯数字；整数去 ".0" 毛刺。
+  ///
+  /// [overwrite]=false（默认）只填 [MapLabel.distLabel] 为空的段，已有标注不动；
+  /// [overwrite]=true 全部重写。
+  ///
+  /// **必须**先压一次撤销快照（对齐 [applyBatch] 风格），使整批可一次撤销；
+  /// 无实际改动时不压快照、返回 0。
+  ///
+  /// 返回实际改动条数。
+  int autoFillSegLabels({bool overwrite = false}) {
+    final segs = segments; // 复用唯一真源，避免重复分组
+    // 先算出要写哪些（不改动草稿），以便"无改动则不压快照"。
+    final edits = <MapLabel, String>{};
+    for (final s in segs) {
+      final cur = s.to.distLabel.trim();
+      if (!overwrite && cur.isNotEmpty) continue; // 只填空白段
+      // 前缀实时从敷设方式推导（kindPrefixOf），全局段标前缀 segPrefix 作回退；
+      // 两者皆空则只写距离纯数字。距离用 segDistText 去 ".0" 毛刺。
+      final prefix = GeoUtil.kindPrefixOf(s.kind) ?? segPrefix;
+      final value = prefix.isEmpty
+          ? GeoUtil.segDistText(s.lengthM)
+          : '$prefix${GeoUtil.segDistText(s.lengthM)}';
+      if (cur == value) continue; // 已是目标值，跳过（避免无谓改动 / 误触快照）
+      edits[s.to] = value;
+    }
+    if (edits.isEmpty) return 0; // 无改动：不压快照、返回 0
+    pushUndoSnapshot(); // ① 一次撤销：整批共享一个快照
+    for (final e in edits.entries) {
+      e.key.distLabel = e.value;
+    }
+    _saveDraft();
+    notifyListeners();
+    return edits.length;
+  }
+
+  /// 批量清空段标：把段标注回退为「实时距离 + 自动前缀」。
+  ///
+  /// 用途：出图体检报出「标注数字与实测段距偏差过大」时，一键把可疑的手填标注清掉，
+  /// 让段标重新由 [GeoUtil.segTextFor] 依据敷设方式与实测段距**实时**生成。
+  /// 留着一个与几何不符的数字，审图会直接判错——清掉它比留着更安全。
+  ///
+  /// 只对 [distLabel] 非空的目标生效；一次快照覆盖整批，可一次撤销。
+  /// 返回实际清掉的段数（本来就没标的不计）。
+  int clearSegLabels(List<MapLabel> targets) {
+    final hit = targets.where((l) => l.distLabel.trim().isNotEmpty).toList();
+    if (hit.isEmpty) return 0;
+    pushUndoSnapshot();
+    for (final l in hit) {
+      l.distLabel = '';
+    }
+    _saveDraft();
+    notifyListeners();
+    return hit.length;
+  }
+
+  /// 设置某一段的段标文字（左栏段落表就地编辑、属性面板共用）。
+  ///
+  /// 语义：空串 = 清除手填标注，段标随即回退为「敷设方式前缀 + 实测距离」的**实时**
+  /// 生成结果（这正是希望的行为——手填只是覆盖，撤掉覆盖就回到自动）。
+  ///
+  /// 为什么不用 [updateLabel]：那个方法不压快照。段标是审图重点，用户打错一个数字
+  /// 必须能 Ctrl+Z 退回，所以这里**先压快照**。
+  ///
+  /// 返回是否真的产生了改动（同值写入不压快照、不脏化草稿）。
+  bool setSegLabel(MapLabel to, String text) {
+    final v = text.trim();
+    if (to.distLabel.trim() == v) return false;
+    pushUndoSnapshot();
+    to.distLabel = v;
+    _saveDraft();
+    notifyListeners();
+    return true;
   }
 
   /// 常用档距自动布杆：两点直线等距落杆（含起点与终点），结果可一次撤销。

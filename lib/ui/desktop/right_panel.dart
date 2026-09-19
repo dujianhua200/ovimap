@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../../models/map_label.dart';
 import '../../geo/geo_util.dart';
+import '../../models/map_label.dart';
 import '../../state/app_state.dart';
+import '../design_tokens.dart';
 import '../dialogs.dart';
 import 'stats_section.dart';
 
@@ -14,6 +17,19 @@ import 'stats_section.dart';
 ///
 /// [sourceCid] 为空表示草稿点（走 `st.updateLabel`），否则为可见收藏点
 /// （走 `st.updateOverlayLabel`）。
+///
+/// ## 本轮（出图效率专项）改了什么、为什么
+///
+/// 1. **尺度全面令牌化**。改前这一个文件里字号有 10/11/12/12.5/13.5/15 六档，
+///    间距有 4/6/8/10/14/18，颜色有 3 处硬编码色值——"界面太粗糙"的真正来源不是
+///    审美，而是这种**局部合理、整体不齐**的即兴发挥。现在只从 [TokFs]/[TokSp]/
+///    [TokR]/[TokC] 取。
+/// 2. **段标实时预览**。原先用户在右栏改「本段标注」和敷设方式时，**看不到图上会写成
+///    什么**——要切回地图找那一档才能确认。现在输入框下方直接显示「图上显示：埋42」，
+///    这一行与地图、DXF 共用 [GeoUtil.segTextPreview] 同一份规则。
+/// 3. **未保存可见 + 切换自动落盘**。面板有 8 个字段共用底部一个「保存」，改完忘点、
+///    或改完直接去点地图上另一个点，改动就静默丢了——对出图是事故。现在标题栏出现
+///    「未保存」橙标，且**切换到别的点时先自动写回**，不再丢。
 class RightPanel extends StatefulWidget {
   const RightPanel({
     super.key,
@@ -47,11 +63,33 @@ class _RightPanelState extends State<RightPanel> {
 
   int _segKind = 0;
 
+  /// 是否有未写回的改动（驱动标题栏徽标与保存按钮强度）。
+  bool _dirty = false;
+
+  /// 正在用 state 回填控件。回填会触发 controller listener，必须屏蔽掉，
+  /// 否则一选中点就显示"未保存"。
+  bool _loading = false;
+
   AppState get st => widget.st;
+
+  List<TextEditingController> get _allCtl => [
+        _name,
+        _note,
+        _segLabel,
+        _dist,
+        _slack,
+        _segCable,
+        _holes,
+        _used,
+        _ratio,
+      ];
 
   @override
   void initState() {
     super.initState();
+    for (final c in _allCtl) {
+      c.addListener(_onEdited);
+    }
     _syncFromWidget();
   }
 
@@ -61,80 +99,90 @@ class _RightPanelState extends State<RightPanel> {
     // 选中对象变化时重填控件（同一对象被就地修改时不覆盖用户输入）。
     if (widget.label?.id != old.label?.id ||
         widget.sourceCid != old.sourceCid) {
+      // ★ 切换前先把没保存的改动写回**原来那个点**，否则用户改完直接点地图上
+      //   另一个点，这一处改动就无声丢了。
+      //
+      //   注意必须走 `st.updateLabel` / `st.updateOverlayLabel` 而不是只改内存对象：
+      //   后者只是让界面看着对，草稿没落盘，重启即还原——那是更隐蔽的丢数据。
+      final prev = old.label;
+      if (_dirty && prev != null) {
+        _commit(prev, silent: true);
+        if (old.sourceCid.isEmpty) {
+          st.updateLabel(prev);
+        } else {
+          unawaited(st.updateOverlayLabel(old.sourceCid, prev));
+        }
+      }
       _syncFromWidget();
     }
   }
 
   @override
   void dispose() {
-    _name.dispose();
-    _note.dispose();
-    _segLabel.dispose();
-    _dist.dispose();
-    _slack.dispose();
-    _segCable.dispose();
-    _holes.dispose();
-    _used.dispose();
-    _ratio.dispose();
+    for (final c in _allCtl) {
+      c.removeListener(_onEdited);
+      c.dispose();
+    }
     super.dispose();
   }
 
+  void _onEdited() {
+    if (_loading || _dirty) return;
+    setState(() => _dirty = true);
+  }
+
   void _syncFromWidget() {
+    _loading = true;
     final l = widget.label;
     _name.text = l?.name ?? '';
     _note.text = l?.note ?? '';
     _segLabel.text = l?.distLabel ?? '';
-    _dist.text =
-        (l?.distanceM != null && l!.distanceM! > 0) ? l.distanceM!.toStringAsFixed(1) : '';
-    _slack.text = (l != null && l.slackM > 0) ? _fmtSlack(l.slackM) : '';
+    _dist.text = (l?.distanceM != null && l!.distanceM! > 0)
+        ? GeoUtil.segDistText(l.distanceM!)
+        : '';
+    _slack.text = (l != null && l.slackM > 0) ? GeoUtil.segDistText(l.slackM) : '';
     _segCable.text = l?.segCable ?? '';
     _holes.text = (l != null && l.holes > 0) ? '${l.holes}' : '';
     _used.text = (l != null && l.usedHoles > 0) ? '${l.usedHoles}' : '';
     _ratio.text = l?.splitterRatio ?? '';
     _segKind = l?.segKind ?? 0;
+    _loading = false;
+    _dirty = false;
   }
 
   @override
   Widget build(BuildContext context) {
     final l = widget.label;
     return Container(
-      color: const Color(0xFF141920),
+      color: TokC.panelSolid,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 8, 6),
+            padding: TokSp.titlePad,
             child: Row(
               children: [
                 const Expanded(
                   child: Text('属性',
                       style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold)),
+                          color: TokC.textMain,
+                          fontSize: TokFs.heading,
+                          fontWeight: FontWeight.w600)),
                 ),
-                if (l != null)
-                  Container(
-                    margin: const EdgeInsets.only(right: 4),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: l.type.color.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text(
-                        widget.sourceCid.isEmpty ? '草稿' : '收藏',
-                        style: TextStyle(color: l.type.color, fontSize: 10)),
-                  ),
+                if (_dirty) const _Tag('未保存', TokC.warn),
+                if (l != null) ...[
+                  const SizedBox(width: TokSp.xs),
+                  _Tag(widget.sourceCid.isEmpty ? '草稿' : '收藏', l.type.color),
+                ],
               ],
             ),
           ),
-          const Divider(height: 1, color: Colors.white12),
+          const Divider(height: 1, color: TokC.divider),
           Expanded(
             child: l == null
                 ? _empty()
                 : SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+                    padding: TokSp.panelPad,
                     child: _form(context, l),
                   ),
           ),
@@ -148,16 +196,18 @@ class _RightPanelState extends State<RightPanel> {
   Widget _empty() {
     final hasData = st.labels.isNotEmpty;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(TokSp.l),
       child: Column(
         children: [
-          Text(
-            '未选中点\n\n在地图上单击一个点，或右键点选「编辑属性」\n即可在此编辑名称 / 段距 / 敷设方式等',
+          const Text(
+            '未选中点\n\n在地图上单击一个点，或右键点选「编辑属性」\n'
+            '即可在此编辑名称 / 段距 / 敷设方式等',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: kTextSub, fontSize: 12.5, height: 1.6),
+            style: TextStyle(
+                color: TokC.textSub, fontSize: TokFs.small, height: 1.6),
           ),
           if (hasData) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: TokSp.m),
             StatsSection(st: st),
           ],
         ],
@@ -169,115 +219,119 @@ class _RightPanelState extends State<RightPanel> {
     final isWell = const ['manhole', 'handwell', 'pipe'].contains(l.typeId);
     final isTopoBox = l.type.isTopoNode;
     final showSeg = l.seq > 1 && l.typeId != 'text' && l.typeId != 'track';
-    // 段标注 chip 自动补距离：取同线组上一链点的段距（与地图渲染口径一致）。
-    final _prevSeg = st.previousChainLabel(l);
-    final _autoSegDist = _prevSeg == null
+
+    // 段标自动补距离：取同线组上一链点的段距（与地图渲染口径一致）。
+    final prev = st.previousChainLabel(l);
+    final autoSegDist = prev == null
         ? null
-        : (l.distanceM ??
-            GeoUtil.haversine(_prevSeg.lat, _prevSeg.lon, l.lat, l.lon));
+        : (l.distanceM ?? GeoUtil.haversine(prev.lat, prev.lon, l.lat, l.lon));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('类型：${l.type.name}　#${l.seq}',
-            style: const TextStyle(color: kTextSub, fontSize: 11)),
-        const SizedBox(height: 8),
-        TextField(
-            controller: _name,
-            style: const TextStyle(color: kTextMain, fontSize: 13.5),
-            decoration: dec('名称')),
-        const SizedBox(height: 8),
-        TextField(
-            controller: _note,
-            maxLines: 2,
-            style: const TextStyle(color: kTextMain, fontSize: 13.5),
-            decoration: dec('备注')),
+        Text('${l.type.name}　#${l.seq}',
+            style: const TextStyle(color: TokC.textSub, fontSize: TokFs.caption)),
+        const SizedBox(height: TokSp.s),
+        _field(_name, '名称'),
+        const SizedBox(height: TokSp.s),
+        _field(_note, '备注', maxLines: 2),
         if (showSeg) ...[
-          const SizedBox(height: 10),
-          const Text('本段标注',
-              style: TextStyle(color: kTextSub, fontSize: 11)),
-          const SizedBox(height: 4),
-          TextField(
-              controller: _segLabel,
-              style: const TextStyle(color: kTextMain, fontSize: 13.5),
-              decoration: dec('如：埋42.5 / 架38，留空自动显示距离')),
-          const SizedBox(height: 6),
-          segPrefixChips(_segLabel, autoDist: _autoSegDist),
-          const SizedBox(height: 8),
-          TextField(
-              controller: _dist,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(color: kTextMain, fontSize: 13.5),
-              decoration: dec('到上一点距离（米，留空自动）')),
-          const SizedBox(height: 8),
-          TextField(
-              controller: _slack,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(color: kTextMain, fontSize: 13.5),
-              decoration: dec('本段接头盘留（米）')),
-          const SizedBox(height: 8),
-          TextField(
-              controller: _segCable,
-              style: const TextStyle(color: kTextMain, fontSize: 13.5),
-              decoration: dec('本段光缆型号（如 48芯GYTS）')),
-          const SizedBox(height: 8),
-          const Text('本段敷设方式（决定连线颜色）',
-              style: TextStyle(color: kTextSub, fontSize: 11)),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final kv in const {
-                0: '默认',
-                1: '架空',
-                2: '埋地',
-                3: '管道',
-              }.entries)
-                ChoiceChip(
-                  label: Text(kv.value,
-                      style: TextStyle(
-                          color: _segKind == kv.key ? Colors.black : kTextMain,
-                          fontSize: 12)),
-                  selected: _segKind == kv.key,
-                  selectedColor: kAccent,
-                  backgroundColor: const Color(0xFF232A31),
-                  side: BorderSide.none,
-                  onSelected: (_) => setState(() => _segKind = kv.key),
-                ),
-            ],
-          ),
+          const SizedBox(height: TokSp.m),
+          _title('本段'),
+          const SizedBox(height: TokSp.xs),
+          _field(_segLabel, '如：埋42.5 / 架38，留空自动显示距离'),
+          const SizedBox(height: TokSp.xs),
+          segPrefixChips(_segLabel, autoDist: autoSegDist),
+          const SizedBox(height: TokSp.xs),
+          _segPreview(l, autoSegDist),
+          const SizedBox(height: TokSp.s),
+          _field(_dist, '到上一点距离（米，留空自动）', number: true),
+          const SizedBox(height: TokSp.s),
+          _field(_slack, '本段接头盘留（米）', number: true),
+          const SizedBox(height: TokSp.s),
+          _field(_segCable, '本段光缆型号（如 48芯GYTS）'),
+          const SizedBox(height: TokSp.m),
+          _title('本段敷设方式（决定连线颜色与段标前缀）'),
+          const SizedBox(height: TokSp.xs),
+          _kindChips(),
         ],
         if (isWell) ...[
-          const SizedBox(height: 10),
-          const Text('管孔（可选）', style: TextStyle(color: kTextSub, fontSize: 11)),
-          const SizedBox(height: 4),
+          const SizedBox(height: TokSp.m),
+          _title('管孔（可选）'),
+          const SizedBox(height: TokSp.xs),
           Row(children: [
-            Expanded(
-                child: TextField(
-                    controller: _holes,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: kTextMain, fontSize: 13.5),
-                    decoration: dec('总孔数'))),
-            const SizedBox(width: 8),
-            Expanded(
-                child: TextField(
-                    controller: _used,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: kTextMain, fontSize: 13.5),
-                    decoration: dec('已占用'))),
+            Expanded(child: _field(_holes, '总孔数', number: true)),
+            const SizedBox(width: TokSp.s),
+            Expanded(child: _field(_used, '已占用', number: true)),
           ]),
         ],
         if (isTopoBox) ...[
-          const SizedBox(height: 10),
-          TextField(
-              controller: _ratio,
-              style: const TextStyle(color: kTextMain, fontSize: 13.5),
-              decoration: dec('分光比（如 1:8 / 1:16）')),
+          const SizedBox(height: TokSp.m),
+          _field(_ratio, '分光比（如 1:8 / 1:16）'),
         ],
-        const SizedBox(height: 14),
+        const SizedBox(height: TokSp.section),
         _actions(context, l),
+      ],
+    );
+  }
+
+  /// 「图上会写成什么」——把当前**编辑态**（输入框里的字 + 刚点的敷设方式）喂给
+  /// [GeoUtil.segTextPreview]，得到与地图、DXF 完全一致的预览。
+  ///
+  /// 这一行的价值：设计人员改完不必切回地图找那一档去核对，当场就知道出图长什么样。
+  Widget _segPreview(MapLabel l, double? autoSegDist) {
+    final autoText =
+        autoSegDist == null ? '' : GeoUtil.segDistText(autoSegDist);
+    final preview = GeoUtil.segTextPreview(_segLabel.text, _segKind, autoText,
+        prefix: st.segPrefix);
+    final empty = preview.isEmpty;
+    final manual = _segLabel.text.trim().isNotEmpty;
+    return Row(
+      children: [
+        const Icon(Icons.visibility_outlined, size: 13, color: TokC.textHint),
+        const SizedBox(width: TokSp.xs),
+        Text('图上显示：',
+            style: const TextStyle(color: TokC.textHint, fontSize: TokFs.caption)),
+        Expanded(
+          child: Text(
+            empty ? '（无段标——缺实测距离）' : preview,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                color: empty ? TokC.textHint : TokC.accent,
+                fontSize: TokFs.caption,
+                fontWeight: FontWeight.w600),
+          ),
+        ),
+        if (manual) const _Tag('手填', TokC.accent),
+      ],
+    );
+  }
+
+  Widget _kindChips() {
+    const kinds = {0: '默认', 1: '架空', 2: '埋地', 3: '管道'};
+    return Wrap(
+      spacing: TokSp.xs,
+      runSpacing: TokSp.xs,
+      children: [
+        for (final kv in kinds.entries)
+          ChoiceChip(
+            label: Text(kv.value,
+                style: TextStyle(
+                    color: _segKind == kv.key ? Colors.black : TokC.textMain,
+                    fontSize: TokFs.small)),
+            selected: _segKind == kv.key,
+            // 色标与左栏段落表、图例同源：选"架空"就是那根绿线，不是又一个蓝按钮。
+            selectedColor: TokC.kind(kv.key),
+            backgroundColor: TokC.field,
+            side: BorderSide.none,
+            showCheckmark: false,
+            visualDensity: VisualDensity.compact,
+            onSelected: (_) => setState(() {
+              _segKind = kv.key;
+              _dirty = true;
+            }),
+          ),
       ],
     );
   }
@@ -292,31 +346,34 @@ class _RightPanelState extends State<RightPanel> {
             child: FilledButton.icon(
               onPressed: () => _save(context, l),
               icon: const Icon(Icons.save, size: 16),
-              label: const Text('保存', style: TextStyle(fontSize: 12.5)),
+              label: Text(_dirty ? '保存改动' : '已保存',
+                  style: const TextStyle(fontSize: TokFs.small)),
               style: FilledButton.styleFrom(
-                  backgroundColor: kAccent.withValues(alpha: 0.9),
-                  foregroundColor: Colors.black,
+                  // 有未保存改动时按钮才"点亮"——把注意力留给真正要按的那一刻。
+                  backgroundColor:
+                      TokC.accent.withValues(alpha: _dirty ? 0.95 : 0.32),
+                  foregroundColor:
+                      _dirty ? Colors.black : TokC.textSub,
                   padding: const EdgeInsets.symmetric(vertical: 10)),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: TokSp.s),
           Expanded(
             child: OutlinedButton.icon(
               onPressed: () => _delete(context, l),
               icon: const Icon(Icons.delete_outline,
-                  size: 16, color: Color(0xFFFF5252)),
+                  size: 16, color: TokC.danger),
               label: const Text('删除点',
-                  style: TextStyle(fontSize: 12.5, color: Color(0xFFFF5252))),
+                  style:
+                      TextStyle(fontSize: TokFs.small, color: TokC.danger)),
               style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFFF5252)),
+                  side: const BorderSide(color: TokC.danger),
                   padding: const EdgeInsets.symmetric(vertical: 10)),
             ),
           ),
         ]),
-        const SizedBox(height: 8),
-        if (draft &&
-            l.typeId != 'text' &&
-            l.typeId != 'track')
+        const SizedBox(height: TokSp.s),
+        if (draft && l.typeId != 'text' && l.typeId != 'track')
           _wide('从此点续画分支', Icons.call_split, () {
             st.setMode(AppMode.edit);
             st.startRouteFrom(l);
@@ -341,31 +398,60 @@ class _RightPanelState extends State<RightPanel> {
           }),
         _wide('完整属性（含照片）…', Icons.photo_camera_back, () {
           showLabelProperties(context, st, l,
-              sourceCid: widget.sourceCid,
-              title: _nm(l));
+              sourceCid: widget.sourceCid, title: _nm(l));
         }),
       ],
     );
   }
 
+  // ================= 统一样式小工具 =================
+
+  /// 输入框统一构造：本文件原先 9 处各写一遍 `style: const TextStyle(...)`，
+  /// 字号还各不相同（13.5 / 12.5）。收敛到一处后，右栏所有输入框必然同高同字号。
+  Widget _field(TextEditingController ctl, String hint,
+      {bool number = false, int maxLines = 1}) {
+    return TextField(
+      controller: ctl,
+      maxLines: maxLines,
+      keyboardType:
+          number ? const TextInputType.numberWithOptions(decimal: true) : null,
+      style: const TextStyle(color: TokC.textMain, fontSize: TokFs.body),
+      decoration: dec(hint),
+    );
+  }
+
+  /// 区块小标题：11px + 字距，用于"换话题"。
+  Widget _title(String t) => Text(t,
+      style: const TextStyle(
+          color: TokC.textSub,
+          fontSize: TokFs.caption,
+          fontWeight: FontWeight.w500));
+
   Widget _wide(String text, IconData icon, VoidCallback onTap) => Padding(
-        padding: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.only(top: TokSp.xs),
         child: OutlinedButton.icon(
           onPressed: onTap,
-          icon: Icon(icon, size: 15, color: kTextMain),
+          icon: Icon(icon, size: 15, color: TokC.textMain),
           label: Align(
               alignment: Alignment.centerLeft,
               child: Text(text,
-                  style: const TextStyle(color: kTextMain, fontSize: 12.5))),
+                  style: const TextStyle(
+                      color: TokC.textMain, fontSize: TokFs.small))),
           style: OutlinedButton.styleFrom(
               side: const BorderSide(color: Colors.white24),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: TokSp.s, vertical: 10),
               alignment: Alignment.centerLeft),
         ),
       );
 
-  Future<void> _save(BuildContext context, MapLabel l) async {
+  // ================= 提交 =================
+
+  /// 把控件内容写回 [l]。
+  ///
+  /// [silent] = true 时不弹 toast、不置 `_dirty`——用于"切换点时自动落盘"，
+  /// 用户没有主动保存，就不该被提示打扰。
+  void _commit(MapLabel l, {bool silent = false}) {
     l.name = _name.text.trim();
     l.note = _note.text.trim();
     l.segKind = _segKind;
@@ -378,6 +464,11 @@ class _RightPanelState extends State<RightPanel> {
     l.holes = int.tryParse(_holes.text.trim()) ?? 0;
     l.usedHoles = int.tryParse(_used.text.trim()) ?? 0;
     l.splitterRatio = _ratio.text.trim();
+    if (!silent && mounted) setState(() => _dirty = false);
+  }
+
+  Future<void> _save(BuildContext context, MapLabel l) async {
+    _commit(l);
     if (widget.sourceCid.isEmpty) {
       st.updateLabel(l);
     } else {
@@ -398,5 +489,22 @@ class _RightPanelState extends State<RightPanel> {
   String _nm(MapLabel l) => l.name.trim().isNotEmpty ? l.name.trim() : l.type.name;
 }
 
-String _fmtSlack(double v) =>
-    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+/// 标题栏小徽标（草稿/收藏/未保存/手填）。
+class _Tag extends StatelessWidget {
+  const _Tag(this.text, this.color);
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(left: TokSp.xs),
+        padding: const EdgeInsets.symmetric(
+            horizontal: TokSp.s - 2, vertical: TokSp.xxs),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.22),
+          borderRadius: BorderRadius.circular(TokR.s),
+        ),
+        child: Text(text, style: TextStyle(color: color, fontSize: TokFs.caption)),
+      );
+}

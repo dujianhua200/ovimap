@@ -103,8 +103,16 @@ const List<OviMenuGroupDef> oviMenuGroups = <OviMenuGroupDef>[
     OviMenuItemDef('template', '工程模板'),
     OviMenuItemDef('pole_table', '杆路点表'),
     OviMenuItemDef('track_check', '杆路轨迹核查'),
-    OviMenuItemDef('topo_guide', '拓扑连线指引'),
-    OviMenuItemDef('symbol_lib', '符号库…', dividerBefore: true),
+    // 出图体检放在"导出成果"之前的心智位置：先体检、再出图。
+    // 快捷键 Alt+Ctrl+K（Check），与 Alt+Ctrl+L/R/M 同族，不与文本框裸键冲突。
+    OviMenuItemDef('inspect', '出图体检（出图前查错）',
+        dividerBefore: true,
+        keys: 'Alt+Ctrl+K',
+        activator:
+            SingleActivator(LogicalKeyboardKey.keyK, meta: true, alt: true)),
+    OviMenuItemDef('auto_seg_label', '按敷设方式生成段标（固化）'),
+    OviMenuItemDef('topo_guide', '拓扑连线指引', dividerBefore: true),
+    OviMenuItemDef('symbol_lib', '符号库…'),
   ]),
   OviMenuGroupDef('视图', <OviMenuItemDef>[
     OviMenuItemDef('toggle_left', '折叠 / 展开左栏',
@@ -160,6 +168,7 @@ class OviMenuActions {
     required this.onDeleteSelection,
     required this.onPoleTable,
     required this.onTrackCheck,
+    required this.onInspect,
     required this.onOffline,
     required this.onStorageCleanup,
     required this.onSync,
@@ -182,6 +191,9 @@ class OviMenuActions {
   final VoidCallback onDeleteSelection;
   final VoidCallback onPoleTable;
   final VoidCallback onTrackCheck;
+
+  /// 出图体检：由壳注入，因为"定位到某一档"需要地图相机控制权（菜单层不持相机）。
+  final VoidCallback onInspect;
   final VoidCallback onOffline;
   final VoidCallback onStorageCleanup;
   final VoidCallback onSync;
@@ -265,6 +277,12 @@ Future<void> dispatchOviMenuItem(
     case 'track_check':
       a.onTrackCheck();
       break;
+    case 'inspect':
+      a.onInspect();
+      break;
+    case 'auto_seg_label':
+      await _autoSegLabels(context, st);
+      break;
     case 'topo_guide':
       await showTopoGuide(context);
       break;
@@ -337,6 +355,86 @@ Future<void> dispatchOviMenuItem(
   }
 }
 
+/// 批量生成段标（**固化**）。必须先讲清代价再动手 —— 这个动作会把"前缀+距离"
+/// 写成静态文字，之后挪点不再自动跟随，属于"为纸质图纸写死数字"的手段，
+/// 不是日常省事的办法（日常请用批量设置敷设方式，让段标实时带前缀）。
+Future<void> _autoSegLabels(BuildContext context, AppState st) async {
+  final segs = st.segments;
+  if (segs.isEmpty) {
+    toast(context, '当前工程还没有连线段落（至少两个同线组的点）');
+    return;
+  }
+  final blank = segs.where((s) => s.to.distLabel.trim().isEmpty).length;
+  var overwrite = false;
+
+  await showDarkDialog(
+    context,
+    title: '按敷设方式生成段标（固化）',
+    width: 460,
+    content: StatefulBuilder(
+      builder: (ctx, setSt) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '全线共 ${segs.length} 段，其中 $blank 段还没有标注。\n'
+            '生成后的文字形如「架38」「埋42.5」——前缀取自每段的敷设方式，'
+            '距离取实测段距。',
+            style: const TextStyle(
+                color: kTextMain, fontSize: 13, height: 1.6),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: kWarn.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: kWarn.withValues(alpha: 0.5), width: 0.5),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 15, color: kWarn),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '固化后段距变化不会再自动跟随：日后挪动一个点，图上仍标着旧数字。'
+                    '想省事又不出错，请改用「编辑 → 批量编辑 → 敷设方式」，'
+                    '让段标由敷设方式自动带前缀。',
+                    style: TextStyle(
+                        color: kTextSub, fontSize: 11.5, height: 1.55),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          CheckboxListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('覆盖已有标注（连手填的也重写）',
+                style: TextStyle(color: kTextMain, fontSize: 13)),
+            value: overwrite,
+            activeColor: kAccent,
+            onChanged: (v) => setSt(() => overwrite = v ?? false),
+          ),
+          if (blank == 0 && !overwrite)
+            const Text('当前没有空白段可填；如需重写请勾选上面的选项。',
+                style: TextStyle(color: kTextHint, fontSize: 11.5)),
+        ],
+      ),
+    ),
+    actions: [
+      darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+      darkTextBtn(overwrite ? '覆盖生成' : '只填空白段', () {
+        Navigator.pop(context);
+        final n = st.autoFillSegLabels(overwrite: overwrite);
+        toast(context,
+            n > 0 ? '已固化 $n 段标注（Ctrl+Z 可整批撤销）' : '没有需要处理的段');
+      }),
+    ],
+  );
+}
+
 Future<void> _confirmClearDraft(BuildContext context, AppState st) async {
   if (st.labels.isEmpty) {
     toast(context, '草稿为空');
@@ -351,6 +449,6 @@ Future<void> _confirmClearDraft(BuildContext context, AppState st) async {
         darkTextBtn('清空', () {
           st.clearDraft();
           Navigator.pop(context);
-        }, color: const Color(0xFFFF5252)),
+        }, color: kDanger),
       ]);
 }

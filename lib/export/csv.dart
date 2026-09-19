@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import '../geo/geo_util.dart';
 import '../models/diff_report.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
@@ -414,18 +415,9 @@ class CsvExporter {
     return '${lat.toStringAsFixed(6)},${lon.toStringAsFixed(6)}';
   }
 
-  /// 段距：优先 distLabel 数字，其次 distanceM，否则 haversine。
-  static double _segDist(MapLabel a, MapLabel b) {
-    final t = b.distLabel.trim();
-    if (t.isNotEmpty) {
-      final m = RegExp(r'[\d.]+').firstMatch(t);
-      final v = m == null ? null : double.tryParse(m.group(0) ?? '');
-      if (v != null && v > 0) return v;
-    }
-    final dm = b.distanceM;
-    if (dm != null && dm > 0) return dm;
-    return _haversine(a.lat, a.lon, b.lat, b.lon);
-  }
+  /// 段距（标注优先口径）——唯一实现见 [GeoUtil.segLenLabelFirst]。
+  static double _segDist(MapLabel a, MapLabel b) =>
+      GeoUtil.segLenLabelFirst(a, b);
 
   static double _haversine(double la1, double lo1, double la2, double lo2) {
     const r = 6371000.0;

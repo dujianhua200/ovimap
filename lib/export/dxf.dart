@@ -308,7 +308,7 @@ class DxfExporter {
             b.distanceM ?? _haversine(a.lat, a.lon, b.lat, b.lon);
         routeTotalLen += segmentDistance;
         chainCum += segmentDistance;
-        final segText = GeoUtil.segLabelFor(b, _formatDistNoUnit(segmentDistance),
+        final segText = GeoUtil.segTextFor(b, _formatDistNoUnit(segmentDistance),
             prefix: segPrefix);
         _text(c, 'JuLi', mx, my + 1.2, 2.5, segText,
             angle: angle, style: true);
@@ -1098,18 +1098,10 @@ class DxfExporter {
     return out;
   }
 
-  /// 段距：优先解析 distLabel 里的数字，否则 distanceM，否则 haversine。
-  static double _segDistance(MapLabel a, MapLabel b) {
-    final t = b.distLabel.trim();
-    if (t.isNotEmpty) {
-      final m = RegExp(r'[\d.]+').firstMatch(t);
-      final v = m == null ? null : double.tryParse(m.group(0) ?? '');
-      if (v != null && v > 0) return v;
-    }
-    final dm = b.distanceM;
-    if (dm != null && dm > 0) return dm;
-    return _haversine(a.lat, a.lon, b.lat, b.lon);
-  }
+  /// 段距（标注优先口径）——唯一实现见 [GeoUtil.segLenLabelFirst]。
+  /// 原先本文件自带一份拷贝，与 csv / archive_book 的同名私有方法逐字相同却各自演化。
+  static double _segDistance(MapLabel a, MapLabel b) =>
+      GeoUtil.segLenLabelFirst(a, b);
 
   /// 点到折线链的最近投影：返回 [投影里程, 垂距(米)]。
   /// chainPts 为笛卡尔坐标，cumMile 为每点累计里程。
@@ -1176,10 +1168,13 @@ class DxfExporter {
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
   }
 
-  static String _formatDistNoUnit(double m) {
-    if (m < 1000) return m.toStringAsFixed(1);
-    return m.toStringAsFixed(0);
-  }
+  /// DXF 段标注的距离数字：**不带单位**（图纸单位由图层设定，即米）。
+  ///
+  /// 直接委托 [GeoUtil.segDistText] —— 屏上段标与图纸段标必须是同一个字符串。
+  /// 这里曾经自己写 `toStringAsFixed(1)`，于是 ≥1km 的长杆档在屏幕上写「埋1.05km」、
+  /// 在图上写「埋1050.0」；随后又改成"自己调 stripDotZero 但保留 km 分支"，仍会分叉。
+  /// 现在规则只剩一处，再想分叉也没有地方写了。
+  static String _formatDistNoUnit(double m) => GeoUtil.segDistText(m);
 
   static double _pointToLineDistance(List<double> point, List<double> lineStart, List<double> lineEnd) {
     final double dx = lineEnd[0] - lineStart[0];
