@@ -96,7 +96,7 @@ class _SourcePanelBody extends StatelessWidget {
   Color _datumColor(int d) {
     switch (d) {
       case 1:
-        return const Color(0xFFFFB74D); // GCJ-02
+        return TokC.warn; // GCJ-02
       case 2:
         return const Color(0xFFE57373); // BD-09
       default:
@@ -123,10 +123,10 @@ class _SourcePanelBody extends StatelessWidget {
         height: 62, // 卡片高度约 62
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF232A31),
+          color: TokC.field,
           borderRadius: BorderRadius.circular(8), // 圆角 8
           border: Border.all(
-            color: selected ? kAccent : Colors.white12,
+            color: selected ? kAccent : TokC.divider,
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -151,7 +151,7 @@ class _SourcePanelBody extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
-                          color: Colors.white12,
+                          color: TokC.divider,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text('自',
@@ -257,7 +257,7 @@ class _SourcePanelBody extends StatelessWidget {
                   Navigator.pop(context);
                   toast(context, '已删除');
                 },
-                color: const Color(0xFFFF5252),
+                color: TokC.danger,
               ),
           ],
         ),
@@ -276,9 +276,9 @@ class _SourcePanelBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sourceSection(),
-        const Divider(color: Colors.white12),
+        const Divider(color: TokC.divider),
         _overlaySection(),
-        const Divider(color: Colors.white12),
+        const Divider(color: TokC.divider),
         _customSection(),
       ],
     );

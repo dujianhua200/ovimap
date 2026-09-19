@@ -78,13 +78,16 @@ class OviMapApp extends StatelessWidget {
       child: MaterialApp(
         title: '滑洲云图',
         debugShowCheckedModeBanner: false,
+        // 浅色主题（用户指定白底，与 TokC 令牌同源同值）。
+        // brightness 决定 Material 组件（chips / 弹出菜单 / 对话框）的默认墨色，
+        // 必须与 TokC 的浅色面板一致，否则会出现"面板白、控件黑"的混搭。
         theme: ThemeData(
           useMaterial3: false,
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: const Color(0xFF101418),
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF40C4FF),
-            secondary: Color(0xFF69F0AE),
+          brightness: Brightness.light,
+          scaffoldBackgroundColor: const Color(0xFFF2F4F6),
+          colorScheme: const ColorScheme.light(
+            primary: Color(0xFF0288D1),
+            secondary: Color(0xFF2E7D32),
           ),
         ),
         // 平台分支（架构文档 §3.1）：桌面（Windows / macOS / Linux）→ 桌面三栏壳；

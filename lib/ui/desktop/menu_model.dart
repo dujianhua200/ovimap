@@ -440,9 +440,15 @@ Future<void> _confirmClearDraft(BuildContext context, AppState st) async {
     toast(context, '草稿为空');
     return;
   }
+  // 打开收藏编辑时，草稿即收藏内容——清空会同步写回收藏文件，文案必须如实。
+  final editing = st.activeCollectionId.isNotEmpty;
   await showDarkDialog(context,
-      title: '清空草稿',
-      content: Text('确定删除当前 ${st.labels.length} 个未保存的点？',
+      title: editing ? '清空收藏内容' : '清空草稿',
+      content: Text(
+          editing
+              ? '「${st.projectName}」的 ${st.labels.length} 个点将被清空，'
+                  '并同步写回收藏（误清可 Ctrl+Z 撤销）。'
+              : '确定删除当前 ${st.labels.length} 个未保存的点？',
           style: const TextStyle(color: kTextMain, fontSize: 13)),
       actions: [
         darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),

@@ -5,6 +5,7 @@ import '../../state/app_state.dart';
 import '../../sync/sync_controller.dart';
 import '../../sync/sync_models.dart';
 import '../dialogs.dart';
+import '../../ui/design_tokens.dart';
 
 /// 同步徽标（✓ 已同步 / ↑ 待上传 / ⚠ 有冲突 / ● 仅本地）。
 ///
@@ -119,12 +120,12 @@ class _SyncPanelBodyState extends State<_SyncPanelBody> {
           if (!sc.configured) ...[
             const SizedBox(height: 8),
             const Text('尚未配置同步令牌：请在「同步设置」里填入令牌与服务器地址。',
-                style: TextStyle(color: Color(0xFFFFB74D), fontSize: 12)),
+                style: TextStyle(color: TokC.warn, fontSize: 12)),
           ],
           if (sc.lastError.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text('最近错误：${sc.lastError}',
-                style: const TextStyle(color: Color(0xFFFF5252), fontSize: 11.5)),
+                style: const TextStyle(color: TokC.danger, fontSize: 11.5)),
           ],
           const SizedBox(height: 14),
           Row(
@@ -385,7 +386,7 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
           children: [
             Text(_error,
                 style: const TextStyle(
-                    color: Color(0xFFFFB74D), fontSize: 12.5, height: 1.5)),
+                    color: TokC.warn, fontSize: 12.5, height: 1.5)),
             const SizedBox(height: 10),
             TextButton(
               onPressed: _busy ? null : _load,
@@ -415,7 +416,7 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
             child: ListView.separated(
               itemCount: _versions.length,
               separatorBuilder: (_, _) =>
-                  const Divider(height: 1, color: Colors.white12),
+                  const Divider(height: 1, color: TokC.divider),
               itemBuilder: (ctx, i) {
                 final v = _versions[i];
                 return ListTile(

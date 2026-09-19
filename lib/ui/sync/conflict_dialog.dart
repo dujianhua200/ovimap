@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../sync/sync_models.dart';
 import '../dialogs.dart';
+import '../../ui/design_tokens.dart';
 
 /// 冲突三选一对话框（架构文档 §4.6 / PRD §3.3 / T17）。
 ///
@@ -35,10 +36,10 @@ Future<ConflictChoice?> showConflictDialog(
               ),
               const SizedBox(height: 10),
               _side('云端', info.serverRev, info.serverUpdatedAt,
-                  info.serverDeviceName, const Color(0xFF69F0AE)),
+                  info.serverDeviceName, TokC.ok),
               const SizedBox(height: 4),
               _side('本机', info.localRev, info.localUpdatedAt,
-                  info.localDeviceName, const Color(0xFF40C4FF)),
+                  info.localDeviceName, TokC.accent),
               const SizedBox(height: 12),
               _choice(
                 value: ConflictChoice.keepCloud,

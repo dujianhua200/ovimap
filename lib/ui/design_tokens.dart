@@ -94,69 +94,76 @@ class TokFs {
   static const double heading = 15;
 }
 
-/// 语义色。深色单主题（应用强制深色，宿主层 `NSApp.appearance = darkAqua`）。
+/// 语义色。**浅色单主题**（应用强制白色，宿主层 `NSApp.appearance = lightAqua`，
+/// 与系统深浅模式解耦——用户明确要求白底，不随系统切换）。
 class TokC {
   TokC._();
 
   // ---- 容器 ----
-  /// 弹层/对话框底：半透明，底下地图仍可见。
-  static const Color panel = Color(0xF51C2127);
+  /// 弹层/对话框底：接近纯白的半透明，底下地图仍隐约可见。
+  static const Color panel = Color(0xFAF9FAFB);
 
   /// 常驻侧栏底（不透明，避免侧栏透出地图造成"脏"感）。
-  static const Color panelSolid = Color(0xFF141920);
+  static const Color panelSolid = Color(0xFFF2F4F6);
 
   /// 浮起卡片/列表项底。
-  static const Color card = Color(0xFF1D242C);
+  static const Color card = Color(0xFFFFFFFF);
 
   /// 输入框填充底。
-  static const Color field = Color(0xFF232A31);
+  static const Color field = Color(0xFFECEFF2);
 
   /// 顶栏底。
-  static const Color bar = Color(0xE6161B20);
+  static const Color bar = Color(0xF7FFFFFF);
 
   /// 工具栏底。
-  static const Color toolbar = Color(0xFF11161B);
+  static const Color toolbar = Color(0xFFF7F8FA);
 
   // ---- 前景 ----
   /// 主文字。
-  static const Color textMain = Color(0xFFE8EDF2);
+  static const Color textMain = Color(0xFF1C242C);
 
   /// 次要文字。
-  static const Color textSub = Color(0xFFB8C2CC);
+  static const Color textSub = Color(0xFF4A5560);
 
   /// 提示/占位文字。
-  static const Color textHint = Color(0xFF78828E);
+  static const Color textHint = Color(0xFF8A949E);
 
   // ---- 强调与状态 ----
-  /// 主题强调色（青）。
-  static const Color accent = Color(0xFF40C4FF);
+  // 在白底上，原来深色主题的亮色（40C4FF 等）对比度不足，统一换成
+  // 同色系更深的档位——色相不变，只提"墨量"，视觉识别连续。
+
+  /// 主题强调色（青蓝）。
+  static const Color accent = Color(0xFF0288D1);
 
   /// 成功 / 通过。
-  static const Color ok = Color(0xFF69F0AE);
+  static const Color ok = Color(0xFF2E7D32);
 
   /// 警示（竣工模式、超限）。
-  static const Color warn = Color(0xFFFFB74D);
+  static const Color warn = Color(0xFFE65100);
 
   /// 危险 / 错误（删除、体检 error）。
-  static const Color danger = Color(0xFFFF5252);
+  static const Color danger = Color(0xFFD32F2F);
 
   /// 分隔线。
-  static const Color divider = Color(0x1FFFFFFF);
+  static const Color divider = Color(0x1F000000);
 
   // ---- 领域语义色：敷设方式色标 ----
   //
   // 与 `RouteSegment.kindName` / `GeoUtil.kindPrefixOf` 的枚举同源
   // （0默认 / 1架空 / 2埋地 / 3管道）。左栏段落表、图例、统计区共用同一套色，
   // 避免"图上绿线是架空、表里绿点是埋地"这种自相矛盾的图例。
+  //
+  // 注意：这组颜色同时出现在**地图上**（图例 / 连线色标），底是影像不是 UI，
+  // 因此保持中亮度——白底下做 chip 背景配黑字也够读。
 
   /// 架空。
-  static const Color kindOverhead = Color(0xFF69F0AE);
+  static const Color kindOverhead = Color(0xFF43A047);
 
   /// 埋地。
-  static const Color kindBuried = Color(0xFFFFB74D);
+  static const Color kindBuried = Color(0xFFFB8C00);
 
   /// 管道。
-  static const Color kindDuct = Color(0xFF40C4FF);
+  static const Color kindDuct = Color(0xFF039BE5);
 
   /// 敷设方式 → 色标。
   static Color kind(int k) => switch (k) {

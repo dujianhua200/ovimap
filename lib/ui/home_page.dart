@@ -24,6 +24,7 @@ import 'map/map_canvas.dart';
 import 'route_tools.dart';
 import 'settings_menu.dart';
 import 'tools_menu.dart';
+import 'design_tokens.dart';
 
 /// 移动端外壳（竖屏 + Drawer + 浮层）。
 ///
@@ -303,7 +304,7 @@ class _HomePageState extends State<HomePage> {
     final st = context.watch<AppState>();
     if (!st.inited) {
       return const Scaffold(
-        backgroundColor: Color(0xFF101418),
+        backgroundColor: TokC.panelSolid,
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -336,7 +337,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF101418),
+      backgroundColor: TokC.panelSolid,
       drawer: FavoritesDrawer(st: st),
       body: Stack(
         children: [
@@ -624,7 +625,7 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
         color: Color(0xE6101418),
-        border: Border(top: BorderSide(color: Colors.white10)),
+        border: Border(top: BorderSide(color: TokC.divider)),
       ),
       child: Row(
         children: [
@@ -664,15 +665,20 @@ class _HomePageState extends State<HomePage> {
               Expanded(
                 child: _modeChip('竣工模式',
                     active: st.editModeName == 'completion',
-                    color: const Color(0xFFFFB74D),
+                    color: TokC.warn,
                     onTap: () => st.chooseEditMode('completion')),
               ),
               _modeChip('撤销', onTap: st.undoDraft),
               _modeChip('清空', onTap: () {
                 if (st.labels.isEmpty) return;
+                final editing = st.activeCollectionId.isNotEmpty;
                 showDarkDialog(context,
-                    title: '清空草稿',
-                    content: Text('确定删除当前 ${st.labels.length} 个未保存的点？',
+                    title: editing ? '清空收藏内容' : '清空草稿',
+                    content: Text(
+                        editing
+                            ? '「${st.projectName}」的 ${st.labels.length} 个点将被清空，'
+                                '并同步写回收藏（误清可撤销）。'
+                            : '确定删除当前 ${st.labels.length} 个未保存的点？',
                         style:
                             const TextStyle(color: kTextMain, fontSize: 13)),
                     actions: [
@@ -681,7 +687,7 @@ class _HomePageState extends State<HomePage> {
                       darkTextBtn('清空', () {
                         st.clearDraft();
                         Navigator.pop(context);
-                      }, color: const Color(0xFFFF5252)),
+                      }, color: TokC.danger),
                     ]);
               }),
             ],
@@ -704,7 +710,7 @@ class _HomePageState extends State<HomePage> {
                       decoration: BoxDecoration(
                         color: st.curType.id == t.id
                             ? t.color.withValues(alpha: 0.85)
-                            : const Color(0xFF232A31),
+                            : TokC.field,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                             color: st.curType.id == t.id
@@ -837,7 +843,7 @@ class _HomePageState extends State<HomePage> {
               style: TextStyle(
                   color: st.recordPaused
                       ? const Color(0xFFFFD54F)
-                      : const Color(0xFFFF5252),
+                      : TokC.danger,
                   fontSize: 14)),
           const SizedBox(width: 8),
           Expanded(
@@ -924,7 +930,7 @@ class _HomePageState extends State<HomePage> {
   Widget _divider() => Container(
       width: 26,
       height: 1,
-      color: Colors.white24,
+      color: TokC.divider,
       margin: const EdgeInsets.symmetric(vertical: 3));
 
   Widget _modeChip(String text,
@@ -941,7 +947,7 @@ class _HomePageState extends State<HomePage> {
           decoration: BoxDecoration(
             color: active
                 ? (color ?? kAccent).withValues(alpha: 0.9)
-                : const Color(0xFF232A31),
+                : TokC.field,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(text,
@@ -1188,7 +1194,7 @@ class _HomePageState extends State<HomePage> {
                           chains[ci][i - 1].lon, chains[ci][i].lat, chains[ci][i].lon);
                 }
                 return Container(
-                  color: const Color(0xFF232A31),
+                  color: TokC.field,
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 6),
                   child: Text(
@@ -1317,7 +1323,7 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Text('· $nm：偏移 ${off.toStringAsFixed(0)} 米',
             style: const TextStyle(
-                color: Color(0xFFFFB74D), fontSize: 12.5)),
+                color: TokC.warn, fontSize: 12.5)),
       ));
     }
     showDarkDialog(
@@ -1342,8 +1348,8 @@ class _HomePageState extends State<HomePage> {
                     : '⚠ ${r.outliers.length} 根杆偏移超阈值（疑似漏走/错位），按偏移从大到小：',
                 style: TextStyle(
                     color: r.outliers.isEmpty
-                        ? const Color(0xFF69F0AE)
-                        : const Color(0xFFFFB74D),
+                        ? TokC.ok
+                        : TokC.warn,
                     fontSize: 13)),
             ...outlierLines,
             if (r.outliers.length > 10)

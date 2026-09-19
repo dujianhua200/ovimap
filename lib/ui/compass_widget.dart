@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'design_tokens.dart';
 
 /// 右上角罗盘：显示地图朝向（红针指北）与手机航向（蓝楔）。
 /// 点按/长按=回正北朝上（地图不随手机旋转，仅位置箭头跟随航向）。
@@ -37,7 +38,7 @@ class CompassWidget extends StatelessWidget {
           color: const Color(0xB3151A1F),
           shape: BoxShape.circle,
           border: Border.all(
-              color: compassMode ? const Color(0xFF40C4FF) : Colors.white24,
+              color: compassMode ? TokC.accent : TokC.divider,
               width: compassMode ? 2 : 1),
         ),
         child: CustomPaint(
@@ -126,7 +127,7 @@ class _CompassPainter extends CustomPainter {
         ..lineTo(-5, -r + 9)
         ..lineTo(5, -r + 9)
         ..close();
-      canvas.drawPath(wedge, Paint()..color = const Color(0xFF40C4FF));
+      canvas.drawPath(wedge, Paint()..color = TokC.accent);
       canvas.restore();
     }
   }

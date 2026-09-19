@@ -1,0 +1,198 @@
+// 收藏夹改版护栏（用户反馈：新建文件夹逻辑不行 / 没有删除功能 /
+// 「添加的轨迹和标签没有保存功能」/ 要跟电脑版奥维地图一样）。
+//
+// 本文件覆盖**状态与磁盘层**：
+//   T1  打开收藏后加/删/撤销点 → 收藏文件同步落盘（核心回归：以前只写 draft.json）
+//   T2  编辑态下「新建空白工程」先脱离收藏再清空，空列表绝不写回收藏文件
+//   T3  文件夹新建/重命名/删除（删除时内容上移到父级，不丢工程）
+//
+// ⚠️ 真实文件 I/O 在纯 `test()`（非 FakeAsync）里跑，落盘是 fire-and-forget，
+//    断言前用 `await _settle()` 让事件循环把异步写排空。
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:ovimap/models/map_label.dart';
+import 'package:ovimap/services/app_paths.dart';
+import 'package:ovimap/services/store.dart';
+import 'package:ovimap/state/app_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '_fs_cleanup.dart';
+
+final store = LabelStore.instance;
+
+Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 80));
+
+List<MapLabel> labelsN(int n) => [
+      for (var i = 0; i < n; i++)
+        MapLabel(typeId: 'pole', seq: i + 1, lat: 32.0 + i * 0.001, lon: 114.0),
+    ];
+
+void main() {
+  late Directory dir;
+
+  setUp(() {
+    dir = Directory.systemTemp.createTempSync('ovimap_fav_rework');
+    store.setBaseDirForTest(dir);
+  });
+
+  tearDown(() async {
+    AppPaths.clearForTest();
+    await deleteTempDirResilient(dir);
+  });
+
+  group('T1 打开收藏后的自动保存（「轨迹和标签没有保存」根因回归）', () {
+    Future<AppState> makeOpened(int n) async {
+      final cid = await store.finishCollection(
+        name: '杆路A',
+        kind: 'label',
+        folderId: '',
+        editMode: 'design',
+        labels: labelsN(n),
+      );
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final st = AppState();
+      st.setPrefsForTest(await SharedPreferences.getInstance());
+      final metas = await store.loadIndex();
+      await st.openCollection(metas.firstWhere((m) => m.id == cid));
+      return st;
+    }
+
+    Future<int> diskCount(String cid) async {
+      final f = File('${dir.path}/labels/collection_$cid.json');
+      final o = Map<String, dynamic>.from(
+          jsonDecode(await f.readAsString()) as Map<String, dynamic>);
+      return (o['labels'] as List).length;
+    }
+
+    test('加 1 个点 → 收藏文件从 3 变 4', () async {
+      final st = await makeOpened(3);
+      final cid = st.activeCollectionId;
+      expect(cid, isNotEmpty);
+      expect(await diskCount(cid), 3, reason: '前置：收藏文件应为打开时的 3 点');
+
+      st.addLabelAtWgs(32.5, 114.5);
+      await _settle();
+      expect(await diskCount(cid), 4, reason: '打点必须同步写回收藏文件');
+      expect(st.labels.length, 4);
+    });
+
+    test('删 1 个点 → 收藏文件同步变 2；再撤销 → 回到 3', () async {
+      final st = await makeOpened(3);
+      final cid = st.activeCollectionId;
+
+      st.removeLabel(st.labels.last);
+      await _settle();
+      expect(await diskCount(cid), 2, reason: '删点必须同步写回收藏文件');
+
+      st.undoDraft();
+      await _settle();
+      expect(await diskCount(cid), 3, reason: '撤销也走 _saveDraft，同样落盘');
+      expect(st.labels.length, 3);
+    });
+
+    test('重启模拟：重新 loadCollection 拿到的是改过之后的点集', () async {
+      final st = await makeOpened(2);
+      final cid = st.activeCollectionId;
+      st.addLabelAtWgs(32.9, 114.9);
+      await _settle();
+
+      final reopened = await store.loadCollection(cid);
+      expect(reopened.length, 3, reason: '重启后收藏里必须有第 3 个点');
+    });
+  });
+
+  group('T2 新建空白工程不误清收藏', () {
+    test('编辑收藏时 startNewDraft → 收藏文件保持原内容，且脱离编辑态', () async {
+      final cid = await store.finishCollection(
+        name: '管道B',
+        kind: 'label',
+        folderId: '',
+        editMode: 'design',
+        labels: labelsN(2),
+      );
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final st = AppState();
+      st.setPrefsForTest(await SharedPreferences.getInstance());
+      final metas = await store.loadIndex();
+      await st.openCollection(metas.firstWhere((m) => m.id == cid));
+
+      st.startNewDraft();
+      await _settle();
+
+      expect(st.activeCollectionId, '', reason: '必须先脱离收藏再清空，顺序不能反');
+      expect(st.labels, isEmpty, reason: '画布应已清空');
+      expect(st.projectName, '');
+
+      final onDisk = await store.loadCollection(cid);
+      expect(onDisk.length, 2, reason: '空列表绝不许写回收藏文件（历史 bug 会清空整个工程）');
+    });
+  });
+
+  group('T3 文件夹 CRUD（奥维式右键菜单的磁盘层）', () {
+    test('新建 → 重命名 → 持久化在 folders.json', () async {
+      final f1 = await store.addFolder('光缆工程');
+      final f2 = await store.addFolder('管道工程', f1.id);
+      await _settle();
+
+      var list = await store.loadFolders();
+      expect(list.map((e) => e.name), containsAll(['光缆工程', '管道工程']));
+      expect(list.firstWhere((e) => e.id == f2.id).parentId, f1.id,
+          reason: '子文件夹必须挂在父级下');
+
+      await store.renameFolder(f2.id, '直埋工程');
+      await _settle();
+      list = await store.loadFolders();
+      expect(list.firstWhere((e) => e.id == f2.id).name, '直埋工程');
+    });
+
+    test('重命名为空串：保持原名不破坏数据', () async {
+      final f = await store.addFolder('外线');
+      await store.renameFolder(f.id, '   ');
+      await _settle();
+      final list = await store.loadFolders();
+      expect(list.firstWhere((e) => e.id == f.id).name, '外线');
+    });
+
+    test('删除文件夹：子目录与项目上移到父级，工程一个不丢', () async {
+      final parent = await store.addFolder('2026年');
+      final child = await store.addFolder('一季度', parent.id);
+      await store.finishCollection(
+        name: '城北杆路',
+        kind: 'label',
+        folderId: child.id,
+        editMode: 'design',
+        labels: labelsN(1),
+      );
+      await _settle();
+
+      await store.deleteFolder(child.id);
+      await _settle();
+
+      final folders = await store.loadFolders();
+      expect(folders.map((e) => e.id), isNot(contains(child.id)),
+          reason: '被删目录必须从树里消失');
+      expect(folders.map((e) => e.id), contains(parent.id));
+
+      // 子目录被删后其内容上移：工程挂到 parent（index.json folder 键改写）。
+      final metas = await store.loadIndex();
+      final proj = metas.firstWhere((m) => m.name == '城北杆路');
+      expect(proj.folder, parent.id, reason: '工程必须上移到父级而不是被连坐删除');
+
+      // 再删父级 → 工程回到根（''），依然不丢。
+      await store.deleteFolder(parent.id);
+      await _settle();
+      final proj2 =
+          (await store.loadIndex()).firstWhere((m) => m.name == '城北杆路');
+      expect(proj2.folder, '', reason: '顶级目录删除后工程应回到根目录');
+    });
+
+    test('空名新建文件夹：落为「文件夹」默认名（与 UI onSubmitted 空提交一致）', () async {
+      final f = await store.addFolder('');
+      await _settle();
+      expect(f.name, '文件夹');
+      expect((await store.loadFolders()).map((e) => e.name), contains('文件夹'));
+    });
+  });
+}

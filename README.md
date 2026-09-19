@@ -7,7 +7,13 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.2.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.3.0**（Windows x64 / macOS Universal / Android）
+
+> **v3.3.0 更新**：① 界面主题由深色改为**浅色**（含 macOS 系统菜单栏/标题栏）；
+> ② 收藏夹对齐电脑版奥维：文件夹**右键菜单**（新建子文件夹 / 重命名 / 删除 /
+> 把当前画布存进来）、工程项右键菜单、**批量删除**、新建文件夹后自动选中；
+> ③ 修复「打开收藏后加的轨迹和标签重启丢失」——编辑收藏时打点 / 删点 /
+> 撤销重做 / 续画现在都会**实时同步回收藏文件**。
 **技术栈：** Flutter 3.47.2 · flutter_map 8 · Provider · DXF(R12/R2000) · Cloudflare Workers + D1 + R2
 
 ---
@@ -100,8 +106,8 @@
   快捷键支持 `⌘` 与 `Ctrl` 两套组合。⚠️ 仅 **v3.0.2 及更早的 macOS 包**是移动竖屏壳，
   修复已合入 master，见 [§1 桌面壳现状](#1-这是什么)。
 - **系统菜单栏是中文的、只有一行**（v3.1.0 起）：菜单由应用接管（含 隐藏 / 退出），
-  窗口内不再重复画一行菜单。应用同时把外观钉成深色（`NSApp.appearance = darkAqua`），
-  所以系统是浅色模式时，顶部菜单栏与窗口标题栏也跟内容区一致，不会出现"上白下黑"。
+  窗口内不再重复画一行菜单。应用同时把外观钉成浅色（`NSApp.appearance = aqua`，v3.3.0 起），
+  所以系统是深色模式时，顶部菜单栏与窗口标题栏也跟内容区一致，不会出现"上黑下白"。
 - **首次打开会被 Gatekeeper 拦住**（包是 ad-hoc 签名，没有 Apple 开发者证书）。
   解决：**右键 → 打开**，弹窗里再点一次「打开」；或终端执行
   ```bash

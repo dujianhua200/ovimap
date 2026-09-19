@@ -9,6 +9,7 @@ import '../../geo/geo_util.dart';
 import '../../models/map_label.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
+import '../../ui/design_tokens.dart';
 
 /// 桌面地图右键菜单（架构文档 §3.3 / T12）。
 ///
@@ -364,7 +365,7 @@ Future<void> _deleteSegPoint(
         } else {
           await st.removeOverlayLabel(seg.cid, seg.b);
         }
-      }, color: const Color(0xFFFF5252)),
+      }, color: TokC.danger),
     ],
   );
 }
@@ -415,11 +416,11 @@ void _copy(BuildContext context, String text) {
 
 Widget _mi(IconData icon, String text, {bool red = false}) => Row(
       children: [
-        Icon(icon, size: 16, color: red ? const Color(0xFFFF5252) : kTextSub),
+        Icon(icon, size: 16, color: red ? TokC.danger : kTextSub),
         const SizedBox(width: 10),
         Text(text,
             style: TextStyle(
-                color: red ? const Color(0xFFFF5252) : kTextMain,
+                color: red ? TokC.danger : kTextMain,
                 fontSize: 13)),
       ],
     );

@@ -13,6 +13,7 @@ import '../../services/tile_cache.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
 import '../label_marker.dart';
+import '../../ui/design_tokens.dart';
 
 /// 共享地图核心（从 `home_page` 抽出，供移动壳 / 桌面壳复用）。
 ///
@@ -304,7 +305,7 @@ class _MapCanvasState extends State<MapCanvas> {
             initialZoom: st.initZoom,
             minZoom: 3,
             maxZoom: 21.5,
-            backgroundColor: const Color(0xFF101418),
+            backgroundColor: TokC.panelSolid,
             onPositionChanged: _onPositionChanged,
             onMapReady: () {
               _mapReady = true;
@@ -754,7 +755,7 @@ class _MarqueePainter extends CustomPainter {
       ..color = const Color(0x3340C4FF)
       ..style = PaintingStyle.fill;
     final border = Paint()
-      ..color = const Color(0xFF40C4FF)
+      ..color = TokC.accent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
     canvas.drawRect(rect, fill);

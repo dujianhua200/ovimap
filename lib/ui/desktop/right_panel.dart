@@ -438,7 +438,7 @@ class _RightPanelState extends State<RightPanel> {
                   style: const TextStyle(
                       color: TokC.textMain, fontSize: TokFs.small))),
           style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.white24),
+              side: const BorderSide(color: TokC.divider),
               padding: const EdgeInsets.symmetric(
                   horizontal: TokSp.s, vertical: 10),
               alignment: Alignment.centerLeft),

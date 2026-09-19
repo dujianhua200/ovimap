@@ -6,6 +6,8 @@
 /// （旧版 Android 的 `finishCollection()` 会重建 index.json 抹掉新字段，见 §5）。
 library;
 
+import '../ui/design_tokens.dart';
+
 // ===================== 同步状态 =====================
 
 /// 工程级同步状态。对应工程列表徽标 ✓ / ↑ / ⚠ / ●（架构文档 §12.4）。
@@ -30,9 +32,9 @@ extension SyncStatusX on SyncStatus {
 
   /// 徽标/圆点颜色（ARGB，与项目既有暗色主题一致）。
   int get argb => switch (this) {
-        SyncStatus.synced => 0xFF69F0AE,
-        SyncStatus.pendingUpload => 0xFFFFB74D,
-        SyncStatus.conflict => 0xFFFF5252,
+        SyncStatus.synced => TokC.ok.value,
+        SyncStatus.pendingUpload => TokC.warn.value,
+        SyncStatus.conflict => TokC.danger.value,
         SyncStatus.localOnly => 0xFF9E9E9E,
       };
 }

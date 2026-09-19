@@ -74,8 +74,8 @@ class Toolbar extends StatelessWidget {
     return Container(
       height: barHeight,
       decoration: const BoxDecoration(
-        color: Color(0xFF11161B),
-        border: Border(bottom: BorderSide(color: Colors.white12)),
+        color: TokC.toolbar,
+        border: Border(bottom: BorderSide(color: TokC.divider)),
       ),
       child: Row(
         children: [
@@ -171,7 +171,7 @@ class Toolbar extends StatelessWidget {
   /// 设计 / 竣工模式切换（对齐移动端模式行，竣工用橙色警示）。
   Widget _modeBtn(BuildContext context) {
     final completion = st.editModeName == 'completion';
-    final color = completion ? const Color(0xFFFFB74D) : kAccent;
+    final color = completion ? TokC.warn : kAccent;
     return Tooltip(
       message: completion
           ? '当前：竣工模式（落点会弹竣工距离确认）— 点击切回设计模式'
@@ -282,7 +282,7 @@ class Toolbar extends StatelessWidget {
             child: Icon(icon,
                 size: 20,
                 color: !enabled
-                    ? Colors.white24
+                    ? TokC.divider
                     : active
                         ? kAccent
                         : kTextMain),
@@ -296,5 +296,5 @@ class Toolbar extends StatelessWidget {
       width: 1,
       height: 22,
       margin: const EdgeInsets.symmetric(horizontal: 4),
-      color: Colors.white12);
+      color: TokC.divider);
 }

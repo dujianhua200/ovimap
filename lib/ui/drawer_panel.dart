@@ -11,6 +11,7 @@ import '../sync/sync_models.dart';
 import 'dialogs.dart';
 import 'export_center.dart';
 import 'sync/sync_panel.dart';
+import 'design_tokens.dart';
 
 /// 收藏夹抽屉：文件夹 + 收藏项目（显示/打开/拓扑/导出/管理）。
 /// 支持按工程名/备注跨文件夹搜索（奥维标签管理器式）。
@@ -29,14 +30,14 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      backgroundColor: const Color(0xFF141920),
+      backgroundColor: TokC.panelSolid,
       child: SafeArea(
         child: Column(
           children: [
             _header(context),
             _searchBar(context),
             _folderChips(context),
-            const Divider(height: 1, color: Colors.white12),
+            const Divider(height: 1, color: TokC.divider),
             Expanded(child: _list(context)),
           ],
         ),
@@ -124,7 +125,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                               : kTextMain)),
                   selected: st.folderId == f.id,
                   selectedColor: kAccent,
-                  backgroundColor: const Color(0xFF232A31),
+                  backgroundColor: TokC.field,
                   side: BorderSide.none,
                   onSelected: (_) {
                     st.folderId = f.id;
@@ -193,7 +194,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
         if (st.folderId == f.id) st.folderId = '';
         await st.refreshCollections();
         if (context.mounted) toast(context, '已删除（内容保留在上级目录）');
-      }, color: const Color(0xFFFF5252)),
+      }, color: TokC.danger),
       darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub),
     ]);
   }
@@ -279,7 +280,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                 ? '竣工'
                 : '设计';
     final tagColor = m.editMode == 'completion'
-        ? const Color(0xFFFFB74D)
+        ? TokC.warn
         : m.kind == 'track'
             ? const Color(0xFFFFD54F)
             : const Color(0xFF81C784);
@@ -287,7 +288,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: const Color(0xFF1D242C),
+        color: TokC.card,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
             color: visible ? kAccent.withValues(alpha: 0.6) : Colors.transparent),
@@ -483,8 +484,8 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                 children: [
                   Wrap(spacing: 8, children: [
                     for (final c in const [
-                      0xFFFFC107, 0xFFE53935, 0xFF40C4FF,
-                      0xFF69F0AE, 0xFFCE93D8, 0xFFFFFFFF,
+                      0xFFFFC107, 0xFFE53935, 0xFF0288D1,
+                      0xFF2E7D32, 0xFFCE93D8, 0xFFFFFFFF,
                     ])
                       GestureDetector(
                         onTap: () => setSt(() => color = c),
@@ -576,7 +577,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                 await st.deleteCollection(m.id);
                 Navigator.pop(context);
                 st.refreshUi();
-              }, color: const Color(0xFFFF5252)),
+              }, color: TokC.danger),
             ]);
         break;
     }

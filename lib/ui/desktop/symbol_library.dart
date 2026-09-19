@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/label_type.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
+import '../../ui/design_tokens.dart';
 
 /// 符号库选择器（桌面壳）。
 ///
@@ -52,10 +53,10 @@ class SymbolTile extends StatelessWidget {
         width: width,
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF232A31) : Colors.transparent,
+          color: selected ? TokC.field : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-              color: selected ? kAccent : Colors.white12,
+              color: selected ? kAccent : TokC.divider,
               width: selected ? 1.4 : 0.6),
         ),
         child: Column(

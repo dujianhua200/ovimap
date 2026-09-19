@@ -164,10 +164,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   void _newProject() {
     final st = _st;
-    st.clearDraft();
-    st.projectName = '';
-    st.folderId = '';
-    st.activeCollectionId = '';
+    // startNewDraft 内部先脱离收藏再清草稿——顺序反了会把空列表写回收藏文件。
+    st.startNewDraft();
     st.setMode(AppMode.edit);
     setState(() {
       _selLabel = null;
@@ -490,7 +488,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                                 chains[ci][i - 1].lon, p.lat, p.lon);
                       }
                       return Container(
-                        color: const Color(0xFF232A31),
+                        color: TokC.field,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 6),
                         child: Text(
@@ -627,8 +625,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
                     : '⚠ ${r.outliers.length} 根杆偏移超阈值，按偏移从大到小：',
                 style: TextStyle(
                     color: r.outliers.isEmpty
-                        ? const Color(0xFF69F0AE)
-                        : const Color(0xFFFFB74D),
+                        ? TokC.ok
+                        : TokC.warn,
                     fontSize: TokFs.body)),
             for (final (pole, off) in r.outliers.take(10))
               Padding(
@@ -636,7 +634,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 child: Text(
                     '· ${pole.name.trim().isNotEmpty ? pole.name.trim() : pole.type.name}：偏移 ${off.toStringAsFixed(0)} 米',
                     style: const TextStyle(
-                        color: Color(0xFFFFB74D), fontSize: TokFs.body)),
+                        color: TokC.warn, fontSize: TokFs.body)),
               ),
           ],
         ),
@@ -660,7 +658,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
     final sync = context.watch<SyncController?>();
     if (!st.inited) {
       return const Scaffold(
-        backgroundColor: Color(0xFF101418),
+        backgroundColor: TokC.panelSolid,
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -717,7 +715,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         st: st,
         actions: _menuActions,
         child: Scaffold(
-          backgroundColor: const Color(0xFF101418),
+          backgroundColor: TokC.panelSolid,
           body: Column(
             children: [
               // Windows / Linux 没有系统菜单栏，继续用窗口内自绘菜单栏。
@@ -918,7 +916,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
         color: Color(0xFF161C23),
-        border: Border(top: BorderSide(color: Colors.white10)),
+        border: Border(top: BorderSide(color: TokC.divider)),
       ),
       child: Row(
         children: [
@@ -957,7 +955,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: Colors.white10,
+            color: TokC.divider,
             borderRadius: BorderRadius.circular(TokR.s),
           ),
           child: Text(text,
@@ -1030,7 +1028,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       case AppMode.view:
         return (
           st.recording ? '轨迹中' : '普通',
-          st.recording ? const Color(0xFFFF5252) : const Color(0xFF9E9E9E),
+          st.recording ? TokC.danger : const Color(0xFF9E9E9E),
           st.recording
               ? '轨迹录制中 · 桌面端无 GPS，请在移动端沿线走查录制'
               : '左键点选点位（右栏看属性） · $panHint',
@@ -1046,9 +1044,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
           onHorizontalDragUpdate: (d) => onDrag(d.delta.dx),
           child: Container(
             width: 6,
-            color: Colors.white10,
+            color: TokC.divider,
             child: Center(
-              child: Container(width: 1, color: Colors.white24),
+              child: Container(width: 1, color: TokC.divider),
             ),
           ),
         ),

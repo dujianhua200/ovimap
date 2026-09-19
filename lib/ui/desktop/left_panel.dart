@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -114,15 +116,15 @@ class _LeftPanelState extends State<LeftPanel> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF141920),
+      color: TokC.panelSolid,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _header(context),
           _searchBar(),
-          const Divider(height: 1, color: Colors.white12),
+          const Divider(height: 1, color: TokC.divider),
           _folderTree(),
-          const Divider(height: 1, color: Colors.white12),
+          const Divider(height: 1, color: TokC.divider),
           Expanded(child: _collectionList(context)),
           _draftSection(),
           _dropZone(context),
@@ -188,7 +190,7 @@ class _LeftPanelState extends State<LeftPanel> {
     }
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 168),
+      constraints: const BoxConstraints(maxHeight: 220),
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
@@ -198,12 +200,27 @@ class _LeftPanelState extends State<LeftPanel> {
 
   Widget _folderRow(Folder f, int depth) {
     final selected = st.folderId == f.id;
+    final count = f.id.isEmpty
+        ? st.collections.where((m) => m.folder.isEmpty).length
+        : st.collections.where((m) => m.folder == f.id).length;
     return InkWell(
       onTap: () {
         st.folderId = f.id;
         st.refreshUi();
       },
-      onLongPress: f.id.isEmpty ? null : () => _folderMenu(f),
+      // 桌面惯例是右键；长按保留给触屏（移动端抽屉同一套手势语义）。
+      onSecondaryTapUp: f.id.isEmpty
+          ? null
+          : (d) => _showFolderMenu(f, d.globalPosition),
+      onLongPress: f.id.isEmpty
+          ? null
+          : () {
+              final box = context.findRenderObject() as RenderBox?;
+              final pos = box != null && box.localToGlobal(Offset.zero).dy >= 0
+                  ? box.localToGlobal(const Offset(80, 40))
+                  : Offset.zero;
+              _showFolderMenu(f, pos);
+            },
       child: Container(
         height: 30,
         padding: EdgeInsets.only(left: 12 + depth * 14.0, right: 8),
@@ -218,73 +235,156 @@ class _LeftPanelState extends State<LeftPanel> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      color: selected ? kAccent : kTextMain, fontSize: TokFs.body)),
+                      color: selected ? kAccent : kTextMain,
+                      fontSize: TokFs.body)),
             ),
+            Text('$count',
+                style: const TextStyle(
+                    color: kTextHint, fontSize: TokFs.micro)),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _addFolder() async {
+  /// 在指定屏幕位置弹菜单（右键 / 长按共用）。
+  ///
+  /// 用 `showMenu` 而不是对话框：奥维式的收藏夹操作是"右键哪一项就操作哪一项"，
+  /// 弹模态框会打断"连着整理一排文件夹"的节奏。
+  Future<void> _showMenuAt(
+      Offset pos, List<PopupMenuEntry<String>> items,
+      void Function(String) onSelected) async {
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final sel = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+          Rect.fromPoints(pos, pos), Offset.zero & overlay.size),
+      color: kPanelBg,
+      items: items,
+    );
+    if (sel != null) onSelected(sel);
+  }
+
+  void _showFolderMenu(Folder f, Offset pos) {
+    _showMenuAt(pos, [
+      const PopupMenuItem(
+          value: 'sub', height: 34, child: Text('新建子文件夹')),
+      const PopupMenuItem(
+          value: 'save', height: 34, child: Text('把当前画布收藏到此')),
+      const PopupMenuItem(value: 'rename', height: 34, child: Text('重命名')),
+      const PopupMenuItem(value: 'delete', height: 34, child: Text('删除')),
+    ], (v) async {
+      switch (v) {
+        case 'sub':
+          await _addFolder(parentId: f.id);
+          break;
+        case 'save':
+          // 先把目标文件夹选上，保存对话框的"所属文件夹"即默认落在右键的这层。
+          st.folderId = f.id;
+          st.refreshUi();
+          if (mounted) await showFinishDialog(context, st);
+          break;
+        case 'rename':
+          await _renameFolder(f);
+          break;
+        case 'delete':
+          await _confirmDeleteFolder(f);
+          break;
+      }
+    });
+  }
+
+  Future<void> _addFolder({String? parentId}) async {
     final ctl = TextEditingController();
+    final parent = parentId ?? st.folderId;
+    final created = Completer<Folder?>();
     await showDarkDialog(context,
         title: '新建文件夹',
         content: TextField(
             controller: ctl,
             autofocus: true,
+            // 回车直接建——"新建→命名→回车"是高频动作，不该再挪鼠标点按钮。
+            onSubmitted: (_) => created.complete(st.store.addFolder(
+                ctl.text.trim(),
+                parent.isEmpty ? '' : parent)),
+            style: const TextStyle(color: kTextMain),
+            decoration: dec(parent.isEmpty
+                ? '文件夹名称（建在根目录）'
+                : '文件夹名称（建在「${_folderName(parent)}」内）')),
+        actions: [
+          darkTextBtn('取消', () {
+            if (!created.isCompleted) created.complete(null);
+            Navigator.pop(context);
+          }, color: kTextSub),
+          darkTextBtn('创建', () async {
+            if (!created.isCompleted) {
+              created.complete(st.store
+                  .addFolder(ctl.text.trim(), parent.isEmpty ? '' : parent));
+            }
+            Navigator.pop(context);
+          }, color: kGreen),
+        ]);
+    final f = await created.future;
+    if (f == null) return;
+    await st.refreshCollections();
+    // 新文件夹立即出现在树中并被选中——用户不用再"找刚才建的那个"。
+    st.folderId = f.id;
+    st.refreshUi();
+  }
+
+  String _folderName(String fid) {
+    for (final f in st.folders) {
+      if (f.id == fid) return f.name;
+    }
+    return '根目录';
+  }
+
+  Future<void> _renameFolder(Folder f) async {
+    final ctl = TextEditingController(text: f.name);
+    await showDarkDialog(context,
+        title: '重命名文件夹',
+        content: TextField(
+            controller: ctl,
+            autofocus: true,
+            onSubmitted: (_) => Navigator.pop(context),
             style: const TextStyle(color: kTextMain),
             decoration: dec('文件夹名称')),
         actions: [
           darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
-          darkTextBtn('创建', () async {
-            final f = await st.store.addFolder(
-                ctl.text.trim(), st.folderId.isEmpty ? '' : st.folderId);
+          darkTextBtn('保存', () async {
+            await st.store.renameFolder(
+                f.id, ctl.text.trim().isEmpty ? f.name : ctl.text.trim());
             Navigator.pop(context);
             await st.refreshCollections();
-            st.folderId = f.id;
-            st.refreshUi();
-          }),
+          }, color: kGreen),
         ]);
   }
 
-  Future<void> _folderMenu(Folder f) async {
-    await showDarkDialog(context, title: '文件夹：${f.name}', actions: [
-      darkTextBtn('新建子文件夹', () async {
-        Navigator.pop(context);
-        st.folderId = f.id;
-        await _addFolder();
-      }),
-      darkTextBtn('重命名', () async {
-        Navigator.pop(context);
-        final ctl = TextEditingController(text: f.name);
-        await showDarkDialog(context,
-            title: '重命名文件夹',
-            content: TextField(
-                controller: ctl,
-                autofocus: true,
-                style: const TextStyle(color: kTextMain),
-                decoration: dec('文件夹名称')),
-            actions: [
-              darkTextBtn('取消', () => Navigator.pop(context),
-                  color: kTextSub),
-              darkTextBtn('保存', () async {
-                await st.store.renameFolder(
-                    f.id, ctl.text.trim().isEmpty ? f.name : ctl.text.trim());
-                Navigator.pop(context);
-                await st.refreshCollections();
-              }),
-            ]);
-      }),
-      darkTextBtn('删除', () async {
-        Navigator.pop(context);
-        await st.store.deleteFolder(f.id);
-        if (st.folderId == f.id) st.folderId = '';
-        await st.refreshCollections();
-        st.refreshUi();
-      }, color: const Color(0xFFFF5252)),
-      darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub),
-    ]);
+  /// 删除文件夹：**必须确认**。内容不会丢（子项与工程上移到父级），
+  /// 但文案要说清去向，否则用户不敢删。
+  Future<void> _confirmDeleteFolder(Folder f) async {
+    final n = st.collections.where((m) => m.folder == f.id).length;
+    await showDarkDialog(context,
+        title: '删除文件夹「${f.name}」',
+        content: Text(
+            n > 0
+                ? '里面 $n 个工程将移到上一级，不会被删除。确定删除该文件夹？'
+                : '该文件夹是空的，确定删除？',
+            style:
+                const TextStyle(color: kTextMain, fontSize: TokFs.body)),
+        actions: [
+          darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+          darkTextBtn('删除', () async {
+            Navigator.pop(context);
+            await st.store.deleteFolder(f.id);
+            if (st.folderId == f.id) st.folderId = '';
+            await st.refreshCollections();
+            st.refreshUi();
+            toast(context, '已删除文件夹「${f.name}」'
+                '${n > 0 ? '（$n 个工程已移到上一级）' : ''}');
+          }, color: kDanger),
+        ]);
   }
 
   // ---- 工程列表 ----
@@ -369,6 +469,11 @@ class _LeftPanelState extends State<LeftPanel> {
                         style: TextStyle(color: kAccent, fontSize: TokFs.small)),
                   ),
                   TextButton(
+                    onPressed: _confirmDeleteSelected,
+                    child: const Text('删除所选',
+                        style: TextStyle(color: kDanger, fontSize: TokFs.small)),
+                  ),
+                  TextButton(
                     onPressed: () => setState(() => _selected.clear()),
                     child: const Text('清除',
                         style: TextStyle(color: kTextSub, fontSize: TokFs.small)),
@@ -406,6 +511,32 @@ class _LeftPanelState extends State<LeftPanel> {
     await batchExportDxf(context, st, targets);
   }
 
+  /// 批量删除选中工程：Ctrl/Shift 多选之后一把删，逐个右键太折磨。
+  /// 删除不可撤销（云端软删除除外），必须确认并把名单亮出来。
+  Future<void> _confirmDeleteSelected() async {
+    final targets = _selectedMetas();
+    if (targets.isEmpty) {
+      toast(context, '请先选择要删除的工程（Ctrl/Shift 多选）');
+      return;
+    }
+    final names = targets.map((e) => '「${e.name}」').join('、');
+    await showDarkDialog(context,
+        title: '删除 ${targets.length} 个工程',
+        content: Text('确定删除 $names？\n删除后不可恢复（已开云同步的工程可在其他设备确认后彻底移除）。',
+            style: const TextStyle(color: kTextMain, fontSize: TokFs.body)),
+        actions: [
+          darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+          darkTextBtn('删除', () async {
+            Navigator.pop(context);
+            for (final m in targets) {
+              await st.deleteCollection(m.id);
+            }
+            setState(() => _selected.clear());
+            toast(context, '已删除 ${targets.length} 个工程');
+          }, color: kDanger),
+        ]);
+  }
+
   Widget _item(BuildContext context, CollectionMeta m) {
     final visible = st.visibleCids.contains(m.id);
     final selected = _selected.contains(m.id);
@@ -415,7 +546,7 @@ class _LeftPanelState extends State<LeftPanel> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: selected ? kAccent.withValues(alpha: 0.14) : const Color(0xFF1D242C),
+        color: selected ? kAccent.withValues(alpha: 0.14) : TokC.card,
         borderRadius: BorderRadius.circular(TokR.m),
         border: Border.all(
             color: selected
@@ -427,6 +558,9 @@ class _LeftPanelState extends State<LeftPanel> {
       child: InkWell(
         borderRadius: BorderRadius.circular(TokR.m),
         onTap: () => _onItemTap(m),
+        // 右键 = ⋮ 菜单（桌面惯例）。此前删除/重命名只藏在 ⋮ 里，
+        // 用户反馈"没有删除功能"实为入口不可发现。
+        onSecondaryTapUp: (d) => _showItemMenu(m, d.globalPosition),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 7, 2, 7),
           child: Row(
@@ -471,16 +605,7 @@ class _LeftPanelState extends State<LeftPanel> {
                 icon: const Icon(Icons.more_vert, color: kTextSub, size: 18),
                 color: kPanelBg,
                 onSelected: (v) => _onAction(context, m, v),
-                itemBuilder: (ctx) => const [
-                  PopupMenuItem(value: 'sync', child: Text('同步该工程')),
-                  PopupMenuItem(value: 'history', child: Text('历史版本')),
-                  PopupMenuItem(value: 'export', child: Text('导出成果')),
-                  PopupMenuItem(value: 'batch_export', child: Text('批量导出 DXF（选中项）')),
-                  PopupMenuItem(value: 'archive', child: Text('竣工资料成册')),
-                  PopupMenuItem(value: 'rename', child: Text('重命名')),
-                  PopupMenuItem(value: 'move', child: Text('移动到文件夹')),
-                  PopupMenuItem(value: 'delete', child: Text('删除')),
-                ],
+                itemBuilder: (ctx) => _itemMenuEntries,
               ),
             ],
           ),
@@ -498,7 +623,7 @@ class _LeftPanelState extends State<LeftPanel> {
               : '设计';
 
   Color _kindColor(CollectionMeta m) => m.editMode == 'completion'
-      ? const Color(0xFFFFB74D)
+      ? TokC.warn
       : m.kind == 'track'
           ? const Color(0xFFFFD54F)
           : const Color(0xFF81C784);
@@ -511,6 +636,36 @@ class _LeftPanelState extends State<LeftPanel> {
         ),
         child: Text(text, style: TextStyle(color: color, fontSize: TokFs.micro)),
       );
+
+  /// 工程项动作清单——⋮ 按钮与**右键菜单**共用同一份，两边永远不会长得不一样。
+  List<PopupMenuEntry<String>> get _itemMenuEntries => const [
+        PopupMenuItem(value: 'sync', height: 34, child: Text('同步该工程')),
+        PopupMenuItem(value: 'history', height: 34, child: Text('历史版本')),
+        PopupMenuItem(value: 'export', height: 34, child: Text('导出成果')),
+        PopupMenuItem(
+            value: 'batch_export',
+            height: 34,
+            child: Text('批量导出 DXF（选中项）')),
+        PopupMenuItem(value: 'archive', height: 34, child: Text('竣工资料成册')),
+        PopupMenuItem(value: 'rename', height: 34, child: Text('重命名')),
+        PopupMenuItem(value: 'move', height: 34, child: Text('移动到文件夹')),
+        PopupMenuItem(value: 'delete', height: 34, child: Text('删除')),
+      ];
+
+  /// 右键工程项：在指针位置弹动作菜单（复用 [showMenu]，与文件夹菜单同一套交互）。
+  Future<void> _showItemMenu(CollectionMeta m, Offset pos) async {
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final sel = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+          Rect.fromPoints(pos, pos), Offset.zero & overlay.size),
+      color: kPanelBg,
+      items: _itemMenuEntries,
+    );
+    if (sel == null || !mounted) return;
+    await _onAction(context, m, sel);
+  }
 
   Future<void> _onAction(
       BuildContext context, CollectionMeta m, String action) async {
@@ -591,7 +746,7 @@ class _LeftPanelState extends State<LeftPanel> {
                 await st.deleteCollection(m.id);
                 Navigator.pop(context);
                 st.refreshUi();
-              }, color: const Color(0xFFFF5252)),
+              }, color: TokC.danger),
             ]);
         break;
     }
@@ -634,7 +789,7 @@ class _LeftPanelState extends State<LeftPanel> {
     final segs = st.segments;
     return Container(
       decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Colors.white12)),
+        border: Border(top: BorderSide(color: TokC.divider)),
       ),
       child: Column(
         children: [
@@ -795,7 +950,7 @@ class _LeftPanelState extends State<LeftPanel> {
                           borderRadius: BorderRadius.circular(TokR.s),
                           border: Border.all(
                             color: s.to.distLabel.trim().isEmpty
-                                ? Colors.white12
+                                ? TokC.divider
                                 : TokC.accent.withValues(alpha: 0.55),
                             width: 0.5,
                           ),
@@ -964,7 +1119,7 @@ class _LeftPanelState extends State<LeftPanel> {
                       : const Color(0xFF1A2027),
                   borderRadius: BorderRadius.circular(TokR.m),
                   border: Border.all(
-                      color: hot ? kAccent : Colors.white24,
+                      color: hot ? kAccent : TokC.divider,
                       width: 1,
                       style: BorderStyle.solid)),
               child: const Text('点击导入文件，或拖入窗口\n（.ovimap 工程 / .geojson 底图）',

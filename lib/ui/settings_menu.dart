@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import '../sync/sync_controller.dart';
 import 'dialogs.dart';
 import 'sync/sync_panel.dart';
+import 'design_tokens.dart';
 
 /// ⚙设置 面板：低频维护项集中收纳
 /// （地图 / 同步 / 存储 / 采集 / 高级 / 关于）。
@@ -78,7 +79,7 @@ Future<void> _confirmReset(BuildContext context, AppState st) async {
         darkTextBtn('恢复', () {
           st.resetMapSettings();
           Navigator.pop(ctx, true);
-        }, color: const Color(0xFFFF5252)),
+        }, color: TokC.danger),
       ],
     ),
   );

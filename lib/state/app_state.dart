@@ -629,15 +629,40 @@ class AppState extends ChangeNotifier {
   List<RouteSegment> get segments =>
       RouteSegment.build(labels, prefix: segPrefix);
 
+  /// 持久化草稿；若当前是「打开收藏编辑」状态，**同步写回收藏文件**。
+  ///
+  /// ## 为什么两处都要写
+  /// `openCollection` 之后草稿（`draft.json`）与收藏（`collection_<cid>.json`）
+  /// 是同一份数据的两个落点：草稿管「重启后恢复现场」，收藏管「收藏夹里那一条」。
+  /// 曾经只有 [updateLabel] 同步收藏——打点 / 删点 / 撤销重做 / 从此点续画全都只写
+  /// 草稿，收藏文件停在打开时的旧内容，重启后这些改动全部丢失。
+  /// 用户反馈「添加的轨迹和标签没有保存功能」的根因即在此。收敛到一处后，
+  /// 任何改 `labels` 的路径只要调了本方法就不会再漏。
+  ///
+  /// [topoCid] 非空时由拓扑编辑流程自己落盘（见 [updateLabel] 的历史口径），不在这里抢。
   void _saveDraft() {
     store.saveDraft(labels, projectName, folderId, editModeName);
+    if (activeCollectionId.isNotEmpty && topoCid.isEmpty) {
+      store.saveCollectionLabels(activeCollectionId, labels);
+    }
+  }
+
+  /// 新建空白工程：先脱离已打开的收藏，**再**清草稿。
+  ///
+  /// 顺序不能反——[_saveDraft] 现在会把草稿同步回收藏文件；若先清空再脱离，
+  /// 空列表会被写进收藏，把整个工程内容清掉。桌面 `_newProject`、移动端
+  /// 「新建」都必须走这里，不允许自己拼顺序。
+  void startNewDraft() {
+    activeCollectionId = '';
+    _openedForEdit = false;
+    clearDraft();
+    projectName = '';
+    folderId = '';
+    _saveDraft();
   }
 
   void updateLabel(MapLabel l) {
     _saveDraft();
-    if (activeCollectionId.isNotEmpty && topoCid.isEmpty) {
-      store.saveCollectionLabels(activeCollectionId, labels);
-    }
     notifyListeners();
   }
 

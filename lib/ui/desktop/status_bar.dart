@@ -8,6 +8,7 @@ import '../../state/app_state.dart';
 import '../../sync/sync_controller.dart';
 import '../../sync/sync_models.dart';
 import '../dialogs.dart';
+import '../../ui/design_tokens.dart';
 
 /// 桌面底部状态栏（架构文档 §3.2 / T11 / T17，高度 26）。
 ///
@@ -88,8 +89,8 @@ class StatusBar extends StatelessWidget {
       height: 26,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: const BoxDecoration(
-        color: Color(0xFF11161B),
-        border: Border(top: BorderSide(color: Colors.white12)),
+        color: TokC.toolbar,
+        border: Border(top: BorderSide(color: TokC.divider)),
       ),
       // 窄窗口下字段会排不下（实测 776px 宽就溢出 79px，在 1024 最小宽度附近
       // 一旦选中点变多、同步态变长同样会溢出）。故左侧信息区做成**横向可滚动**、
@@ -110,7 +111,7 @@ class StatusBar extends StatelessWidget {
                   if (configured && (sc?.pendingCount ?? 0) > 0) ...[
                     _divider(),
                     _item(Icons.cloud_upload_outlined, '待上传 ${sc!.pendingCount}',
-                        color: const Color(0xFFFFB74D)),
+                        color: TokC.warn),
                   ],
                   _divider(),
                   // 鼠标处经纬度（奥维口径）：鼠标未进入地图时显示「—」。
@@ -163,5 +164,5 @@ class StatusBar extends StatelessWidget {
       );
 
   Widget _divider() =>
-      Container(width: 1, height: 12, color: Colors.white12);
+      Container(width: 1, height: 12, color: TokC.divider);
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
 import 'menu_model.dart';
+import '../../ui/design_tokens.dart';
 
 /// 桌面顶部菜单栏（Windows / Linux 用；macOS 走 `app_platform_menu_bar.dart`
 /// 的系统原生菜单）。
@@ -152,7 +153,7 @@ class _AppMenuBarState extends State<AppMenuBar> {
                 padding: const EdgeInsets.symmetric(vertical: 5),
                 decoration: const BoxDecoration(
                   color: kPanelBg,
-                  border: Border.fromBorderSide(BorderSide(color: Colors.white24)),
+                  border: Border.fromBorderSide(BorderSide(color: TokC.divider)),
                   boxShadow: [
                     BoxShadow(
                         color: Color(0x66000000),
@@ -166,7 +167,7 @@ class _AppMenuBarState extends State<AppMenuBar> {
                   children: [
                     for (var k = 0; k < group.items.length; k++) ...[
                       if (k > 0 && group.items[k].dividerBefore)
-                        const Divider(height: 7, color: Colors.white12),
+                        const Divider(height: 7, color: TokC.divider),
                       _menuRow(group.items[k]),
                     ],
                   ],
@@ -217,7 +218,7 @@ class _AppMenuBarState extends State<AppMenuBar> {
       height: AppMenuBar.barHeight,
       decoration: const BoxDecoration(
         color: Color(0xFF161B20),
-        border: Border(bottom: BorderSide(color: Colors.white12)),
+        border: Border(bottom: BorderSide(color: TokC.divider)),
       ),
       child: Row(
         children: [
@@ -239,7 +240,7 @@ class _AppMenuBarState extends State<AppMenuBar> {
                 child: Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  color: _open == i ? const Color(0xFF232A31) : null,
+                  color: _open == i ? TokC.field : null,
                   child: Text(oviMenuGroups[i].label,
                       style: TextStyle(
                           color: _open == i ? Colors.white : kTextMain,

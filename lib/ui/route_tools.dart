@@ -6,6 +6,7 @@ import '../models/map_label.dart';
 import '../models/project_template.dart';
 import '../state/app_state.dart';
 import 'dialogs.dart';
+import 'design_tokens.dart';
 
 /// 常用档距自动布杆对话框：起止点默认取草稿末链首尾（可手输经纬度），
 /// 档距默认 50m，前缀默认当前编号前缀，杆型默认取当前符号/模板。
@@ -81,7 +82,7 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
                             color: typeId == t.id ? Colors.black : kTextMain)),
                     selected: typeId == t.id,
                     selectedColor: kAccent,
-                    backgroundColor: const Color(0xFF232A31),
+                    backgroundColor: TokC.field,
                     side: BorderSide.none,
                     onSelected: (_) => setSt(() => typeId = t.id),
                   ),

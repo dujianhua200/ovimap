@@ -7,6 +7,7 @@ import '../models/map_label.dart';
 import '../services/store.dart';
 import '../state/app_state.dart';
 import 'dialogs.dart';
+import 'design_tokens.dart';
 
 /// 成果中心（P0-1/P0-3/P0-4）：上下文感知导出 + 一键成册 + 变更对照。
 ///
@@ -223,13 +224,13 @@ Future<void> _showDiffReport(
                   Text('设计：${designMeta.name.isEmpty ? '未命名' : designMeta.name}',
                       style: const TextStyle(color: kTextSub, fontSize: 11.5)),
                   const SizedBox(height: 6),
-                  _sumRow('新增杆位', '${s.added}', const Color(0xFF69F0AE)),
-                  _sumRow('缺失杆位', '${s.removed}', const Color(0xFFFF5252)),
-                  _sumRow('偏移杆位', '${s.moved}', const Color(0xFFFFB74D)),
+                  _sumRow('新增杆位', '${s.added}', TokC.ok),
+                  _sumRow('缺失杆位', '${s.removed}', TokC.danger),
+                  _sumRow('偏移杆位', '${s.moved}', TokC.warn),
                   _sumRow('一致杆位', '${s.kept}', kTextSub),
                   _sumRow('净长度差', '${s.netLenDiffM.toStringAsFixed(1)} m',
                       kTextMain),
-                  const Divider(color: Colors.white12),
+                  const Divider(color: TokC.divider),
                   Row(children: [
                     const Text('偏移阈值(米)',
                         style: TextStyle(color: kTextMain, fontSize: 12.5)),
@@ -328,9 +329,9 @@ Widget _poleRow(DiffPoleItem p) {
     DiffStatus.same => '一致',
   };
   final color = switch (p.status) {
-    DiffStatus.added => const Color(0xFF69F0AE),
-    DiffStatus.removed => const Color(0xFFFF5252),
-    DiffStatus.moved => const Color(0xFFFFB74D),
+    DiffStatus.added => TokC.ok,
+    DiffStatus.removed => TokC.danger,
+    DiffStatus.moved => TokC.warn,
     DiffStatus.same => kTextSub,
   };
   final extra = switch (p.status) {
@@ -369,7 +370,7 @@ Widget _segRow(DiffSegItem seg) => Padding(
             '(${seg.deltaM >= 0 ? '+' : ''}${seg.deltaM.toStringAsFixed(1)})',
             style: TextStyle(
                 color: seg.deltaM.abs() > 0.05
-                    ? const Color(0xFFFFB74D)
+                    ? TokC.warn
                     : kTextSub,
                 fontSize: 12)),
       ]),

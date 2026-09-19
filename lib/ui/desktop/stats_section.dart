@@ -6,6 +6,7 @@ import '../../models/map_label.dart';
 import '../../services/export_saver.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
+import '../../ui/design_tokens.dart';
 
 /// 工程统计（桌面 E1）：点位总数 / 杆路总距离 / 敷设方式分布 / 光缆型号汇总。
 ///
@@ -139,7 +140,7 @@ class StatsSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1A2027),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(color: TokC.divider),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,7 +178,7 @@ class StatsSection extends StatelessWidget {
               label: const Text('导出点位表 CSV（Excel 排查用）',
                   style: TextStyle(color: kTextMain, fontSize: 12)),
               style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Colors.white24),
+                side: const BorderSide(color: TokC.divider),
                 padding: const EdgeInsets.symmetric(vertical: 8),
               ),
             ),

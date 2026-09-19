@@ -171,7 +171,7 @@ Widget segPrefixChips(TextEditingController ctl, {double? autoDist}) {
         ActionChip(
           label: Text(p,
               style: const TextStyle(color: kTextMain, fontSize: 12.5)),
-          backgroundColor: const Color(0xFF232A31),
+          backgroundColor: TokC.field,
           side: BorderSide.none,
           visualDensity: VisualDensity.compact,
           onPressed: () {
@@ -185,7 +185,7 @@ Widget segPrefixChips(TextEditingController ctl, {double? autoDist}) {
       ActionChip(
         label: const Text('清除',
             style: TextStyle(color: kTextSub, fontSize: 12)),
-        backgroundColor: const Color(0xFF232A31),
+        backgroundColor: TokC.field,
         side: BorderSide.none,
         visualDensity: VisualDensity.compact,
         onPressed: () => ctl.text = '',
@@ -398,7 +398,7 @@ Future<void> showLabelProperties(
         } else {
           st.removeOverlayLabel(sourceCid, label);
         }
-      }, color: const Color(0xFFFF5252)),
+      }, color: TokC.danger),
       darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
       darkTextBtn('保存', () {
         label.name = nameCtl.text.trim();
@@ -469,7 +469,7 @@ Widget _photoStripSection(BuildContext context, AppState st, MapLabel label,
                                   onPressed: () => Navigator.pop(dctx, true),
                                   child: const Text('删除',
                                       style: TextStyle(
-                                          color: Color(0xFFFF5252)))),
+                                          color: TokC.danger))),
                             ],
                           ),
                         );
@@ -492,13 +492,13 @@ Widget _photoStripSection(BuildContext context, AppState st, MapLabel label,
                                   errorBuilder: (_, __, ___) => Container(
                                       width: 64,
                                       height: 64,
-                                      color: const Color(0xFF232A31),
+                                      color: TokC.field,
                                       child: const Icon(Icons.broken_image,
                                           color: kTextSub, size: 20)))
                               : Container(
                                   width: 64,
                                   height: 64,
-                                  color: const Color(0xFF232A31)),
+                                  color: TokC.field),
                         ),
                       ),
                     ),
@@ -688,7 +688,7 @@ Future<void> showCompletionSegment(
       darkTextBtn('删除终点', () {
         st.removeLabel(endPoint);
         Navigator.pop(context);
-      }, color: const Color(0xFFFF5252)),
+      }, color: TokC.danger),
       darkTextBtn('确定', () {
         final v = double.tryParse(distCtl.text.trim());
         if (v == null || v <= 0) {
@@ -725,7 +725,7 @@ Future<void> showTextPrompt(
       darkTextBtn('删除', () {
         st.removeLabel(label);
         Navigator.pop(context);
-      }, color: const Color(0xFFFF5252)),
+      }, color: TokC.danger),
       darkTextBtn('确定', () {
         label.name = ctl.text.trim();
         if (label.name.isEmpty) {
@@ -765,7 +765,7 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
             value: folders.any((f) => f.id == folder) ? folder : '',
-            dropdownColor: const Color(0xFF232A31),
+            dropdownColor: TokC.field,
             isExpanded: true,
             style: const TextStyle(color: kTextMain, fontSize: 13),
             decoration: dec('所属文件夹'),
@@ -918,7 +918,7 @@ Widget _exportTile(String title, VoidCallback onTap) => InkWell(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
         margin: const EdgeInsets.only(bottom: 4),
         decoration: BoxDecoration(
-          color: const Color(0xFF232A31),
+          color: TokC.field,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(children: [
@@ -1177,7 +1177,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                   const TextInputType.numberWithOptions(decimal: true),
               style: const TextStyle(color: kTextMain, fontSize: 14),
               decoration: dec('走廊宽度（米），如 2')),
-          const Divider(color: Colors.white24),
+          const Divider(color: TokC.divider),
           // —————— DXF 版本 ——————
           CheckboxListTile(
             dense: true,
@@ -1195,7 +1195,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
               child: Text('提示：部分老 CAD 打开 R2000 可能提示"修复"；不确定就用 R12。',
                   style: TextStyle(color: kTextSub, fontSize: 11)),
             ),
-          const Divider(color: Colors.white24),
+          const Divider(color: TokC.divider),
           // —————— 底图数据源与图层 ——————
           CheckboxListTile(
             dense: true,
@@ -1280,7 +1280,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             ),
             // R1-3：导出前把底图抓取结果摊开（含失败原因 + 重试入口）
             if (surroundings) probeCard(setSt),
-            const Divider(color: Colors.white24),
+            const Divider(color: TokC.divider),
             Align(
               alignment: Alignment.centerLeft,
               child: Padding(
@@ -1730,7 +1730,7 @@ class _OfflineProgressDialogState extends State<_OfflineProgressDialog> {
           : [
               darkTextBtn('取消下载', () {
                 OfflineDownload.instance.cancel();
-              }, color: const Color(0xFFFF5252)),
+              }, color: TokC.danger),
             ],
     );
   }
@@ -2040,7 +2040,7 @@ Future<void> showCableDialog(
             for (final c in const ['6芯', '12芯', '24芯', '48芯', '96芯', '144芯'])
               ActionChip(
                 label: Text(c, style: const TextStyle(color: kTextMain, fontSize: 12)),
-                backgroundColor: const Color(0xFF232A31),
+                backgroundColor: TokC.field,
                 side: BorderSide.none,
                 onPressed: () => ctl.text = c,
               ),

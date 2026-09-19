@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/diff_report.dart';
 import '../state/app_state.dart';
 import 'dialogs.dart';
+import 'design_tokens.dart';
 
 /// 批量属性编辑对话框：预览选中数；表单每项含"不改"选项
 /// （敷设方式 / 光缆型号 / 盘留 / 命名前缀 / 段标注前缀）。
@@ -56,7 +57,7 @@ Future<void> showBatchEditDialog(BuildContext context, AppState st) async {
                                 : kTextMain)),
                     selected: segKindSel == kv.key,
                     selectedColor: kAccent,
-                    backgroundColor: const Color(0xFF232A31),
+                    backgroundColor: TokC.field,
                     side: BorderSide.none,
                     onSelected: (_) => setSt(() => segKindSel = kv.key),
                   ),
