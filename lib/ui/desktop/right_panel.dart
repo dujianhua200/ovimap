@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../geo/geo_util.dart';
+import '../../models/label_type.dart';
 import '../../models/map_label.dart';
 import '../../state/app_state.dart';
 import '../design_tokens.dart';
@@ -235,6 +236,27 @@ class _RightPanelState extends State<RightPanel> {
         _field(_name, '名称'),
         const SizedBox(height: TokSp.s),
         _field(_note, '备注', maxLines: 2),
+        const SizedBox(height: TokSp.s),
+        // 符号样式替换（用户需求：属性里可替换符号样式；草稿/收藏点通用）。
+        DropdownButtonFormField<String>(
+          value: LabelType.all.any((t) => t.id == l.typeId) ? l.typeId : null,
+          dropdownColor: TokC.panelSolid,
+          isExpanded: true,
+          isDense: true,
+          style: const TextStyle(color: TokC.textMain, fontSize: TokFs.body),
+          decoration: dec('符号样式'),
+          items: [
+            for (final t in LabelType.all)
+              DropdownMenuItem(value: t.id, child: Text('${t.symbol} ${t.name}')),
+          ],
+          onChanged: (v) {
+            if (v == null || v == l.typeId) return;
+            setState(() {
+              l.typeId = v;
+              _dirty = true;
+            });
+          },
+        ),
         if (showSeg) ...[
           const SizedBox(height: TokSp.m),
           _title('本段'),

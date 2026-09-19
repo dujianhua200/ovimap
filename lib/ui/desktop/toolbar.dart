@@ -87,6 +87,14 @@ class Toolbar extends StatelessWidget {
                   st.mode == AppMode.edit ? AppMode.view : AppMode.edit)),
           _symbolBtn(context),
           _modeBtn(context),
+          _btn(Icons.push_pin_outlined,
+              tooltip: '标记模式：点地图只放独立符号（不连线），每点一次自动存到收藏夹根目录「标记」',
+              active: st.markMode,
+              onTap: () {
+                st.toggleMarkMode();
+                toast(context,
+                    st.markMode ? '标记模式：点地图即标记并自动保存；再点一次退出' : '已退出标记模式');
+              }),
           _sep(),
           _btn(Icons.account_tree_outlined,
               tooltip: '连线路（拓扑）',
@@ -118,9 +126,7 @@ class Toolbar extends StatelessWidget {
           _btn(Icons.ios_share, tooltip: '导出成果 Ctrl+E', onTap: onExport),
           _syncBtn(context),
           const Spacer(),
-          _btn(leftCollapsed ? Icons.chevron_right : Icons.chevron_left,
-              tooltip: leftCollapsed ? '展开左栏' : '收起左栏',
-              onTap: onToggleLeft),
+          // 左栏收起按钮已删（v3.7）：收藏夹图标轨道本身就是收展入口，两个入口重复。
           _btn(
               rightCollapsed ? Icons.chevron_left : Icons.chevron_right,
               tooltip: rightCollapsed ? '展开右栏' : '收起右栏',

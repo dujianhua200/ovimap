@@ -181,6 +181,46 @@ void main() {
     });
   });
 
+  group('T2c v3.7 反馈护栏（逐点撤销 / 标记自动入根目录）', () {
+    test('撤销逐点：打 3 点后 Ctrl+Z 一次只少 1 个点', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final st = AppState();
+      st.setPrefsForTest(await SharedPreferences.getInstance());
+      st.addLabelAtWgs(32.0, 114.0);
+      st.addLabelAtWgs(32.001, 114.0);
+      st.addLabelAtWgs(32.002, 114.0);
+      expect(st.labels.length, 3);
+      st.undoDraft();
+      expect(st.labels.length, 2, reason: '一次撤销只回退一个点（之前一次撤光）');
+      st.undoDraft();
+      expect(st.labels.length, 1);
+    });
+
+    test('标记模式：addMarkAtWgs 落独立点并自动建根目录「标记」收藏', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final st = AppState();
+      st.setPrefsForTest(await SharedPreferences.getInstance());
+      st.markMode = true;
+      await st.addMarkAtWgs(32.0, 114.0);
+      await st.addMarkAtWgs(32.5, 114.5);
+
+      // 草稿不被污染。
+      expect(st.labels, isEmpty, reason: '标记不进草稿');
+      // 根目录出现「标记」收藏，2 个点。
+      final metas = await store.loadIndex();
+      final mark = metas.where((m) => m.name == '标记' && m.folder.isEmpty).toList();
+      expect(mark.length, 1, reason: '只建一个「标记」收藏');
+      final ls = await store.loadCollection(mark.first.id);
+      expect(ls.length, 2);
+      expect(ls[0].name, '标记1');
+      expect(ls[1].name, '标记2');
+      expect(ls.every((l) => l.lineGroupId.isEmpty), isTrue,
+          reason: '只标记不连线');
+      // 自动上屏。
+      expect(st.visibleCids.contains(mark.first.id), isTrue);
+    });
+  });
+
   group('T3 文件夹 CRUD（奥维式右键菜单的磁盘层）', () {
     test('新建 → 重命名 → 持久化在 folders.json', () async {
       final f1 = await store.addFolder('光缆工程');

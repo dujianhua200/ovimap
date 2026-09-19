@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -129,7 +130,38 @@ class _MapCanvasState extends State<MapCanvas> {
     if (mounted) setState(() {});
   }
 
+  double _pzZoom = 0;
+
+  /// 触控板双指平移/捏合：pan 像素 → 相机平移；scale → 级别增量。
+  /// 平移以「内容跟手」方向移动（中心点向手指反方向走）。
+  void _onTrackpad(PointerPanZoomUpdateEvent e) {
+    if (!_mapReady) return;
+    final cam = _mc.camera;
+    final pan = e.localPanDelta;
+    if (pan.distanceSquared > 0) {
+      final mpp =
+          GeoUtil.metersPerPixel(cam.center.latitude, cam.zoom);
+      final dLat = pan.dy * mpp / 111320.0;
+      final dLon = pan.dx * mpp /
+          (111320.0 * math.cos(cam.center.latitude * math.pi / 180.0));
+      final nl = (cam.center.latitude - dLat).clamp(-85.0, 85.0);
+      _mc.move(LatLng(nl, cam.center.longitude - dLon), cam.zoom);
+    }
+    final z = _pzZoom + (math.log(e.scale <= 0 ? 1 : e.scale) / math.ln2);
+    if ((z - cam.zoom).abs() > 0.001 && z >= 3 && z <= 21.5) {
+      _mc.move(cam.center, z);
+    }
+  }
+
   void _onTap(TapPosition tap, LatLng point) {
+    // 标记模式最高优先（任何模式下点地图都只落独立标记，自动存根目录「标记」）。
+    if (st.markMode) {
+      final w = st.toWgs(point.latitude, point.longitude);
+      unawaited(st.addMarkAtWgs(w[0], w[1]).then((_) {
+        if (context.mounted) toast(context, '已标记并自动保存到收藏夹根目录');
+      }));
+      return;
+    }
     switch (st.mode) {
       case AppMode.edit:
         // 待定编辑优先处理：拖动点位（奥维顶点编辑式）
@@ -293,7 +325,15 @@ class _MapCanvasState extends State<MapCanvas> {
     // - 移动：保持原口径（双指缩放 + 旋转）。
     final int flags = widget.interactionFlags ?? defaultFlagsForCurrentPlatform();
 
-    return Stack(
+    return Listener(
+      // macOS 触控板（用户反馈「触控板功能全部失效」）：Flutter 把 trackpad
+      // 双指平移/捏合发成 PointerPanZoom*，而 flutter_map 的 scrollWheelZoom
+      // 只认 PointerScrollEvent → 触控板无人响应。在此自实现平移与捏合缩放。
+      onPointerPanZoomStart: (e) {
+        _pzZoom = _mc.camera.zoom;
+      },
+      onPointerPanZoomUpdate: _onTrackpad,
+      child: Stack(
       children: [
         FlutterMap(
           mapController: _mc,
@@ -426,6 +466,7 @@ class _MapCanvasState extends State<MapCanvas> {
             ),
           ),
       ],
+      ),
     );
   }
 }

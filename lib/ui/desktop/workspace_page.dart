@@ -173,7 +173,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       _selCid = '';
     });
     st.refreshUi();
-    toast(context, '已新建空白工程');
+    toast(context, '已新建空白工程：直接在地图上打点，Ctrl+S 保存到收藏夹根目录');
   }
 
   void _save() => showFinishDialog(context, _st);

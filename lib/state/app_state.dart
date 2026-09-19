@@ -437,6 +437,9 @@ class AppState extends ChangeNotifier {
       l.segCable = defSegCable;
       l.slackM = defSlackM;
     }
+    // 逐点快照（用户反馈「撤销一次撤一大半」）：打点前先存快照，
+    // Ctrl+Z 一次只回退一个点；栈深由 [_undoLimit] 兜底。
+    pushUndoSnapshot();
     labels.add(l);
     // 自动编号（杆类点）
     if (autoNumber && !isText && !lineType) {
@@ -474,6 +477,72 @@ class AppState extends ChangeNotifier {
   void breakChain() {
     _chainBroken = true;
     notifyListeners();
+  }
+
+  // ================= 标记模式（独立打标，自动存根目录） =================
+
+  /// 标记模式开关：开启后点地图**只落独立标记**（不连线、不进草稿），
+  /// 每点一次自动追加到根目录收藏「标记」并实时落盘（用户需求：只标记
+  /// 不连线、自动保存、符号来自符号库）。
+  bool markMode = false;
+
+  void toggleMarkMode() {
+    markMode = !markMode;
+    notifyListeners();
+  }
+
+  /// 标记模式下的落点：用当前符号（若为连线型则按独立点落），
+  /// 自动编号「标记N」，追加进根目录「标记」收藏。
+  Future<void> addMarkAtWgs(double lat, double lon) async {
+    final l = MapLabel(
+      typeId: curType.id,
+      seq: 1,
+      lat: lat,
+      lon: lon,
+      name: '标记${_markCount + 1}',
+    );
+    l.lineGroupId = ''; // 只标记不连线
+    _markCount++;
+    await _appendToMarkBook(l);
+    notifyListeners();
+  }
+
+  static const String kMarkBook = '标记';
+  int _markCount = 0;
+
+  /// 把点追加进根目录「标记」收藏（没有则创建），并在地图上显示。
+  Future<void> _appendToMarkBook(MapLabel l) async {
+    CollectionMeta? meta;
+    for (final m in collections) {
+      if (m.name == kMarkBook && m.folder.isEmpty) {
+        meta = m;
+        break;
+      }
+    }
+    List<MapLabel> ls;
+    String cid;
+    if (meta == null) {
+      ls = [l];
+      cid = await store.finishCollection(
+          name: kMarkBook, kind: 'label', folderId: '', editMode: 'design', labels: ls);
+    } else {
+      cid = meta.id;
+      ls = await store.loadCollection(cid);
+      l.seq = ls.length + 1;
+      ls.add(l);
+      await store.finishCollection(
+          existingId: cid,
+          name: kMarkBook,
+          kind: 'label',
+          folderId: '',
+          editMode: 'design',
+          labels: ls);
+    }
+    await refreshCollections();
+    // 自动在地图上显示（首点自动开显，后续保持）。
+    if (!visibleCids.contains(cid)) visibleCids.add(cid);
+    prefs.setString(prefVisible, visibleCids.join(','));
+    overlayLabels[cid] = await store.loadCollection(cid);
   }
 
   /// 本点在所属线组上的上一个连线点（竣工段距确认的基准）。

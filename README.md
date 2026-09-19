@@ -7,7 +7,14 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.6.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.7.0**（Windows x64 / macOS Universal / Android）
+
+> **v3.7.0 更新**：① 撤销改**逐点回退**（之前一次撤掉一大半）；
+> ② 新增**标记模式**（工具栏图钉）：任何模式下点地图只放独立符号（不连线），
+> 自动保存到收藏夹根目录「标记」；③ 工程可**拖拽移入文件夹**（也可拖回根）；
+> ④ **macOS 触控板**双指平移/捏合缩放修复（此前完全失效）；
+> ⑤ 新建文件夹/新建工程统一落在收藏夹**根目录**；⑥ 右栏属性新增**符号样式替换**；
+> ⑦ 移除工具栏与图标轨道重复的「收起左栏」按钮；⑧ 新建工程提示补充操作指引。
 
 > **v3.6.0 更新**（按奥维桌面版截图定版）：① 收藏夹改**常驻停靠面板**
 > （可拖宽、可收起成图标轨道），不再悬浮遮挡地图；② 文件夹改**整树平铺**——

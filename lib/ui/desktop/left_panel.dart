@@ -160,8 +160,8 @@ class _LeftPanelState extends State<LeftPanel> {
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
-            tooltip: '新建文件夹',
-            onPressed: () => _addFolder(),
+            tooltip: '新建文件夹（建在收藏夹根目录）',
+            onPressed: () => _addFolder(parentId: ''),
             icon: const Icon(Icons.create_new_folder_outlined,
                 color: kAccent, size: 20),
           ),
@@ -251,6 +251,7 @@ class _LeftPanelState extends State<LeftPanel> {
       count: st.collections.length,
       selected: _selFolder.isEmpty,
       onTap: () => _selectFolder(''),
+      dropTargetId: '',
     );
   }
 
@@ -273,8 +274,9 @@ class _LeftPanelState extends State<LeftPanel> {
     required bool selected,
     VoidCallback? onTap,
     void Function(Offset pos)? onSecondary,
+    String? dropTargetId,
   }) {
-    return InkWell(
+    Widget row = InkWell(
       onTap: onTap,
       onSecondaryTapUp:
           onSecondary == null ? null : (d) => onSecondary(d.globalPosition),
@@ -323,6 +325,31 @@ class _LeftPanelState extends State<LeftPanel> {
         ]),
       ),
     );
+    if (dropTargetId == null) return row;
+    // 拖放目标（用户指定：新建工程可拖拽移入文件夹）。
+    return DragTarget<CollectionMeta>(
+      onWillAcceptWithDetails: (d) => d.data.folder != dropTargetId,
+      onAcceptWithDetails: (d) => _moveToFolder(d.data, dropTargetId),
+      builder: (ctx, cand, _) => Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(TokR.s),
+          border: cand.isNotEmpty
+              ? Border.all(color: kAccent, width: 1.5)
+              : null,
+        ),
+        child: row,
+      ),
+    );
+  }
+
+  /// 把工程 [m] 移入文件夹 [fid]（'' = 根目录）。
+  Future<void> _moveToFolder(CollectionMeta m, String fid) async {
+    if (m.folder == fid) return;
+    await st.store.moveCollection(m.id, fid);
+    await st.refreshCollections();
+    if (mounted) {
+      toast(context, '已移入「${fid.isEmpty ? '收藏夹根目录' : _folderName(fid)}」');
+    }
   }
 
   /// 文件夹行：+/− 折叠、黄色文件夹图标（奥维同款观感）、名称[工程数]；
@@ -347,6 +374,7 @@ class _LeftPanelState extends State<LeftPanel> {
       selected: _selFolder == f.id,
       onTap: () => _selectFolder(f.id),
       onSecondary: (pos) => _showFolderMenu(f, pos),
+      dropTargetId: f.id,
     );
   }
 
@@ -711,6 +739,26 @@ class _LeftPanelState extends State<LeftPanel> {
     // 同步状态取自可空快照（未接入同步 → 仅本地）；不读任何可能抛异常的 getter。
     final sync = context.watch<SyncController?>();
     final status = sync?.statusFor(m.id) ?? SyncStatus.localOnly;
+    // 可拖拽（用户指定：工程可拖进文件夹）。feedback 用极简小卡片。
+    return Draggable<CollectionMeta>(
+      data: m,
+      feedback: Material(
+        color: TokC.card,
+        elevation: 4,
+        borderRadius: BorderRadius.circular(TokR.s),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Text(m.name.isEmpty ? '未命名' : m.name,
+              style:
+                  const TextStyle(color: kTextMain, fontSize: TokFs.small)),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.35, child: _itemCard(m, visible, selected, status)),
+      child: _itemCard(m, visible, selected, status),
+    );
+  }
+
+  Widget _itemCard(CollectionMeta m, bool visible, bool selected, SyncStatus status) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
