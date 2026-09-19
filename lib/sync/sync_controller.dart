@@ -149,8 +149,23 @@ class SyncController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _disposed = false;
+
+  /// dispose 后静默忽略通知。
+  ///
+  /// 防抖定时器触发后的 `_uploadOne` 是跨 await 的异步链：慢 runner（实测
+  /// Windows CI）上测试/界面在 await 期间 dispose 掉控制器，回调恢复执行时
+  /// 再调 [notifyListeners] 会命中 ChangeNotifier 的 debug 断言
+  /// 「used after being disposed」。所有异步续体统一走本覆写收口。
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _debounce?.cancel();
     _pingTimer?.cancel();
     super.dispose();
