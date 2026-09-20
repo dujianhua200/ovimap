@@ -67,21 +67,140 @@ class _LeftPanelState extends State<LeftPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: TokC.panelSolid,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _header(context),
-          _searchBar(),
-          const Divider(height: 1, color: TokC.divider),
-          _folderTree(),
-          const Divider(height: 1, color: TokC.divider),
-          Expanded(child: _collectionList(context)),
-          _dropZone(context),
-        ],
+    // Delete / Backspace 删除所选（奥维同款）；批量选择必须**看得见**——
+    // 工具条按钮 + 右键菜单 + 快捷键三条路都给（用户反馈只靠 Ctrl 找不到）。
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.delete): _deleteSelected,
+        const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelected,
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+            _selectAll,
+      },
+      child: Container(
+        color: TokC.panelSolid,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _header(context),
+            _searchBar(),
+            _selectBar(),
+            const Divider(height: 1, color: TokC.divider),
+            Expanded(child: _favoritesTree(context)),
+            const Divider(height: 1, color: TokC.divider),
+            _dropZone(context),
+          ],
+        ),
       ),
     );
+  }
+
+  /// 条目工具条（奥维式）：全选 / 取消 / 删除所选(N) / 新建文件夹。
+  Widget _selectBar() {
+    final n = _selected.length;
+    Widget mini(IconData icon, String tip, VoidCallback onTap,
+        {Color color = kTextSub, bool enabled = true}) {
+      return Tooltip(
+        message: tip,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Icon(icon,
+                size: 17, color: enabled ? color : kTextHint.withValues(alpha: 0.5)),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 6, 4),
+      child: Row(children: [
+        Text(n > 0 ? '已选 $n 项' : '全部条目',
+            style: TextStyle(
+                color: n > 0 ? kAccent : kTextSub,
+                fontSize: TokFs.caption,
+                fontWeight: n > 0 ? FontWeight.w600 : FontWeight.normal)),
+        const Spacer(),
+        mini(Icons.select_all, '全选（Ctrl+A）', _selectAll),
+        mini(Icons.deselect, '取消选择', () => setState(() => _selected.clear()),
+            enabled: n > 0),
+        mini(Icons.ios_share, '导出所选工程（DXF）', _batchExportSelected,
+            color: kAccent, enabled: n > 0),
+        mini(Icons.delete_outline, '删除所选（Delete）', _deleteSelected,
+            color: kDanger, enabled: n > 0),
+        mini(Icons.create_new_folder_outlined, '新建文件夹（根目录）',
+            () => _addFolder(parentId: ''),
+            color: kAccent),
+      ]),
+    );
+  }
+
+  /// 收藏夹树（**唯一视图**，奥维口径）：根 → 文件夹 → 工程 → 点，层层缩进。
+  /// 树里所有行都可选中（单击/Ctrl 多选/Shift 范围选），配合工具条批量删。
+  Widget _favoritesTree(BuildContext context) {
+    final rows = <Widget>[];
+    if (_query.isNotEmpty) {
+      rows.addAll(_searchRows(context));
+      if (rows.isEmpty) {
+        rows.add(Padding(
+          padding: const EdgeInsets.all(18),
+          child: Text('没有匹配「$_query」的条目',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: kTextSub, fontSize: TokFs.body)),
+        ));
+      }
+    } else {
+      rows.add(_rootRow());
+      rows.addAll(_levelRows('', 1));
+    }
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      children: rows,
+    );
+  }
+
+  /// 某一层的全部条目：子文件夹 → 工程 → （标记收藏的）点。
+  List<Widget> _levelRows(String fid, int depth) {
+    final out = <Widget>[];
+    for (final f in st.folders) {
+      if (f.id.isEmpty || f.parentId != fid) continue;
+      out.add(_folderRow(f, depth));
+      if (!_collapsed.contains(f.id)) out.addAll(_levelRows(f.id, depth + 1));
+    }
+    for (final m in st.collections) {
+      if (m.folder != fid) continue;
+      final isMark = m.kind == 'mark' || m.name == '标记';
+      if (isMark) {
+        // 标记收藏：直接列出它的点（奥维截图口径：点挂在文件夹下），
+        // 收藏本身不单独占一行。
+        for (final l in (st.overlayLabels[m.id] ?? const <MapLabel>[])) {
+          out.add(_markRow(m.id, l, depth));
+        }
+      } else {
+        out.add(_item(context, m, depth));
+      }
+    }
+    return out;
+  }
+
+  /// 搜索：跨全库平铺匹配的工程与标记点（带所属文件夹提示）。
+  List<Widget> _searchRows(BuildContext context) {
+    final q = _query.toLowerCase();
+    final out = <Widget>[];
+    for (final m in st.collections) {
+      if (m.kind != 'mark' && (m.name.toLowerCase().contains(q) || m.desc.toLowerCase().contains(q))) {
+        out.add(_item(context, m, 0));
+      }
+    }
+    for (final m in st.collections) {
+      if (!(m.kind == 'mark' || m.name == '标记')) continue;
+      for (final l in (st.overlayLabels[m.id] ?? const <MapLabel>[])) {
+        if (l.name.toLowerCase().contains(q) || l.note.toLowerCase().contains(q)) {
+          out.add(_markRow(m.id, l, 0));
+        }
+      }
+    }
+    return out;
   }
 
   Widget _header(BuildContext context) {
@@ -131,7 +250,7 @@ class _LeftPanelState extends State<LeftPanel> {
         focusNode: widget.searchFocus,
         onChanged: (v) => setState(() => _query = v.trim()),
         style: const TextStyle(color: kTextMain, fontSize: TokFs.body),
-        decoration: dec('搜索工程名/备注（跨文件夹）').copyWith(
+        decoration: dec('搜索工程名 / 标记名 / 备注（跨文件夹）').copyWith(
           prefixIcon: const Icon(Icons.search, color: kTextSub, size: 18),
           isDense: true,
           contentPadding:
@@ -154,31 +273,6 @@ class _LeftPanelState extends State<LeftPanel> {
   /// 被手动收起（−）的文件夹 id 集；'' 代表根。**未记录 = 展开**，
   /// 新建的文件夹天然展开，不用逐个同步。
   final Set<String> _collapsed = <String>{};
-
-  /// 收藏夹树：根行 + 各级文件夹（+/− 折叠、缩进、[n] 计数）。
-  Widget _folderTree() {
-    final rows = <Widget>[_rootRow()];
-    void rec(Folder f, int depth) {
-      rows.add(_folderRow(f, depth));
-      if (!_collapsed.contains(f.id)) {
-        for (final c in st.folders) {
-          if (c.id.isNotEmpty && c.parentId == f.id) rec(c, depth + 1);
-        }
-      }
-    }
-
-    for (final f in st.folders) {
-      if (f.id.isNotEmpty && f.parentId.isEmpty) rec(f, 0);
-    }
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 300),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
-      ),
-    );
-  }
 
   /// 根行「收藏夹[n]」：选中 = 看全部根目录工程；有顶级文件夹时可折叠。
   Widget _rootRow() {
@@ -396,17 +490,37 @@ class _LeftPanelState extends State<LeftPanel> {
       iconColor: const Color(0xFFE6A23C),
       name: f.name,
       count: count,
-      selected: _selFolder == f.id,
-      onTap: () => _selectFolder(f.id),
+      selected: _selFolder == f.id || _selected.contains(f.id),
+      onTap: () {
+        final kb = HardwareKeyboard.instance;
+        if (kb.isControlPressed || kb.isMetaPressed) {
+          setState(() {
+            if (!_selected.remove(f.id)) _selected.add(f.id);
+            _anchor = f.id;
+          });
+          return;
+        }
+        if (kb.isShiftPressed && _anchor.isNotEmpty) {
+          _selectRangeTo(f.id);
+          return;
+        }
+        setState(() {
+          _selected.clear();
+          _anchor = f.id;
+          _collapsed.remove(f.id); // 单击即展开（奥维手感）
+        });
+        _selectFolder(f.id);
+      },
       onSecondary: (pos) => _showFolderMenu(f, pos),
       dropTargetId: f.id,
       dragFolder: f,
     );
   }
 
-  /// 标记点卡片（列表内）：图钉 + 名字 + 备注，点击**只定位**（不弹窗，用户
-  /// 指定），右键出属性/移动/删除菜单；可拖拽、可多选。
-  Widget _markCard(BuildContext context, String cid, MapLabel l, bool selected) {
+  /// 标记点行（树内，奥维式）：图钉 + 名字 + 备注，点击**只定位**（不弹窗），
+  /// 右键出属性/移动/删除菜单；可拖拽、可选中。
+  Widget _markRow(String cid, MapLabel l, int depth) {
+    final selected = _selected.contains(l.id);
     final nm = l.name.trim().isEmpty ? l.type.name : l.name.trim();
     final note = l.note.trim();
     return Draggable<MapLabel>(
@@ -424,31 +538,38 @@ class _LeftPanelState extends State<LeftPanel> {
       ),
       childWhenDragging: Opacity(
           opacity: 0.35,
-          child: _markCardBody(cid, l, nm, note, selected)),
-      child: _markCardBody(cid, l, nm, note, selected),
+          child: _markRowBody(cid, l, nm, note, selected, depth)),
+      child: _markRowBody(cid, l, nm, note, selected, depth),
     );
   }
 
-  Widget _markCardBody(
-      String cid, MapLabel l, String nm, String note, bool selected) {
+  Widget _markRowBody(String cid, MapLabel l, String nm, String note,
+      bool selected, int depth) {
     return InkWell(
       onTap: () {
-        // 用户指定：点击标记只定位，不弹窗；属性走右键。
+        // 点击标记只定位，不弹窗；属性走右键。
         final kb = HardwareKeyboard.instance;
         if (kb.isControlPressed || kb.isMetaPressed) {
           setState(() {
             if (!_selected.remove(l.id)) _selected.add(l.id);
+            _anchor = l.id;
           });
           return;
         }
+        if (kb.isShiftPressed && _anchor.isNotEmpty) {
+          _selectRangeTo(l.id);
+          return;
+        }
         if (_selected.isNotEmpty) setState(() => _selected.clear());
+        _anchor = l.id;
         widget.onLocate?.call(l);
       },
       onSecondaryTapUp: (d) => _showMarkMenu(cid, l, d.globalPosition),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        margin: EdgeInsets.only(
+            left: 6.0 + depth * 16.0, right: 6, top: 2, bottom: 2),
         padding: const EdgeInsets.only(left: 8, right: 6),
-        height: 34,
+        height: 32,
         decoration: BoxDecoration(
           color: selected ? kAccent.withValues(alpha: 0.18) : TokC.field,
           borderRadius: BorderRadius.circular(TokR.s),
@@ -570,6 +691,13 @@ class _LeftPanelState extends State<LeftPanel> {
 
   void _showFolderMenu(Folder f, Offset pos) {
     _showMenuAt(pos, [
+      if (_selected.isNotEmpty)
+        PopupMenuItem(
+            value: 'del_sel',
+            height: 34,
+            child: Text('删除所选 ${_selected.length} 项',
+                style: const TextStyle(color: kDanger))),
+      if (_selected.isNotEmpty) const PopupMenuDivider(),
       const PopupMenuItem(
           value: 'sub', height: 34, child: Text('新建子文件夹')),
       const PopupMenuItem(
@@ -578,7 +706,10 @@ class _LeftPanelState extends State<LeftPanel> {
       const PopupMenuItem(value: 'delete', height: 34, child: Text('删除')),
     ], (v) async {
       switch (v) {
-        case 'sub':
+        case 'del_sel':
+        await _deleteSelected();
+        break;
+      case 'sub':
           await _addFolder(parentId: f.id);
           break;
         case 'save':
@@ -800,6 +931,102 @@ class _LeftPanelState extends State<LeftPanel> {
     return out;
   }
 
+  /// 当前树的**可见行顺序**（Shift 范围选与全选都用它，保证「选的就是看到的」）。
+  List<String> _visibleKeys() {
+    final out = <String>[];
+    void level(String fid) {
+      for (final f in st.folders) {
+        if (f.id.isEmpty || f.parentId != fid) continue;
+        out.add(f.id);
+        if (!_collapsed.contains(f.id)) level(f.id);
+      }
+      for (final m in st.collections) {
+        if (m.folder != fid) continue;
+        if (m.kind == 'mark' || m.name == '标记') {
+          for (final l in (st.overlayLabels[m.id] ?? const <MapLabel>[])) {
+            out.add(l.id);
+          }
+        } else {
+          out.add(m.id);
+        }
+      }
+    }
+
+    level('');
+    return out;
+  }
+
+  /// Shift 范围选：从锚点到当前行，整段加入选中集。
+  void _selectRangeTo(String key) {
+    final keys = _visibleKeys();
+    final a = keys.indexOf(_anchor);
+    final b = keys.indexOf(key);
+    if (a < 0 || b < 0) {
+      setState(() => _selected.add(key));
+      return;
+    }
+    final lo = a < b ? a : b;
+    final hi = a < b ? b : a;
+    setState(() => _selected.addAll(keys.sublist(lo, hi + 1)));
+  }
+
+  /// 全选当前树里的所有条目（文件夹 + 工程 + 标记点）。
+  void _selectAll() {
+    setState(() => _selected
+      ..clear()
+      ..addAll(_visibleKeys()));
+    toast(context, '已全选 ${_selected.length} 项，Delete 或工具条删除');
+  }
+
+  /// 删除所选：文件夹（级联）/ 工程 / 标记点 三类混合，一次确认全部处理。
+  Future<void> _deleteSelected() async {
+    if (_selected.isEmpty) {
+      toast(context, '先选条目（点击 / Ctrl 多选 / Ctrl+A 全选 / 拖框暂不支持）');
+      return;
+    }
+    final folders = st.folders.where((f) => _selected.contains(f.id)).toList();
+    final projects =
+        st.collections.where((m) => _selected.contains(m.id)).toList();
+    final marks = _selectedMarks();
+    final parts = <String>[
+      if (folders.isNotEmpty) '${folders.length} 个文件夹（含子文件夹）',
+      if (projects.isNotEmpty) '${projects.length} 个工程',
+      if (marks.isNotEmpty) '${marks.length} 个标记',
+    ];
+    await showDarkDialog(context,
+        title: '删除所选 ${_selected.length} 项',
+        content: Text(
+            '将删除：${parts.join('、')}。\n'
+            '${projects.isEmpty && marks.isEmpty ? '' : '其中的点数据会随条目一起删除；'}'
+            '确认后不可撤销。',
+            style: const TextStyle(color: kTextMain, fontSize: TokFs.body)),
+        actions: [
+          darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+          darkTextBtn('删除', () async {
+            Navigator.pop(context);
+            var nF = 0, nP = 0, nM = 0;
+            for (final f in folders) {
+              final (a, _) = await st.store.deleteFolder(f.id);
+              nF += a;
+            }
+            for (final m in projects) {
+              await st.deleteCollection(m.id);
+              nP++;
+            }
+            for (final (cid, l) in marks) {
+              await st.removeOverlayLabel(cid, l);
+              nM++;
+            }
+            setState(() => _selected.clear());
+            await st.refreshCollections();
+            if (mounted) {
+              toast(context,
+                  '已删除 $nF 个文件夹、$nP 个工程、$nM 个标记');
+            }
+          }, color: kDanger),
+        ]);
+  }
+
   List<CollectionMeta> _selectedMetas() =>
       st.collections.where((m) => _selected.contains(m.id)).toList();
 
@@ -834,94 +1061,6 @@ class _LeftPanelState extends State<LeftPanel> {
     if (mounted) toast(context, '已打开「${m.name}」，可继续编辑');
   }
 
-  Widget _collectionList(BuildContext context) {
-    final items = _filteredItems();
-    final selectedCount = _selectedMetas().length + _selectedMarks().length;
-
-    final hasMarks = st.collections.any((m) =>
-        (m.kind == 'mark' || m.name == '标记') &&
-        m.folder == _selFolder &&
-        (st.overlayLabels[m.id] ?? const []).isNotEmpty);
-    if (items.isEmpty && !hasMarks) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Text(
-            _query.isNotEmpty ? '没有匹配「$_query」的工程' : '本文件夹暂无收藏',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: kTextSub, fontSize: TokFs.body, height: 1.6),
-          ),
-        ),
-      );
-    }
-
-    // 当前层的**全部条目**：工程 + 各标记收藏里的标记点（用户口径：
-    // 收藏夹下所有东西都在一处，可点击/右键/拖拽/多选/批量删）。
-    final marks = <(String cid, MapLabel l)>[
-      for (final m in st.collections)
-        if ((m.kind == 'mark' || m.name == '标记') && m.folder == _selFolder)
-          for (final l in (st.overlayLabels[m.id] ?? const <MapLabel>[]))
-            (m.id, l),
-    ];
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 6, 0),
-          child: selectedCount > 0
-              ? Row(children: [
-                  Text('已选 $selectedCount 项',
-                      style: const TextStyle(color: kAccent, fontSize: TokFs.caption)),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: _batchExportSelected,
-                    child: const Text('批量导出 DXF',
-                        style: TextStyle(color: kAccent, fontSize: TokFs.small)),
-                  ),
-                  TextButton(
-                    onPressed: _confirmDeleteSelected,
-                    child: const Text('删除所选',
-                        style: TextStyle(color: kDanger, fontSize: TokFs.small)),
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() => _selected.clear()),
-                    child: const Text('清除',
-                        style: TextStyle(color: kTextSub, fontSize: TokFs.small)),
-                  ),
-                ])
-              : Row(children: [
-                  Expanded(
-                    child: Text(
-                        '${_selFolder.isEmpty ? '收藏夹（根目录）' : _folderName(_selFolder)}'
-                        ' · 共 ${items.length + marks.length} 项',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: kTextSub, fontSize: TokFs.caption)),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => _addFolder(parentId: ''),
-                    child: const Text('新建文件夹',
-                        style: TextStyle(color: kAccent, fontSize: TokFs.small)),
-                  ),
-                ]),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            children: [
-              for (final m in items)
-                _item(context, m),
-              for (final (cid, l) in marks)
-                _markCard(context, cid, l, _selected.contains(l.id)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   /// 批量导出选中工程（T21）：每个工程各存于 `导出/批量/<工程名>/`。
   Future<void> _batchExportSelected() async {
     final targets = _selectedMetas();
@@ -932,39 +1071,7 @@ class _LeftPanelState extends State<LeftPanel> {
     await batchExportDxf(context, st, targets);
   }
 
-  /// 批量删除选中工程：Ctrl/Shift 多选之后一把删，逐个右键太折磨。
-  /// 删除不可撤销（云端软删除除外），必须确认并把名单亮出来。
-  Future<void> _confirmDeleteSelected() async {
-    final targets = _selectedMetas();
-    if (targets.isEmpty) {
-      toast(context, '请先选择要删除的工程（Ctrl/Shift 多选）');
-      return;
-    }
-    final names = targets.map((e) => '「${e.name}」').join('、');
-    await showDarkDialog(context,
-        title: '删除 ${targets.length} 个工程',
-        content: Text('确定删除 $names？\n删除后不可恢复（已开云同步的工程可在其他设备确认后彻底移除）。',
-            style: const TextStyle(color: kTextMain, fontSize: TokFs.body)),
-        actions: [
-          darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
-          darkTextBtn('删除', () async {
-            Navigator.pop(context);
-            for (final m in targets) {
-              await st.deleteCollection(m.id);
-            }
-            var nMark = 0;
-            for (final (cid, l) in _selectedMarks()) {
-              await st.removeOverlayLabel(cid, l);
-              nMark++;
-            }
-            setState(() => _selected.clear());
-            toast(context,
-                '已删除 ${targets.length} 个工程${nMark > 0 ? '、$nMark 个标记' : ''}');
-          }, color: kDanger),
-        ]);
-  }
-
-  Widget _item(BuildContext context, CollectionMeta m) {
+  Widget _item(BuildContext context, CollectionMeta m, int depth) {
     final visible = st.visibleCids.contains(m.id);
     final selected = _selected.contains(m.id);
     // 同步状态取自可空快照（未接入同步 → 仅本地）；不读任何可能抛异常的 getter。
@@ -984,14 +1091,18 @@ class _LeftPanelState extends State<LeftPanel> {
                   const TextStyle(color: kTextMain, fontSize: TokFs.small)),
         ),
       ),
-      childWhenDragging: Opacity(opacity: 0.35, child: _itemCard(m, visible, selected, status)),
-      child: _itemCard(m, visible, selected, status),
+      childWhenDragging: Opacity(
+          opacity: 0.35,
+          child: _itemCard(m, visible, selected, status, depth)),
+      child: _itemCard(m, visible, selected, status, depth),
     );
   }
 
-  Widget _itemCard(CollectionMeta m, bool visible, bool selected, SyncStatus status) {
+  Widget _itemCard(CollectionMeta m, bool visible, bool selected,
+      SyncStatus status, int depth) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      margin: EdgeInsets.only(
+          left: 8.0 + depth * 16.0, right: 8, top: 3, bottom: 3),
       decoration: BoxDecoration(
         color: selected ? kAccent.withValues(alpha: 0.14) : TokC.card,
         borderRadius: BorderRadius.circular(TokR.m),
@@ -1089,8 +1200,15 @@ class _LeftPanelState extends State<LeftPanel> {
       );
 
   /// 工程项动作清单——⋮ 按钮与**右键菜单**共用同一份，两边永远不会长得不一样。
-  List<PopupMenuEntry<String>> get _itemMenuEntries => const [
-        PopupMenuItem(value: 'sync', height: 34, child: Text('同步该工程')),
+  List<PopupMenuEntry<String>> get _itemMenuEntries => [
+        if (_selected.isNotEmpty)
+          PopupMenuItem(
+              value: 'del_sel',
+              height: 34,
+              child: Text('删除所选 ${_selected.length} 项',
+                  style: const TextStyle(color: kDanger))),
+        if (_selected.isNotEmpty) const PopupMenuDivider(),
+        const PopupMenuItem(value: 'sync', height: 34, child: Text('同步该工程')),
         PopupMenuItem(value: 'history', height: 34, child: Text('历史版本')),
         PopupMenuItem(value: 'export', height: 34, child: Text('导出成果')),
         PopupMenuItem(
@@ -1121,6 +1239,9 @@ class _LeftPanelState extends State<LeftPanel> {
   Future<void> _onAction(
       BuildContext context, CollectionMeta m, String action) async {
     switch (action) {
+      case 'del_sel':
+        await _deleteSelected();
+        return;
       case 'sync':
         final sync = context.read<SyncController?>();
         if (sync == null || !sync.configured) {

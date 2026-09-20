@@ -7,7 +7,15 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.8.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.9.0**（Windows x64 / macOS Universal / Android）
+
+> **v3.9.0：收藏夹按奥维截图定版（树 + 可见的批量操作）**
+> ① **树成为唯一视图**：根 → 文件夹 → 工程 → 标记点层层缩进，全部条目一眼可见
+> （不再有"下方列表"两处渲染）；② **条目工具条**：全选 / 取消 / 导出所选 /
+> **删除所选(N)** / 新建文件夹——**批量能力做成看得见的按钮**（此前只有 Ctrl 快捷键，
+> 用户找不到）；③ 任意行右键菜单顶部也有「删除所选 N 项」；
+> `Ctrl+A` 全选、`Delete` 键删除；④ 三类条目（文件夹/工程/标记）统一可选中、
+> 可拖拽、可批量删；⑤ 折叠 +/− 与单击展开并存。
 
 > **v3.8.0：收藏夹逻辑统一（一次结构性梳理）**
 > 按「树管层级、列表管条目」定版，消除此前两处渲染的重复与混乱：

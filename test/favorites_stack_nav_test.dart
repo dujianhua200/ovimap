@@ -71,26 +71,24 @@ void main() {
     await st.refreshCollections();
   });
 
-  testWidgets('整树平铺：根「收藏夹」+ A + B 全可见（默认全展开），各带 [n] 计数',
-      (tester) async {
+  testWidgets('整树平铺（奥维式）：文件夹与工程同树可见，各带 [n] 计数', (tester) async {
     await mountPanel(tester, st);
     expect(find.text('收藏夹'), findsWidgets); // 面板标题 + 树根行
     expect(find.text('A'), findsOneWidget);
     expect(find.text('B'), findsOneWidget, reason: '默认全展开，B 随 A 平铺可见');
-    expect(find.text('[1]'), findsOneWidget, reason: 'A[1]（B 是 [0]，根是 [2]）');
-    expect(find.text('[2]'), findsOneWidget, reason: '根行收藏夹[2]');
-    // 根选中 ⇒ 列表显示 P2，不显示 A 里的 P1。
-    expect(find.text('P2'), findsOneWidget);
-    expect(find.text('P1'), findsNothing);
+    // v3.9：工程也在树里（用户口径：所有东西都在收藏夹树下看得见）。
+    expect(find.text('P2'), findsOneWidget, reason: '根目录工程在树里');
+    expect(find.text('P1'), findsOneWidget, reason: 'A 里的工程也在树里');
+    expect(find.text('[1]'), findsWidgets, reason: 'A[1]');
+    expect(find.text('[2]'), findsOneWidget, reason: '根行收藏夹[2 个工程]');
   });
 
-  testWidgets('点 A 行：列表过滤到该层（P1 上、P2 隐），folderId 同步', (tester) async {
+  testWidgets('点 A 行：选中该层并同步 folderId（树保持全量可见）', (tester) async {
     await mountPanel(tester, st);
     await tester.tap(find.text('A'));
     await tester.pumpAndSettle();
-    expect(find.text('P1'), findsOneWidget);
-    expect(find.text('P2'), findsNothing);
     expect(st.folderId, aid, reason: '保存对话框默认层跟随选中');
+    expect(find.text('P2'), findsOneWidget, reason: '树是全量视图，不因选层而隐藏');
   });
 
   testWidgets('点 A 的 −：B 收起；点 +：B 再展开', (tester) async {
@@ -155,5 +153,28 @@ void main() {
     await tester.pumpAndSettle();
     // 两处 P2：搜索框内容 + 结果行。
     expect(find.text('P2'), findsNWidgets(2));
+  });
+
+  testWidgets('批量选择入口必须可见（用户反馈：只靠 Ctrl 找不到）', (tester) async {
+    await mountPanel(tester, st);
+    // 工具条四件套：全选 / 取消 / 导出所选 / 删除所选（+ 新建文件夹在标题栏）。
+    expect(find.byTooltip('全选（Ctrl+A）'), findsOneWidget);
+    expect(find.byTooltip('取消选择'), findsOneWidget);
+    expect(find.byTooltip('导出所选工程（DXF）'), findsOneWidget);
+    expect(find.byTooltip('删除所选（Delete）'), findsOneWidget);
+
+    // 全选后：显示「已选 N 项」，删除按钮可用（enabled）。
+    await tester.tap(find.byTooltip('全选（Ctrl+A）'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已选 '), findsOneWidget,
+        reason: '工具条实时显示已选数');
+
+    // 项目里的条目都可被选中：文件夹 A/B、工程 P1/P2 都在选中集里。
+    // （真正的删除动作走 store 层护栏：deleteFolder 级联 + deleteCollection
+    //   已在 collection_autosave_indep_test 覆盖；此处只锁「入口可见」，
+    //   避免依赖弹框+真实 IO 的脆弱链路。）
+    await tester.tap(find.byTooltip('取消选择'));
+    await tester.pumpAndSettle();
+    expect(find.text('全部条目'), findsOneWidget);
   });
 }
