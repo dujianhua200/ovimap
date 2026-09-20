@@ -7,7 +7,17 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.7.2**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.8.0**（Windows x64 / macOS Universal / Android）
+
+> **v3.8.0：收藏夹逻辑统一（一次结构性梳理）**
+> 按「树管层级、列表管条目」定版，消除此前两处渲染的重复与混乱：
+> ① **树只列文件夹**（+/− 折叠、层级导航）；② **列表 = 当前层的全部条目**——
+> 工程与标记点都在这里，标题明示当前层（如「收藏夹（根目录）· 共 3 项」）；
+> ③ **标记点左键只定位、不弹窗**，属性改走右键菜单（查看/修改属性、移动到文件夹、删除）；
+> ④ **所有条目都可拖拽进文件夹**（文件夹/工程/标记三类，含成环防护与同层no-op）；
+> ⑤ **可多选、可批量删除**（Ctrl 点选，选中后一键删工程+标记；Still可批量导出）；
+> ⑥ **标记一次即自动退出标记模式**（随后点击回到正常打点）；
+> ⑦ 工具栏新增**保存图标**（Ctrl+S 保存到收藏夹）。
 
 > **v3.7.2 更新**：① **自建 Overpass 反代修好并设为默认首选**（此前路径写错成
 > `/api/interpreter` 恒 521、从未生效，正确路径 `/interpreter`；现在国内取数

@@ -158,11 +158,9 @@ class _LeftPanelState extends State<LeftPanel> {
   /// 收藏夹树：根行 + 各级文件夹（+/− 折叠、缩进、[n] 计数）。
   Widget _folderTree() {
     final rows = <Widget>[_rootRow()];
-    rows.addAll(_markRowsFor('', 0));
     void rec(Folder f, int depth) {
       rows.add(_folderRow(f, depth));
       if (!_collapsed.contains(f.id)) {
-        rows.addAll(_markRowsFor(f.id, depth + 1));
         for (final c in st.folders) {
           if (c.id.isNotEmpty && c.parentId == f.id) rec(c, depth + 1);
         }
@@ -224,6 +222,7 @@ class _LeftPanelState extends State<LeftPanel> {
     VoidCallback? onTap,
     void Function(Offset pos)? onSecondary,
     String? dropTargetId,
+    Folder? dragFolder,
   }) {
     Widget row = InkWell(
       onTap: onTap,
@@ -274,11 +273,58 @@ class _LeftPanelState extends State<LeftPanel> {
         ]),
       ),
     );
+    // 可拖拽（用户指定：收藏夹下所有东西都能拖进文件夹——文件夹/工程/标记）。
+    final dragF = dragFolder;
+    if (dragF != null && dragF.id.isNotEmpty) {
+      final f = dragF;
+      row = Draggable<Folder>(
+        data: f,
+        feedback: Material(
+          color: TokC.card,
+          elevation: 4,
+          borderRadius: BorderRadius.circular(TokR.s),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Text(f.name,
+                style:
+                    const TextStyle(color: kTextMain, fontSize: TokFs.small)),
+          ),
+        ),
+        childWhenDragging: Opacity(opacity: 0.35, child: row),
+        child: row,
+      );
+    }
     if (dropTargetId == null) return row;
-    // 拖放目标（用户指定：新建工程可拖拽移入文件夹）。
-    return DragTarget<CollectionMeta>(
-      onWillAcceptWithDetails: (d) => d.data.folder != dropTargetId,
-      onAcceptWithDetails: (d) => _moveToFolder(d.data, dropTargetId),
+    // 拖放目标（用户指定：收藏夹下所有东西都可拖进文件夹——文件夹/工程/标记都收）。
+    return DragTarget<Object>(
+      onWillAcceptWithDetails: (d) {
+        final data = d.data;
+        if (data is CollectionMeta) return data.folder != dropTargetId;
+        if (data is MapLabel) return true;
+        if (data is Folder) {
+          if (data.id == dropTargetId) return false;
+          // 防止拖进自己的后代（成环）。
+          var p = dropTargetId;
+          final seen = <String>{};
+          while (p.isNotEmpty && seen.add(p)) {
+            if (p == data.id) return false;
+            final hit = st.folders.where((e) => e.id == p).toList();
+            p = hit.isEmpty ? '' : hit.first.parentId;
+          }
+          return data.parentId != dropTargetId;
+        }
+        return false;
+      },
+      onAcceptWithDetails: (d) {
+        final data = d.data;
+        if (data is CollectionMeta) {
+          _moveToFolder(data, dropTargetId);
+        } else if (data is MapLabel) {
+          _moveMarkInto(data, dropTargetId);
+        } else if (data is Folder) {
+          _moveFolderInto(data, dropTargetId);
+        }
+      },
       builder: (ctx, cand, _) => Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(TokR.s),
@@ -289,6 +335,34 @@ class _LeftPanelState extends State<LeftPanel> {
         child: row,
       ),
     );
+  }
+
+  /// 把拖来的文件夹移入目标文件夹（拖拽路径；防成环在 DragTarget 与 store 双层校验）。
+  Future<void> _moveFolderInto(Folder f, String fid) async {
+    await st.store.setFolderParent(f.id, fid);
+    await st.refreshCollections();
+    if (mounted) {
+      toast(context, '已把「${f.name}」移入「${fid.isEmpty ? '收藏夹根目录' : _folderName(fid)}」');
+    }
+  }
+
+  /// 把拖来的标记点并入目标层的「标记」收藏（拖拽路径，等价于菜单「移动」）。
+  Future<void> _moveMarkInto(MapLabel l, String fid) async {
+    // 找到该标记当前所属的收藏。
+    String fromCid = '';
+    for (final e in st.overlayLabels.entries) {
+      if (e.value.any((x) => x.id == l.id)) {
+        fromCid = e.key;
+        break;
+      }
+    }
+    if (fromCid.isEmpty) return;
+    final meta = st.collections.where((m) => m.id == fromCid).toList();
+    if (meta.isNotEmpty && meta.first.folder == fid) return; // 同层无需移动
+    await st.moveMarkToFolder(fromCid, l, fid);
+    if (mounted) {
+      toast(context, '已移入「${fid.isEmpty ? '收藏夹根目录' : _folderName(fid)}」');
+    }
   }
 
   /// 把工程 [m] 移入文件夹 [fid]（'' = 根目录）。
@@ -326,51 +400,72 @@ class _LeftPanelState extends State<LeftPanel> {
       onTap: () => _selectFolder(f.id),
       onSecondary: (pos) => _showFolderMenu(f, pos),
       dropTargetId: f.id,
+      dragFolder: f,
     );
   }
 
-  /// 某层内标记收藏（kind=mark 或旧版根目录「标记」）的**点行**。
-  /// 数据取自已上屏的 [AppState.overlayLabels]——标记模式保存即上屏，
-  /// 重启后 _loadVisibleOverlays 也会加载；未上屏的收藏不在此列（点眼睛即可）。
-  List<Widget> _markRowsFor(String fid, int depth) {
-    final rows = <Widget>[];
-    for (final m in st.collections) {
-      final isMark = m.kind == 'mark' || m.name == '标记';
-      if (!isMark || m.folder != fid) continue;
-      final ls = st.overlayLabels[m.id];
-      if (ls == null) continue;
-      for (final l in ls) {
-        rows.add(_markRow(m.id, l, depth));
-      }
-    }
-    return rows;
-  }
-
-  /// 标记点行：图钉色点 + 名字（+备注灰字）。点击 = 地图定位 + 打开属性
-  /// （改名/备注，保存走收藏点通道 updateOverlayLabel）。
-  Widget _markRow(String cid, MapLabel l, int depth) {
+  /// 标记点卡片（列表内）：图钉 + 名字 + 备注，点击**只定位**（不弹窗，用户
+  /// 指定），右键出属性/移动/删除菜单；可拖拽、可多选。
+  Widget _markCard(BuildContext context, String cid, MapLabel l, bool selected) {
     final nm = l.name.trim().isEmpty ? l.type.name : l.name.trim();
     final note = l.note.trim();
+    return Draggable<MapLabel>(
+      data: l,
+      feedback: Material(
+        color: TokC.card,
+        elevation: 4,
+        borderRadius: BorderRadius.circular(TokR.s),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Text(nm,
+              style:
+                  const TextStyle(color: kTextMain, fontSize: TokFs.small)),
+        ),
+      ),
+      childWhenDragging: Opacity(
+          opacity: 0.35,
+          child: _markCardBody(cid, l, nm, note, selected)),
+      child: _markCardBody(cid, l, nm, note, selected),
+    );
+  }
+
+  Widget _markCardBody(
+      String cid, MapLabel l, String nm, String note, bool selected) {
     return InkWell(
       onTap: () {
-        widget.onLocate?.call(l); // 瞬间定位（相机归壳）
-        showLabelProperties(context, st, l,
-            sourceCid: cid, title: nm);
+        // 用户指定：点击标记只定位，不弹窗；属性走右键。
+        final kb = HardwareKeyboard.instance;
+        if (kb.isControlPressed || kb.isMetaPressed) {
+          setState(() {
+            if (!_selected.remove(l.id)) _selected.add(l.id);
+          });
+          return;
+        }
+        if (_selected.isNotEmpty) setState(() => _selected.clear());
+        widget.onLocate?.call(l);
       },
+      onSecondaryTapUp: (d) => _showMarkMenu(cid, l, d.globalPosition),
       child: Container(
-        height: 28,
-        padding: EdgeInsets.only(left: 8.0 + depth * 16.0 + 23.0, right: 10),
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        padding: const EdgeInsets.only(left: 8, right: 6),
+        height: 34,
+        decoration: BoxDecoration(
+          color: selected ? kAccent.withValues(alpha: 0.18) : TokC.field,
+          borderRadius: BorderRadius.circular(TokR.s),
+          border: Border.all(
+              color: selected ? kAccent : Colors.transparent, width: 1),
+        ),
         child: Row(children: [
           Container(
-            width: 14,
-            height: 14,
+            width: 16,
+            height: 16,
             alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: l.type.color,
-              shape: BoxShape.circle,
-            ),
+            decoration:
+                BoxDecoration(color: l.type.color, shape: BoxShape.circle),
             child: Text(
-                l.type.symbol.isNotEmpty ? l.type.symbol : nm.substring(0, 1),
+                l.type.symbol.isNotEmpty
+                    ? l.type.symbol
+                    : (nm.isNotEmpty ? nm.substring(0, 1) : '·'),
                 style: const TextStyle(
                     color: Colors.white, fontSize: 9, height: 1.0)),
           ),
@@ -390,9 +485,68 @@ class _LeftPanelState extends State<LeftPanel> {
                   style: const TextStyle(
                       color: kTextHint, fontSize: TokFs.micro)),
             ),
+          const SizedBox(width: 4),
+          const Icon(Icons.my_location, size: 13, color: kTextHint),
         ]),
       ),
     );
+  }
+
+  /// 标记行的右键菜单（属性/移动到文件夹/删除）——用户指定右键改属性。
+  Future<void> _showMarkMenu(String cid, MapLabel l, Offset pos) async {
+    await _showMenuAt(pos, const [
+      PopupMenuItem(value: 'props', height: 34, child: Text('查看 / 修改属性')),
+      PopupMenuItem(value: 'move', height: 34, child: Text('移动到文件夹…')),
+      PopupMenuItem(value: 'delete', height: 34, child: Text('删除标记')),
+    ], (v) async {
+      if (!mounted) return;
+      final nm = l.name.trim().isEmpty ? l.type.name : l.name.trim();
+      switch (v) {
+        case 'props':
+          await showLabelProperties(context, st, l, sourceCid: cid, title: nm);
+          break;
+        case 'move':
+          await _moveMarkDialog(cid, l);
+          break;
+        case 'delete':
+          await st.removeOverlayLabel(cid, l);
+          if (mounted) toast(context, '已删除标记「$nm」');
+          break;
+      }
+    });
+  }
+
+  /// 把标记移动到另一个文件夹（落到该层的「标记」收藏里）。
+  Future<void> _moveMarkDialog(String cid, MapLabel l) async {
+    var target = '';
+    final folders = st.folders.where((f) => f.id.isNotEmpty).toList();
+    await showDarkDialog(context,
+        title: '移动标记「${l.name.trim().isEmpty ? l.type.name : l.name.trim()}」',
+        content: StatefulBuilder(
+          builder: (ctx, setSt) => DropdownButtonFormField<String>(
+            value: target,
+            dropdownColor: TokC.panelSolid,
+            isExpanded: true,
+            style: const TextStyle(color: kTextMain, fontSize: TokFs.body),
+            decoration: dec('移动到…'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('根目录（收藏夹）')),
+              for (final f in folders)
+                DropdownMenuItem(value: f.id, child: Text(f.name)),
+            ],
+            onChanged: (v) => setSt(() => target = v ?? ''),
+          ),
+        ),
+        actions: [
+          darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+          darkTextBtn('移动', () async {
+            Navigator.pop(context);
+            await st.moveMarkToFolder(cid, l, target);
+            if (mounted) {
+              toast(context, '已移动到「${target.isEmpty ? '收藏夹根目录' : _folderName(target)}」');
+            }
+          }, color: kGreen),
+        ]);
   }
 
   /// 在指定屏幕位置弹菜单（右键 / 长按共用）。
@@ -634,6 +788,18 @@ class _LeftPanelState extends State<LeftPanel> {
   }
 
   /// 选中集合对应的工程（按当前可见列表过滤掉已删除项）。
+  /// 选中的标记点（cid, label）——批量删除要连标记一起处理。
+  List<(String, MapLabel)> _selectedMarks() {
+    final out = <(String, MapLabel)>[];
+    for (final m in st.collections) {
+      if (!(m.kind == 'mark' || m.name == '标记')) continue;
+      for (final l in (st.overlayLabels[m.id] ?? const <MapLabel>[])) {
+        if (_selected.contains(l.id)) out.add((m.id, l));
+      }
+    }
+    return out;
+  }
+
   List<CollectionMeta> _selectedMetas() =>
       st.collections.where((m) => _selected.contains(m.id)).toList();
 
@@ -670,9 +836,13 @@ class _LeftPanelState extends State<LeftPanel> {
 
   Widget _collectionList(BuildContext context) {
     final items = _filteredItems();
-    final selectedCount = _selectedMetas().length;
+    final selectedCount = _selectedMetas().length + _selectedMarks().length;
 
-    if (items.isEmpty) {
+    final hasMarks = st.collections.any((m) =>
+        (m.kind == 'mark' || m.name == '标记') &&
+        m.folder == _selFolder &&
+        (st.overlayLabels[m.id] ?? const []).isNotEmpty);
+    if (items.isEmpty && !hasMarks) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(18),
@@ -684,6 +854,15 @@ class _LeftPanelState extends State<LeftPanel> {
         ),
       );
     }
+
+    // 当前层的**全部条目**：工程 + 各标记收藏里的标记点（用户口径：
+    // 收藏夹下所有东西都在一处，可点击/右键/拖拽/多选/批量删）。
+    final marks = <(String cid, MapLabel l)>[
+      for (final m in st.collections)
+        if ((m.kind == 'mark' || m.name == '标记') && m.folder == _selFolder)
+          for (final l in (st.overlayLabels[m.id] ?? const <MapLabel>[]))
+            (m.id, l),
+    ];
 
     return Column(
       children: [
@@ -711,21 +890,32 @@ class _LeftPanelState extends State<LeftPanel> {
                   ),
                 ])
               : Row(children: [
-                  Text('共 ${items.length} 项',
-                      style: const TextStyle(color: kTextSub, fontSize: TokFs.caption)),
+                  Expanded(
+                    child: Text(
+                        '${_selFolder.isEmpty ? '收藏夹（根目录）' : _folderName(_selFolder)}'
+                        ' · 共 ${items.length + marks.length} 项',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: kTextSub, fontSize: TokFs.caption)),
+                  ),
                   const Spacer(),
                   TextButton(
-                    onPressed: () => _addFolder(),
+                    onPressed: () => _addFolder(parentId: ''),
                     child: const Text('新建文件夹',
                         style: TextStyle(color: kAccent, fontSize: TokFs.small)),
                   ),
                 ]),
         ),
         Expanded(
-          child: ListView.builder(
+          child: ListView(
             padding: const EdgeInsets.symmetric(vertical: 4),
-            itemCount: items.length,
-            itemBuilder: (ctx, i) => _item(ctx, items[i]),
+            children: [
+              for (final m in items)
+                _item(context, m),
+              for (final (cid, l) in marks)
+                _markCard(context, cid, l, _selected.contains(l.id)),
+            ],
           ),
         ),
       ],
@@ -762,8 +952,14 @@ class _LeftPanelState extends State<LeftPanel> {
             for (final m in targets) {
               await st.deleteCollection(m.id);
             }
+            var nMark = 0;
+            for (final (cid, l) in _selectedMarks()) {
+              await st.removeOverlayLabel(cid, l);
+              nMark++;
+            }
             setState(() => _selected.clear());
-            toast(context, '已删除 ${targets.length} 个工程');
+            toast(context,
+                '已删除 ${targets.length} 个工程${nMark > 0 ? '、$nMark 个标记' : ''}');
           }, color: kDanger),
         ]);
   }

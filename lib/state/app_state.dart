@@ -504,6 +504,67 @@ class AppState extends ChangeNotifier {
     l.lineGroupId = ''; // 只标记不连线
     _markCount++;
     await _appendToMarkBook(l);
+    // 用户指定：标记一次即自动退出标记模式，随后点击回到正常打点。
+    markMode = false;
+    notifyListeners();
+  }
+
+  /// 把某个标记点从原收藏移到目标文件夹（落到该层的「标记」收藏里；
+  /// 目标层没有就新建一个）。用于「所有条目都可拖拽/移动到文件夹」。
+  Future<void> moveMarkToFolder(String fromCid, MapLabel l, String toFolder) async {
+    final from = await store.loadCollection(fromCid);
+    from.removeWhere((e) => e.id == l.id);
+    final fromMeta = collections.where((m) => m.id == fromCid).toList();
+    if (fromMeta.isNotEmpty) {
+      await store.finishCollection(
+        existingId: fromCid,
+        name: fromMeta.first.name,
+        kind: fromMeta.first.kind,
+        folderId: fromMeta.first.folder,
+        editMode: fromMeta.first.editMode,
+        labels: from,
+      );
+    }
+
+    // 目标层的「标记」收藏（没有则建）。
+    CollectionMeta? target;
+    for (final m in collections) {
+      final isMark = m.kind == 'mark' || m.name == kMarkBook;
+      if (isMark && m.folder == toFolder) {
+        target = m;
+        break;
+      }
+    }
+    String toCid;
+    List<MapLabel> toLabels;
+    if (target == null) {
+      toLabels = [l..seq = 1];
+      toCid = await store.finishCollection(
+          name: kMarkBook,
+          kind: 'mark',
+          folderId: toFolder,
+          editMode: 'design',
+          labels: toLabels);
+    } else {
+      toCid = target.id;
+      toLabels = await store.loadCollection(toCid);
+      l.seq = toLabels.length + 1;
+      toLabels.add(l);
+      await store.finishCollection(
+          existingId: toCid,
+          name: kMarkBook,
+          kind: 'mark',
+          folderId: toFolder,
+          editMode: 'design',
+          labels: toLabels);
+    }
+    await refreshCollections();
+    overlayLabels[toCid] = await store.loadCollection(toCid);
+    if (visibleCids.contains(fromCid)) {
+      overlayLabels[fromCid] = from;
+    }
+    if (!visibleCids.contains(toCid)) visibleCids.add(toCid);
+    prefs.setString(prefVisible, visibleCids.join(','));
     notifyListeners();
   }
 

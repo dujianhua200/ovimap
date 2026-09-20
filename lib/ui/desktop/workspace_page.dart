@@ -737,6 +737,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 onTopo: _topo,
                 onTrack: _track,
                 onLocate: _locateMe,
+                onSave: _save,
                 onUndo: _undo,
                 onRedo: _redo,
                 onDeleteSelection: _deleteSelection,

@@ -142,6 +142,8 @@ void main() {
     await tester.tap(find.text('标记1'));
     await tester.pump(const Duration(milliseconds: 50));
     expect(located.length, 1, reason: '瞬间定位');
+    // 用户指定：点击标记**不弹属性框**（属性走右键）。
+    expect(find.text('标签名称'), findsNothing, reason: '左键点击不应弹窗');
     expect(cid, isNotEmpty);
   });
 

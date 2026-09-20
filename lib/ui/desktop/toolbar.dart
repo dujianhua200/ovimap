@@ -30,6 +30,7 @@ class Toolbar extends StatelessWidget {
     required this.onTopo,
     required this.onTrack,
     required this.onLocate,
+    required this.onSave,
     required this.onUndo,
     required this.onRedo,
     required this.onDeleteSelection,
@@ -49,6 +50,7 @@ class Toolbar extends StatelessWidget {
   final VoidCallback onTopo;
   final VoidCallback onTrack;
   final VoidCallback onLocate;
+  final VoidCallback onSave;
   final VoidCallback onUndo;
   final VoidCallback onRedo;
   final VoidCallback onDeleteSelection;
@@ -104,6 +106,10 @@ class Toolbar extends StatelessWidget {
           _btn(Icons.route, tooltip: '轨迹记录', onTap: onTrack),
           _btn(Icons.my_location, tooltip: '定位', onTap: onLocate),
           _sep(),
+          _btn(Icons.save_outlined,
+              tooltip: '保存到收藏夹 Ctrl+S',
+              active: st.labels.isNotEmpty,
+              onTap: onSave),
           _btn(Icons.undo, tooltip: '撤销 Ctrl+Z', onTap: onUndo),
           _btn(Icons.redo, tooltip: '重做 Ctrl+Y', onTap: onRedo),
           _btn(Icons.delete_outline,

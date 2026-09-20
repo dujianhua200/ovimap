@@ -217,6 +217,23 @@ class LabelStore {
     await _saveFolders(updated);
   }
 
+  /// 改文件夹的父级（拖拽移动）。目标是自己或自己后代时忽略（防环）。
+  Future<void> setFolderParent(String fid, String parentId) async {
+    if (fid == parentId) return;
+    final list = await loadFolders();
+    var p = parentId;
+    final seen = <String>{};
+    while (p.isNotEmpty && seen.add(p)) {
+      if (p == fid) return; // 目标是自己的后代 → 拒绝
+      final hit = list.where((e) => e.id == p).toList();
+      p = hit.isEmpty ? '' : hit.first.parentId;
+    }
+    await _saveFolders([
+      for (final f in list)
+        if (f.id == fid) Folder(f.id, f.name, parentId) else f,
+    ]);
+  }
+
   /// 删除文件夹：**级联删整棵子树**（用户口径：删父文件夹连内部子文件夹
   /// 一起删），其中的工程上移到被删目录的父级——工程数据不丢。
   ///
