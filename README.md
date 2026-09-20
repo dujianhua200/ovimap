@@ -7,7 +7,15 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.7.1**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.7.2**（Windows x64 / macOS Universal / Android）
+
+> **v3.7.2 更新**：① **自建 Overpass 反代修好并设为默认首选**（此前路径写错成
+> `/api/interpreter` 恒 521、从未生效，正确路径 `/interpreter`；现在国内取数
+> 优先走自建，超大查询自动回落镜像）；② **导出底图范围默认 880m → 100m**
+> （「导出轮廓图太满」的直接原因，可在导出面板调 50/100/300/500/880 或自定义）；
+> ③ 删除文件夹改为**级联删除整棵子树**（其中工程上移到上一级，不丢数据）；
+> ④ 标记收藏不再在工程列表里重复出现（点条目已在树中，列表不再多一张卡片）；
+> ⑤ 左栏底部「本工程」段落表整块移除（用户反馈无用；段标编辑仍在右栏属性面板）。
 
 > **v3.7.1 更新**：标记收正为新口径——收藏夹**树中直接列出标记点条目**
 > （图钉符号 + 名字 + 备注灰字，挂在所在文件夹下）；**点击条目瞬间定位到地图**

@@ -511,10 +511,12 @@ class OverpassEndpoints {
   /// 已全部移除（见 [retired]）：空壳抢答的 `osm.ch`、已死的 `openstreetmap.ru` /
   /// `osm.jp`、长期超时的 `private.coffee`。
   static const List<String> _builtin = [
-    // 自建反代（用户指定内置）：国内直连最快，成功即免连境外；
-    // 走标准 Overpass 路径 `?data=` 转发。偶发不可达（521）时由竞速机制
+    // 自建反代（用户指定内置，默认首位）：国内直连最快，成功即免连境外。
+    // ⚠️ 路径是 `/interpreter`（不含 /api）——v3.5 曾错记为 `/api/interpreter`，
+    // 该路径恒 521，导致反代从未真正生效。实测 2026-09-20：小范围查询
+    // 稳定返回（Overpass 0.7.62）；超大查询该 Worker 会 521，由竞速机制
     // 自然回落到下面的境外端点，不影响可用性。
-    'https://hzyt.hainasi.eu.org/api/interpreter',
+    'https://hzyt.hainasi.eu.org/interpreter',
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',

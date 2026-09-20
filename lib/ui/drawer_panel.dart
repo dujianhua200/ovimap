@@ -190,10 +190,13 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
       }),
       darkTextBtn('删除', () async {
         Navigator.pop(context);
-        await st.store.deleteFolder(f.id);
+        final (nF, nP) = await st.store.deleteFolder(f.id);
         if (st.folderId == f.id) st.folderId = '';
         await st.refreshCollections();
-        if (context.mounted) toast(context, '已删除（内容保留在上级目录）');
+        if (context.mounted) {
+          toast(context,
+              '已删除 $nF 个文件夹${nP > 0 ? '（$nP 个工程移到上级）' : ''}');
+        }
       }, color: TokC.danger),
       darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub),
     ]);

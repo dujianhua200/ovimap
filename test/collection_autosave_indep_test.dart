@@ -247,37 +247,40 @@ void main() {
       expect(list.firstWhere((e) => e.id == f.id).name, '外线');
     });
 
-    test('删除文件夹：子目录与项目上移到父级，工程一个不丢', () async {
+    test('删除文件夹：级联删整棵子树，工程上移到被删目录的父级', () async {
       final parent = await store.addFolder('2026年');
       final child = await store.addFolder('一季度', parent.id);
+      final grand = await store.addFolder('一月', child.id);
       await store.finishCollection(
         name: '城北杆路',
         kind: 'label',
-        folderId: child.id,
+        folderId: grand.id,
         editMode: 'design',
         labels: labelsN(1),
       );
       await _settle();
 
-      await store.deleteFolder(child.id);
+      // 删 child：连同 grand 一起删（用户口径：删父文件夹连子文件夹一起删）。
+      final (nF, nP) = await store.deleteFolder(child.id);
       await _settle();
 
-      final folders = await store.loadFolders();
-      expect(folders.map((e) => e.id), isNot(contains(child.id)),
-          reason: '被删目录必须从树里消失');
-      expect(folders.map((e) => e.id), contains(parent.id));
+      expect(nF, 2, reason: 'child + grand 共删 2 个文件夹');
+      final ids = (await store.loadFolders()).map((e) => e.id).toList();
+      expect(ids, isNot(contains(child.id)));
+      expect(ids, isNot(contains(grand.id)), reason: '子文件夹必须一起删掉');
+      expect(ids, contains(parent.id), reason: '父级不受影响');
 
-      // 子目录被删后其内容上移：工程挂到 parent（index.json folder 键改写）。
-      final metas = await store.loadIndex();
-      final proj = metas.firstWhere((m) => m.name == '城北杆路');
-      expect(proj.folder, parent.id, reason: '工程必须上移到父级而不是被连坐删除');
+      // 工程不丢：上移到 child 的父级（parent）。
+      final proj = (await store.loadIndex()).firstWhere((m) => m.name == '城北杆路');
+      expect(proj.folder, parent.id, reason: '子树内工程上移到被删目录的父级');
 
-      // 再删父级 → 工程回到根（''），依然不丢。
+      // 删 parent：工程回到根，文件夹全清。
       await store.deleteFolder(parent.id);
       await _settle();
-      final proj2 =
-          (await store.loadIndex()).firstWhere((m) => m.name == '城北杆路');
-      expect(proj2.folder, '', reason: '顶级目录删除后工程应回到根目录');
+      final proj2 = (await store.loadIndex()).firstWhere((m) => m.name == '城北杆路');
+      expect(proj2.folder, '', reason: '顶级目录删除后工程回到根目录');
+      expect((await store.loadFolders()).map((e) => e.name),
+          isNot(contains('2026年')));
     });
 
     test('空名新建文件夹：落为「文件夹」默认名（与 UI onSubmitted 空提交一致）', () async {

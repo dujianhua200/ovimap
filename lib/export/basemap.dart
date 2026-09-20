@@ -417,7 +417,7 @@ class BasemapFetcher {
   /// 抓取底图（幂等、可离线复用）。
   static Future<BasemapData> fetchFor(
     List<MapLabel> labels, {
-    double rangeM = 880,
+    double rangeM = 100,
     String tdtKey = '',
     String amapKey = '',
     String overpassEndpoints = '', // 用户自定义 Overpass 端点原文（多分隔符；空=用内置）

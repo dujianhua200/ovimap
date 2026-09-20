@@ -68,7 +68,7 @@ void main() {
       expect(OverpassEndpoints.builtin().length, 6,
           reason: '内置固定 6 个（v3.5.0 起首位为自建 hzyt 反代）');
       expect(OverpassEndpoints.builtin().first,
-          'https://hzyt.hainasi.eu.org/api/interpreter',
+          'https://hzyt.hainasi.eu.org/interpreter',
           reason: '自建反代排首位（国内直连最快；不可达时竞速自动回落）');
     });
 

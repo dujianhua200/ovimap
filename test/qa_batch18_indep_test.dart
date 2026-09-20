@@ -259,7 +259,7 @@ void main() {
     test('恢复路径无强制回落；导出链路 rangeM 直通 DxfExporter', () async {
       final dlg = await File('lib/ui/dialogs.dart').readAsString();
       // 恢复：?? 880 兜底，其后无 "不在档位→880" 回落
-      expect(dlg.contains("prefs.getDouble('dxfRangeM') ?? 880"), isTrue);
+      expect(dlg.contains("prefs.getDouble('dxfRangeM') ?? 100"), isTrue);
       expect(dlg.contains('contains(rangeM)) rangeM = 880'), isFalse);
       // 新预设档位在 UI
       expect(dlg.contains('[50, 100, 300, 500, 880]'), isTrue);
@@ -270,7 +270,7 @@ void main() {
       // 导出链路：dialogs 传 rangeM: rangeM；DxfExporter 用它算底图 bbox
       expect(dlg.contains('rangeM: rangeM'), isTrue);
       final dxf = await File('lib/export/dxf.dart').readAsString();
-      expect(dxf.contains('double rangeM = 880'), isTrue);
+      expect(dxf.contains('double rangeM = 100'), isTrue);
       expect(dxf.contains('boundsOf(labels, rangeM)'), isTrue,
           reason: 'rangeM 必须实际参与底图范围计算（链路无断裂）');
     });
@@ -280,7 +280,7 @@ void main() {
       // 旧版本值域只有 {300,500,880,1000}（均合法），越界值只可能来自
       // 手工改 prefs / 数据损坏，低概率脏数据。记录现状，防无意改动无感知。
       final dlg = await File('lib/ui/dialogs.dart').readAsString();
-      expect(dlg.contains('?? 880'), isTrue);
+      expect(dlg.contains('?? 100'), isTrue);
       expect(dlg.contains('clamp(20'), isFalse);
     });
   });

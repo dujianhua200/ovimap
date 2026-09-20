@@ -188,6 +188,9 @@ void main() {
         labels: labels,
         includeSurroundings: true,
         localBasemap: bm, // 直接注入本地底图，不触网
+        // 显式给足范围：本用例验「注入的底图能进 DXF」，与 UI 默认范围无关
+        // （v3.7.2 起 UI 默认 100m，样本地名在 880m 外）。
+        rangeM: 880,
         version: v,
         buildingFill: true, // 显式开启：本用例继续断言 HATCH/SOLID 填充路径
       );

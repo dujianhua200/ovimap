@@ -217,7 +217,11 @@ class LabelStore {
     await _saveFolders(updated);
   }
 
-  Future<void> deleteFolder(String fid) async {
+  /// 删除文件夹：**级联删整棵子树**（用户口径：删父文件夹连内部子文件夹
+  /// 一起删），其中的工程上移到被删目录的父级——工程数据不丢。
+  ///
+  /// 返回 (被删文件夹数, 上移的工程数)，供 UI 弹窗与提示用。
+  Future<(int, int)> deleteFolder(String fid) async {
     final list = await loadFolders();
     var parentId = '';
     for (final f in list) {
@@ -226,31 +230,37 @@ class LabelStore {
         break;
       }
     }
-    final updated = <Folder>[];
-    for (final f in list) {
-      if (f.id == fid) continue;
-      if (fid == f.parentId) {
-        updated.add(Folder(f.id, f.name, parentId));
-      } else {
-        updated.add(f);
-      }
-    }
-    await _saveFolders(updated);
 
-    // 删除目录本身时保留内容：直接项目和子目录上移到被删目录的父级。
-    try {
-      final items = await _loadIndexItems();
-      var moved = false;
-      for (final o in items) {
-        final itemFolder = (o['folder'] as String?) ?? (o['folderId'] as String?) ?? '';
-        if (fid == itemFolder) {
-          o['folder'] = parentId;
-          o['folderId'] = parentId;
-          moved = true;
+    // 收集整棵子树的 id（含自己）。
+    final doomed = <String>{fid};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final f in list) {
+        if (f.id.isNotEmpty && doomed.contains(f.parentId) && doomed.add(f.id)) {
+          grew = true;
         }
       }
-      if (moved) await _saveIndexItems(items);
+    }
+
+    await _saveFolders([for (final f in list) if (!doomed.contains(f.id)) f]);
+
+    // 子树内的工程上移到最外层被删目录的父级。
+    var moved = 0;
+    try {
+      final items = await _loadIndexItems();
+      for (final o in items) {
+        final itemFolder =
+            (o['folder'] as String?) ?? (o['folderId'] as String?) ?? '';
+        if (doomed.contains(itemFolder)) {
+          o['folder'] = parentId;
+          o['folderId'] = parentId;
+          moved++;
+        }
+      }
+      if (moved > 0) await _saveIndexItems(items);
     } catch (_) {}
+    return (doomed.length, moved);
   }
 
   Future<void> _saveFolders(List<Folder> list) async {
