@@ -95,7 +95,11 @@ jobs:
         # 至多重试一次，重试后仍挂才让门禁红。**禁止**改成 `|| true`。
         shell: bash
         run: |
-          flutter test || flutter test
+          # Windows 特有：并发跑测试文件时，「缓存/落盘」类重用例偶发命中
+          # 彼此写下的缓存（实测 Actual 读到缓存 JSON），macOS 因核数不同
+          # 侥幸不受影响。这里串行执行（-j 1）消除跨文件共享磁盘缓存的竞态；
+          # 仍然保留「至多一次重试」吸收 flutter_tester 收尾崩溃。
+          flutter test -j 1 || flutter test -j 1
 
       - name: 启用 Windows 桌面支持
         run: flutter config --enable-windows-desktop
