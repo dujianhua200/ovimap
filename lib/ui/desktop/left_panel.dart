@@ -65,30 +65,42 @@ class _LeftPanelState extends State<LeftPanel> {
   /// Shift 范围选择的锚点（上一次 Ctrl/普通点击的工程 id）。
   String _anchor = '';
 
+  /// 正在拖拽的条目组（多选拖拽：拖一个带整组）；空 = 单拖。
+  Set<String> _dragGroup = <String>{};
+
   @override
   Widget build(BuildContext context) {
     // Delete / Backspace 删除所选（奥维同款）；批量选择必须**看得见**——
     // 工具条按钮 + 右键菜单 + 快捷键三条路都给（用户反馈只靠 Ctrl 找不到）。
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.delete): _deleteSelected,
-        const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelected,
-        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
-            _selectAll,
-      },
-      child: Container(
-        color: TokC.panelSolid,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _header(context),
-            _searchBar(),
-            _selectBar(),
-            const Divider(height: 1, color: TokC.divider),
-            Expanded(child: _favoritesTree(context)),
-            const Divider(height: 1, color: TokC.divider),
-            _dropZone(context),
-          ],
+    // ⚠️ 面板必须监听 AppState：拖拽/移动/删除改的是 st 里的数据，
+    // 不监听就**不重绘**——「拖进去了但打不开 / 标记还在外面」的根因（v3.9.0）。
+    // 地图拖动时 st 也可能 notify，面板行数少，全量重建开销可忽略。
+    return ListenableBuilder(
+      listenable: st,
+      builder: (ctx, _) => CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.delete): _deleteSelected,
+          const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelected,
+          const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+              _selectAll,
+        },
+        child: Focus(
+          autofocus: true, // 让 Delete/Ctrl+A 快捷键真正生效（此前无焦点不触发）
+          child: Container(
+            color: TokC.panelSolid,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _header(context),
+                _searchBar(),
+                _selectBar(),
+                const Divider(height: 1, color: TokC.divider),
+                Expanded(child: _favoritesTree(context)),
+                const Divider(height: 1, color: TokC.divider),
+                _dropZone(context),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -412,9 +424,17 @@ class _LeftPanelState extends State<LeftPanel> {
       onAcceptWithDetails: (d) {
         final data = d.data;
         if (data is CollectionMeta) {
-          _moveToFolder(data, dropTargetId);
+          if (_dragGroup.contains(data.id) && _dragGroup.length > 1) {
+            _moveGroupToFolder(_dragGroup, dropTargetId);
+          } else {
+            _moveToFolder(data, dropTargetId);
+          }
         } else if (data is MapLabel) {
-          _moveMarkInto(data, dropTargetId);
+          if (_dragGroup.contains(data.id) && _dragGroup.length > 1) {
+            _moveGroupToFolder(_dragGroup, dropTargetId);
+          } else {
+            _moveMarkInto(data, dropTargetId);
+          }
         } else if (data is Folder) {
           _moveFolderInto(data, dropTargetId);
         }
@@ -429,6 +449,29 @@ class _LeftPanelState extends State<LeftPanel> {
         child: row,
       ),
     );
+  }
+
+  /// 多选拖拽：把整组（工程 + 标记）一起移入目标文件夹。
+  Future<void> _moveGroupToFolder(Set<String> ids, String fid) async {
+    var nP = 0, nM = 0;
+    for (final m in st.collections.where((c) => ids.contains(c.id))) {
+      await st.store.moveCollection(m.id, fid);
+      nP++;
+    }
+    for (final e in Map.of(st.overlayLabels).entries) {
+      for (final l in List.of(e.value)) {
+        if (!ids.contains(l.id)) continue;
+        final meta = st.collections.where((c) => c.id == e.key).toList();
+        if (meta.isNotEmpty && meta.first.folder == fid) continue; // 同层跳过
+        await st.moveMarkToFolder(e.key, l, fid);
+        nM++;
+      }
+    }
+    setState(() => _selected.clear());
+    if (mounted) {
+      toast(context, '已移动 $nP 个工程、$nM 个标记到'
+          '「${fid.isEmpty ? '收藏夹根目录' : _folderName(fid)}」');
+    }
   }
 
   /// 把拖来的文件夹移入目标文件夹（拖拽路径；防成环在 DragTarget 与 store 双层校验）。
@@ -525,6 +568,13 @@ class _LeftPanelState extends State<LeftPanel> {
     final note = l.note.trim();
     return Draggable<MapLabel>(
       data: l,
+      onDragStarted: () {
+        if (_selected.contains(l.id) && _selected.length > 1) {
+          _dragGroup = Set.of(_selected);
+        } else {
+          _dragGroup = {l.id};
+        }
+      },
       feedback: Material(
         color: TokC.card,
         elevation: 4,
@@ -985,9 +1035,30 @@ class _LeftPanelState extends State<LeftPanel> {
       return;
     }
     final folders = st.folders.where((f) => _selected.contains(f.id)).toList();
-    final projects =
-        st.collections.where((m) => _selected.contains(m.id)).toList();
-    final marks = _selectedMarks();
+    // 文件夹级联会带走整棵子树：先把子树内的工程/标记从删除清单里剔除，
+    // 否则后面对它们重复删除（甚至把别的层同 id 误删）。
+    final doomed = <String>{};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final f in st.folders) {
+        if (f.id.isEmpty) continue;
+        if (doomed.contains(f.parentId) && doomed.add(f.id)) grew = true;
+      }
+    }
+    final projects = st.collections
+        .where((m) =>
+            _selected.contains(m.id) &&
+            !doomed.contains(m.folder))
+        .toList();
+    final marks = _selectedMarks()
+        .where((pair) => !doomed
+            .contains(st.collections
+                .where((c) => c.id == pair.$1)
+                .map((c) => c.folder)
+                .toList()
+                .first))
+        .toList();
     final parts = <String>[
       if (folders.isNotEmpty) '${folders.length} 个文件夹（含子文件夹）',
       if (projects.isNotEmpty) '${projects.length} 个工程',
@@ -1077,9 +1148,16 @@ class _LeftPanelState extends State<LeftPanel> {
     // 同步状态取自可空快照（未接入同步 → 仅本地）；不读任何可能抛异常的 getter。
     final sync = context.watch<SyncController?>();
     final status = sync?.statusFor(m.id) ?? SyncStatus.localOnly;
-    // 可拖拽（用户指定：工程可拖进文件夹）。feedback 用极简小卡片。
+    // 可拖拽（用户指定：工程可拖进文件夹）。多选时**拖一个带整组**。
     return Draggable<CollectionMeta>(
       data: m,
+      onDragStarted: () {
+        if (_selected.contains(m.id) && _selected.length > 1) {
+          _dragGroup = Set.of(_selected); // 整组跟随
+        } else {
+          _dragGroup = {m.id};
+        }
+      },
       feedback: Material(
         color: TokC.card,
         elevation: 4,

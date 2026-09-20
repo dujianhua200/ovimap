@@ -7,7 +7,16 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.9.0**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.9.1**（Windows x64 / macOS Universal / Android）
+
+> **v3.9.1：收藏夹三处硬伤修复（含一个自 v3.4 起就存在的根本性 bug）**
+> ① **面板从不监听数据变化**——拖拽/移动/删除改完数据后左栏根本不重绘，
+> 这就是「拖进去了显示1但打不开」「标记还在外面」的真相；现在面板监听
+> AppState，任何数据变化立即刷新。② **批量拖拽**：多选后拖一个带整组
+> （工程与标记都支持）。③ **Delete 键**此前因无焦点从不生效（补 autofocus），
+> 批量删除确认前先剔除将被文件夹级联带走的条目，避免重复删除。
+> ④ 新增收藏夹全功能端到端回归（拖入后树重绘 / 标记移动全链路 / 批量删除
+> 链路 / Delete 键），发布前逐条跑通。
 
 > **v3.9.0：收藏夹按奥维截图定版（树 + 可见的批量操作）**
 > ① **树成为唯一视图**：根 → 文件夹 → 工程 → 标记点层层缩进，全部条目一眼可见
