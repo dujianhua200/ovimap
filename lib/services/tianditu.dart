@@ -5,8 +5,10 @@ import 'package:http/http.dart' as http;
 import '../geo/gcj02.dart';
 
 /// 内置天地图开发者 key（单一来源；`AppState.builtinTdtKey` 引用本常量）。
-/// 用户可在「更多→天地图 Key 设置」里覆盖。
-const String kBuiltinTiandituKey = '361a1ac3927595e13b295fa9cbb77974';
+///
+/// ⚠️ **仓库已公开，内置 key 一律不入库**（v3.9.2）：常量保留但为空串，
+/// 未配置时走「未配置」提示。请在「更多→天地图 Key 设置」里填自己的 key。
+const String kBuiltinTiandituKey = '';
 
 /// 地名 / POI 检索结果（点）。
 class SearchResult {

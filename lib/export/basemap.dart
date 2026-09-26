@@ -415,6 +415,61 @@ class BasemapFetcher {
   }
 
   /// 抓取底图（幂等、可离线复用）。
+
+  /// 道路按 bbox **几何截断**：把折线切成落在框内的若干连续段，跨边界处用
+  /// 插值交点收口（不过度外溢）。
+  ///
+  /// 为什么必须这样：旧实现"任一点在框内就保留整条"，于是横穿县城的国道
+  /// 只要蹭到 100m 范围就被整条（可达数十公里）写进 DXF——用户反馈
+  /// "导出的矢量图路超级长"。现在只留线路附近那一段。
+  static List<RoadPoly> cropRoadsToBbox(List<RoadPoly> items, List<double> bbox) {
+    final out = <RoadPoly>[];
+    for (final r in items) {
+      var cur = <List<double>>[];
+      for (var i = 0; i < r.pts.length; i++) {
+        final p = r.pts[i];
+        if (_inBbox(p[0], p[1], bbox)) {
+          if (cur.isEmpty && i > 0) {
+            final q = r.pts[i - 1];
+            cur.add(clipSegToBbox(q[0], q[1], p[0], p[1], bbox) ?? p);
+          }
+          cur.add(p);
+        } else if (cur.isNotEmpty) {
+          final q = r.pts[i - 1];
+          cur.add(clipSegToBbox(q[0], q[1], p[0], p[1], bbox) ?? q);
+          if (cur.length >= 2) out.add(RoadPoly(cur, r.grade, r.name));
+          cur = <List<double>>[];
+        }
+      }
+      if (cur.length >= 2) out.add(RoadPoly(cur, r.grade, r.name));
+    }
+    return out;
+  }
+
+  /// 线段 (aLat,aLon)-(bLat,bLon) 与 bbox 的边界交点（两端须分处框内外），
+  /// 二分逼近。方向自适应：无论"入框"还是"出框"都能取到边界点。
+  static List<double>? clipSegToBbox(
+      double aLat, double aLon, double bLat, double bLon, List<double> bbox) {
+    final inA = _inBbox(aLat, aLon, bbox);
+    final inB = _inBbox(bLat, bLon, bbox);
+    if (inA == inB) return null; // 同侧：无边界交点（调用方已按进出分好情况）
+    // 统一为「x 在框外 → y 在框内」，二分求最后一个框外点之后的边界。
+    var xLat = aLat, xLon = aLon, yLat = bLat, yLon = bLon;
+    if (inA) {
+      xLat = bLat; xLon = bLon; yLat = aLat; yLon = aLon;
+    }
+    var lo = 0.0, hi = 1.0;
+    for (var i = 0; i < 20; i++) {
+      final t = (lo + hi) / 2;
+      if (_inBbox(xLat + (yLat - xLat) * t, xLon + (yLon - xLon) * t, bbox)) {
+        hi = t;
+      } else {
+        lo = t;
+      }
+    }
+    return [xLat + (yLat - xLat) * hi, xLon + (yLon - xLon) * hi];
+  }
+
   static Future<BasemapData> fetchFor(
     List<MapLabel> labels, {
     double rangeM = 100,
@@ -442,9 +497,8 @@ class BasemapFetcher {
       refresh: refresh,
       endpoints: overpassEps,
       parse: OverpassClient.parseRoads,
-      crop: (items) => items
-          .where((r) => r.pts.any((p) => _inBbox(p[0], p[1], bbox)))
-          .toList(),
+      // ⚠️ 关键修复（v3.9.2）：道路必须**沿边界几何截断**，不是"点中即保留整条"。
+      crop: (items) => cropRoadsToBbox(items, bbox),
     );
     final bldF = _load<BuildingPoly>(
       kind: 'buildings',
@@ -641,7 +695,8 @@ class BasemapFetcher {
     }
   }
 
-  static bool _inBbox(double lat, double lon, List<double> bbox) =>
+  static 
+bool _inBbox(double lat, double lon, List<double> bbox) =>
       lat >= bbox[0] && lat <= bbox[2] && lon >= bbox[1] && lon <= bbox[3];
 
   /// 地名裁剪容差（米）。

@@ -280,9 +280,10 @@ void main() {
 
   group('R2 内置高德 key（开箱即用）', () {
     test('kBuiltinAmapKey 常量存在且与 AppState.builtinAmapKey 同源', () {
-      expect(kBuiltinAmapKey, isNotEmpty);
+      // 仓库公开后内置 key 不入库（v3.9.2）：常量保留为「配置位」（空串），
+      // 只断言同源关系，绝不把密钥写进源码。
+      expect(kBuiltinAmapKey, isA<String>());
       expect(AppState.builtinAmapKey, kBuiltinAmapKey);
-      expect(kBuiltinAmapKey, '5798d19c111472c909b40e8af84ad139');
     });
 
     test('AppState.amapKey：未配置回退内置；配置后优先用户值', () async {
@@ -301,11 +302,13 @@ void main() {
       expect(st.amapKey, kBuiltinAmapKey, reason: '清空 → 恢复内置 key');
     });
 
-    test('内置 key 生效后地名兜底走高德（source 含 +amap）', () async {
-      SharedPreferences.setMockInitialValues({});
+    // 仓库公开后内置 key 为空（v3.9.2）：本用例改为「用户填了自己的 key」路径，
+    // 语义不变——有 key 就走高德，不回落天地图。
+    test('配置了高德 key 后地名兜底走高德（source 含 +amap）', () async {
+      SharedPreferences.setMockInitialValues({'amapKey': 'user_test_key'});
       final st = AppState();
       st.setPrefsForTest(await SharedPreferences.getInstance());
-      expect(st.amapKey, kBuiltinAmapKey);
+      expect(st.amapKey, 'user_test_key');
 
       final dir = Directory.systemTemp.createTempSync('ovimap_b21_builtin');
       addTearDown(() => dir.deleteSync(recursive: true));
@@ -314,12 +317,12 @@ void main() {
       AmapClient.httpGetOverride =
           (url) async => _ok(_amapBody(_inFrame)); // 只返回框内
       TiandituClient.httpGetOverride =
-          (url) async => throw StateError('内置高德 key 生效时不应回落天地图');
+          (url) async => throw StateError('配置了高德 key 时不应回落天地图');
 
       final data = await BasemapFetcher.fetchFor(
         _labels(),
         rangeM: 300,
-        amapKey: st.amapKey, // = 内置 key
+        amapKey: st.amapKey, // = 用户配置的 key
         tdtKey: 't',
         convertGcj: false,
         cache: BasemapCache(dir),
@@ -327,7 +330,7 @@ void main() {
 
       expect(data.places, hasLength(3));
       expect(data.report.places.source, contains('+amap'),
-          reason: '内置 key 生效 → 地名兜底自动走高德');
+          reason: '配置了 key → 地名兜底自动走高德');
     }, timeout: const Timeout(Duration(seconds: 60)));
   });
 }

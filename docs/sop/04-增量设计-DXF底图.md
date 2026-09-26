@@ -359,7 +359,7 @@ class OverpassEndpoints {
 }
 
 // ---------- lib/services/tianditu.dart（抽取） ----------
-const String kBuiltinTiandituKey = '361a1ac3927595e13b295fa9cbb77974';
+const String kBuiltinTiandituKey = '<你的天地图Key>';
 class TiandituClient {
   static Future<List<SearchResult>> poiInBounds(
       List<double> bbox, String keyword, String key);

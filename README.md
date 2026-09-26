@@ -7,7 +7,14 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.9.1**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.9.2**（Windows x64 / macOS Universal / Android）
+**仓库状态：公开**（公开仓库 Actions 不占私有额度，构建已恢复）
+
+> **v3.9.2**：① **导出矢量图道路不再"超级长"**——根因是道路裁剪按"任一点在框内
+> 就保留整条"，县城一条国道只要蹭到范围就被整条（几十公里）写进 DXF；现在改为
+> **沿范围边界几何截断**，只留线路附近那一段（默认 ±100m，可调）。
+> ② **内置 key 全部移除**（仓库转公开，天地图/高德 key 不再入库；请在
+> 「更多 → Key 设置」里填自己的 key，未配置走中文提示）。
 
 > **v3.9.1：收藏夹三处硬伤修复（含一个自 v3.4 起就存在的根本性 bug）**
 > ① **面板从不监听数据变化**——拖拽/移动/删除改完数据后左栏根本不重绘，

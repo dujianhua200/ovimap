@@ -7,10 +7,10 @@ import 'tianditu.dart';
 
 /// 内置高德 Web 服务 key（单一来源；`AppState.builtinAmapKey` 引用本常量）。
 ///
-/// 与 [kBuiltinTiandituKey] 同模式：开箱即用——用户未在「更多 → 高德 Key 设置」
-/// 里填写自己的 key 时，搜索与 DXF 底图地名兜底自动使用本内置 key；
-/// 用户填了自己的 key 则以用户值为优先。
-const String kBuiltinAmapKey = '5798d19c111472c909b40e8af84ad139';
+/// ⚠️ **仓库已公开，内置 key 一律不入库**（v3.9.2）：本常量保留但为空串，
+/// 未配置时相关功能走「未配置」提示（绝不静默失败）。
+/// 自己在「更多 → 高德 Key 设置」里填一次即可，用户值优先级最高。
+const String kBuiltinAmapKey = '';
 
 /// 高德 Web 服务 API 客户端（第二十批新增，替代/优先于天地图的搜索与地名兜底）。
 ///
