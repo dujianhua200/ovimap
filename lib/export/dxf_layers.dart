@@ -59,6 +59,8 @@ class DxfLayers {
   static const int cDaoLuZhong = 0x7F8C8D; // 灰（道路中心线，实体色另覆盖）
   static const int cDaoLu = 0x595959; // 深灰（道路名注记）
   static const int cJianZhu = 0xB0B0B0; // 浅灰（建筑轮廓）
+  static const int cDianLi = 0x2A62E8; // 蓝偏紫（电力线：醒目、不与杆路混淆）
+  static const int cShuiXi = 0xC4823B; // 土黄蓝（水系沟渠）
   static const int cJianZhuFill = 0xEFEFEF; // 更浅灰（建筑填充）
   static const int cDiMing = 0x2E7D32; // 绿（地名）
 

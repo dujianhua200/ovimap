@@ -7,7 +7,13 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.9.3**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.9.4**（Windows x64 / macOS Universal / Android）
+
+> **v3.9.4：底图多一路「电力线 + 水系沟渠」**（矢量数据太少的第一批缓解）。
+> 通信线路设计必须与电力杆线的交越/平行关系一起看、过河过沟要参照，
+> 而 OSM 这两类的国内覆盖远好于建筑轮廓——新增后沿线内容明显变多。
+> DXF 新图层：`DianLi`（电力，蓝紫）、`ShuiXi`（水系，土黄蓝）。
+> 关于高德/天地图矢量：见 `docs/VECTOR-DATA-SOURCES.md`（哪些能拿、哪些不能）。
 
 > **v3.9.3：底图范围改为「沿线路缓冲 50 米」，不再用矩形包围盒**
 > 做线路设计要的是**轨迹附近**，不是包围盒：L 形/斜向/折返线路的矩形包围盒

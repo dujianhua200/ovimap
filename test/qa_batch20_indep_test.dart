@@ -68,6 +68,33 @@ const String qaLegitEmpty = '{"version":0.6,"elements":[]}';
 const String qaShellNoElements = '{"foo":1,"error":"rate limited"}';
 
 // QA 自造：有数据的道路应答（2 条，均带 name 与几何）。
+/// 周边要素（电力线 + 水系）——v3.9.4 新增抓取路的 fixture。
+String qaExtrasJson() {
+  return jsonEncode({
+    'version': 0.6,
+    'elements': [
+      {
+        'type': 'way',
+        'id': 61,
+        'tags': {'power': 'line'},
+        'geometry': [
+          {'lat': 32.1265, 'lon': 114.0914},
+          {'lat': 32.1275, 'lon': 114.0924},
+        ],
+      },
+      {
+        'type': 'way',
+        'id': 62,
+        'tags': {'waterway': 'stream'},
+        'geometry': [
+          {'lat': 32.1266, 'lon': 114.0915},
+          {'lat': 32.1276, 'lon': 114.0925},
+        ],
+      },
+    ],
+  });
+}
+
 String qaRoadsJson() {
   final road1 = [
     [32.1264, 114.0913],
@@ -318,6 +345,7 @@ void main() {
       String qaBodyFor(String data) {
         if (data.contains('"highway"')) return qaRoadsJson();
         if (data.contains('"building"')) return qaBuildingsJson();
+        if (data.contains('"power"')) return qaExtrasJson(); // v3.9.4 周边要素
         return qaPlacesJson();
       }
 
@@ -347,7 +375,8 @@ void main() {
       final d2 = await BasemapFetcher.fetchFor(labels,
           rangeM: 300, cache: cache, useTdt: false);
       expect(calls, callsAfterFirst,
-          reason: '第二次应完全命中缓存，网络调用次数不得增加');
+          reason: '第二次应完全命中缓存，网络调用次数不得增加'
+              '（v3.9.4 起含新增的电力/水系一路，同样应命中缓存）');
       expect(d2.report.roads.state, FetchState.cached);
       expect(d2.report.buildings.state, FetchState.cached);
       expect(d2.roads.length, d1.roads.length);
@@ -470,6 +499,7 @@ void main() {
           final q = url.queryParameters['data'] ?? '';
           if (q.contains('"building"')) return qaOk(qaBuildingsJson());
           if (q.contains('"place"')) return qaOk(qaPlacesJson());
+          if (q.contains('"power"')) return qaOk(qaExtrasJson());
           return qaOk(qaRoadsJson());
         }
         throw const HttpException('实测：504 / 连接失败');

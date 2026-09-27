@@ -89,10 +89,14 @@ class BasemapFetchReport {
   final DatasetReport roads;
   final DatasetReport buildings;
   final DatasetReport places;
+
+  /// 周边要素（电力/水系）报告；不传视为「未抓取」，不参与成败判定。
+  final DatasetReport extras;
   const BasemapFetchReport({
     required this.roads,
     required this.buildings,
     required this.places,
+    this.extras = const DatasetReport(FetchState.failed, error: '未抓取'),
   });
 
   bool get anyFailed =>
@@ -194,15 +198,31 @@ class BasemapFetchReport {
 }
 
 /// 底图数据集（道路 + 建筑 + 地名 + 报告）。
+/// 周边要素（第二十八批新增）：电力线 / 水系沟渠。
+///
+/// 通信线路设计必须与**电力杆线**的相对关系一起看（交越、平行间距），
+/// 过河过沟也要有参照——OSM 里这两类覆盖比建筑好得多，加上它们能显著
+/// 缓解"导出的矢量数据太少"。
+class ExtraPoly {
+  final List<List<double>> pts;
+  final String kind; // 'power' | 'water'
+  final String name;
+  const ExtraPoly(this.pts, this.kind, this.name);
+}
+
 class BasemapData {
   final List<RoadPoly> roads;
   final List<BuildingPoly> buildings;
   final List<PlaceFeature> places;
+
+  /// 周边要素（电力线 / 水系）；老代码不传即为空，行为不变。
+  final List<ExtraPoly> extras;
   final BasemapFetchReport report;
   const BasemapData({
     required this.roads,
     required this.buildings,
     required this.places,
+    this.extras = const [],
     required this.report,
   });
 
@@ -211,6 +231,7 @@ class BasemapData {
         roads: [],
         buildings: [],
         places: [],
+        extras: [],
         report: BasemapFetchReport(
           roads: DatasetReport(FetchState.failed, error: '未抓取底图'),
           buildings: DatasetReport(FetchState.failed, error: '未抓取底图'),
@@ -473,6 +494,33 @@ class BasemapFetcher {
     return math.sqrt(px * px + py * py);
   }
 
+  /// 周边要素（电力/水系）按**沿线路缓冲**裁剪，与道路同口径。
+  static List<ExtraPoly> cropExtrasToRoute(
+      List<ExtraPoly> items, List<MapLabel> labels, double rangeM) {
+    bool inside(double la, double lo) => distToRouteM(labels, la, lo) <= rangeM;
+    final out = <ExtraPoly>[];
+    for (final e in items) {
+      var cur = <List<double>>[];
+      for (var i = 0; i < e.pts.length; i++) {
+        final p = e.pts[i];
+        if (inside(p[0], p[1])) {
+          if (cur.isEmpty && i > 0) {
+            final q = e.pts[i - 1];
+            cur.add(_clipSegWith(q[0], q[1], p[0], p[1], inside) ?? p);
+          }
+          cur.add(p);
+        } else if (cur.isNotEmpty) {
+          final q = e.pts[i - 1];
+          cur.add(_clipSegWith(q[0], q[1], p[0], p[1], inside) ?? q);
+          if (cur.length >= 2) out.add(ExtraPoly(cur, e.kind, e.name));
+          cur = <List<double>>[];
+        }
+      }
+      if (cur.length >= 2) out.add(ExtraPoly(cur, e.kind, e.name));
+    }
+    return out;
+  }
+
   /// 道路按**到线路的距离**裁剪（缓冲带），保留落到带内的连续段，边界插值收口。
   static List<RoadPoly> cropRoadsToRoute(
       List<RoadPoly> items, List<MapLabel> labels, double rangeM) {
@@ -579,6 +627,7 @@ class BasemapFetcher {
     bool useTdt = true,
     bool convertGcj = true, // 高德/天地图检索 POI 为 GCJ-02，默认纠偏为 WGS84
     bool refresh = false,
+    bool includeExtras = true, // 电力线 / 水系（导出面板可关）
     BasemapCache? cache,
   }) async {
     if (labels.isEmpty) return BasemapData.empty();
@@ -627,9 +676,26 @@ class BasemapFetcher {
           .toList(),
     );
 
+    final extrasF = includeExtras
+        ? _load<ExtraPoly>(
+            kind: 'extras',
+            query: OverpassClient.buildExtrasQuery(bboxStr),
+            bbox: bbox,
+            cache: c,
+            refresh: refresh,
+            endpoints: overpassEps,
+            parse: OverpassClient.parseExtras,
+            crop: (items) => cropExtrasToRoute(items, labels, rangeM),
+          )
+        : Future.value(_LoadResult<ExtraPoly>(
+            const DatasetReport(FetchState.failed, error: '未开启'),
+            const [],
+          ));
+
     final roads = await roadsF;
     final buildings = await bldF;
     var places = await plcF;
+    final extras = await extrasF;
 
     var placesReport = places.report;
     // 地名兜底：OSM 地名过少时按关键词枚举补名（仅补点/地名，不参与几何）。
@@ -693,11 +759,13 @@ class BasemapFetcher {
     return BasemapData(
       roads: roads.items,
       buildings: buildings.items,
+      extras: extras.items,
       places: places.items,
       report: BasemapFetchReport(
         roads: roads.report,
         buildings: buildings.report,
         places: placesReport,
+        extras: extras.report,
       ),
     );
   }

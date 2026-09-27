@@ -1378,6 +1378,24 @@ class DxfExporter {
       }
     }
 
+    // —— 周边要素：电力线（DianLi，橙）/ 水系沟渠（ShuiXi，蓝）——
+    // 通信线路设计必须与电力杆线的交越/平行关系一起看，过河过沟也要有参照。
+    if (bm.extras.isNotEmpty) {
+      for (final e in bm.extras) {
+        final layer = e.kind == 'power' ? 'DianLi' : 'ShuiXi';
+        final pts = <List<double>>[];
+        for (final pt in e.pts) {
+          pts.add([(pt[1] - baseLon) * scaleX, (pt[0] - baseLat) * scaleY]);
+        }
+        if (pts.length >= 2) {
+          _appendPolyline(c, layer, pts, version: version);
+          for (final q in pts) {
+            acc.add(q[0], q[1]);
+          }
+        }
+      }
+    }
+
     // —— 地名（DiMing 层，字号按级别）——
     if (layerPlaces) {
       for (final p in bm.places) {

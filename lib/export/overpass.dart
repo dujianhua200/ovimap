@@ -46,6 +46,44 @@ class OverpassClient {
       '[out:json][timeout:25];'
       '(way["building"]($bbox);relation["building"]($bbox););out geom;';
 
+  /// 周边要素查询（第二十八批）：**电力线 + 水系沟渠**。
+  ///
+  /// 通信线路设计要看与电力杆线的交越/平行关系、过河过沟位置；OSM 这两类
+  /// 覆盖远好于建筑，加上后"矢量太少"的观感明显改善。
+  static String buildExtrasQuery(String bbox) =>
+      '[out:json][timeout:25];'
+      '(way["power"="line"]($bbox);way["power"="minor_line"]($bbox);'
+      'way["power"="cable"]($bbox);'
+      'way["waterway"]($bbox);way["natural"="water"]($bbox););out geom;';
+
+  /// 解析电力/水系要素（只取带几何的 way）。
+  static List<ExtraPoly> parseExtras(String body) {
+    final out = <ExtraPoly>[];
+    final root = jsonDecode(body) as Map<String, dynamic>;
+    for (final e in (root['elements'] as List? ?? const [])) {
+      if (e is! Map) continue;
+      final geom = e['geometry'];
+      if (geom is! List || geom.length < 2) continue;
+      final pts = <List<double>>[];
+      for (final g in geom) {
+        if (g is! Map) continue;
+        final la = (g['lat'] as num?)?.toDouble();
+        final lo = (g['lon'] as num?)?.toDouble();
+        if (la == null || lo == null) continue;
+        pts.add([la, lo]);
+      }
+      if (pts.length < 2) continue;
+      final tags = Map<String, dynamic>.from(e['tags'] as Map? ?? const {});
+      final kind = (tags['power'] != null)
+          ? 'power'
+          : ((tags['waterway'] != null || tags['natural'] == 'water') ? 'water' : '');
+      if (kind.isEmpty) continue;
+      final name = (tags['name'] ?? '') as String? ?? '';
+      out.add(ExtraPoly(pts, kind, name));
+    }
+    return out;
+  }
+
   /// 地名/片区/小区名查询（place=* + 具名 landuse=residential）。
   static String buildPlacesQuery(String bbox) =>
       '[out:json][timeout:25];'
