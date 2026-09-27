@@ -7,7 +7,13 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.9.2**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.9.3**（Windows x64 / macOS Universal / Android）
+
+> **v3.9.3：底图范围改为「沿线路缓冲 50 米」，不再用矩形包围盒**
+> 做线路设计要的是**轨迹附近**，不是包围盒：L 形/斜向/折返线路的矩形包围盒
+> 会把离线路很远的角落一起框进来（这就是"还是太广"的根因）。
+> 现在道路/建筑/地名统一按**到线路的距离**裁剪，默认 **±50m**，档位
+> 30/50/100/200/300/500/880 可选（导出面板可改）。
 **仓库状态：公开**（公开仓库 Actions 不占私有额度，构建已恢复）
 
 > **v3.9.2**：① **导出矢量图道路不再"超级长"**——根因是道路裁剪按"任一点在框内

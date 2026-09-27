@@ -970,10 +970,10 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   // 底图外扩范围：预设档位 + 自定义。
   // 自定义值直接恢复（不再强制回落到默认档）；不在预设档位里时
   // UI 显示为「自定义(xxx)」并选中。
-  const rangeOptions = <double>[50, 100, 300, 500, 880];
-  // 默认外扩范围：50/100 够用（用户反馈「导出轮廓图太满」——原默认 880m 会把
-  // 周边一大片建筑/道路全画进图里）。用户手选过的值仍按记忆走。
-  var rangeM = prefs.getDouble('dxfRangeM') ?? 100;
+  const rangeOptions = <double>[30, 50, 100, 200, 300, 500, 880];
+  // 默认 **沿线 50m**（线路设计口径：用户明确"轨迹附近 50 米就好"）。
+  // 原默认 880m → 100m → 现在 50m；用户手选过的值仍按记忆走。
+  var rangeM = prefs.getDouble('dxfRangeM') ?? 50;
   final corridorCtl =
       TextEditingController(text: prefs.getString('dxfCorridor') ?? '0');
 

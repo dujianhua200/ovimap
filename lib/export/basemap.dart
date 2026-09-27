@@ -422,6 +422,106 @@ class BasemapFetcher {
   /// 为什么必须这样：旧实现"任一点在框内就保留整条"，于是横穿县城的国道
   /// 只要蹭到 100m 范围就被整条（可达数十公里）写进 DXF——用户反馈
   /// "导出的矢量图路超级长"。现在只留线路附近那一段。
+  /// **点到线路的最短距离（米）**——沿线路缓冲裁剪的基础。
+  ///
+  /// 为什么不用矩形包围盒：线路常是 L 形/斜向/折返的，包围盒会把离线路很远的
+  /// 角落也框进来（用户反馈"导出的矢量还是太广"）。做线路设计要的是
+  /// **沿轨迹附近 N 米**，所以按到折线的距离判定。
+  static double distToRouteM(List<MapLabel> labels, double lat, double lon) {
+    final segs = _routeSegments(labels);
+    if (segs.isEmpty) return 0;
+    var best = double.infinity;
+    for (final seg in segs) {
+      final d = _distToSegM(lat, lon, seg[0], seg[1], seg[2], seg[3]);
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /// 把点按线组串成折线段 `[lat1, lon1, lat2, lon2]`（同组按 seq；无组则整条）。
+  static List<List<double>> _routeSegments(List<MapLabel> labels) {
+    final groups = <String, List<MapLabel>>{};
+    for (final l in labels) {
+      groups.putIfAbsent(l.lineGroupId, () => <MapLabel>[]).add(l);
+    }
+    final out = <List<double>>[];
+    for (final g in groups.values) {
+      final pts = List<MapLabel>.from(g)
+        ..sort((a, b) => a.seq.compareTo(b.seq));
+      for (var i = 1; i < pts.length; i++) {
+        out.add([pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon]);
+      }
+    }
+    return out;
+  }
+
+  /// 点到线段的最短距离（米，局部平面近似，50m~1km 量级足够准）。
+  static double _distToSegM(double lat, double lon, double aLat, double aLon,
+      double bLat, double bLon) {
+    final cosLat = math.cos(lat * math.pi / 180).abs().clamp(0.05, 1.0);
+    final ax = (aLon - lon) * 111320.0 * cosLat;
+    final ay = (aLat - lat) * 110540.0;
+    final bx = (bLon - lon) * 111320.0 * cosLat;
+    final by = (bLat - lat) * 110540.0;
+    final dx = bx - ax, dy = by - ay;
+    final l2 = dx * dx + dy * dy;
+    double t = 0;
+    if (l2 > 0) t = ((-ax) * dx + (-ay) * dy) / l2;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    final px = ax + dx * t, py = ay + dy * t;
+    return math.sqrt(px * px + py * py);
+  }
+
+  /// 道路按**到线路的距离**裁剪（缓冲带），保留落到带内的连续段，边界插值收口。
+  static List<RoadPoly> cropRoadsToRoute(
+      List<RoadPoly> items, List<MapLabel> labels, double rangeM) {
+    bool inside(double la, double lo) => distToRouteM(labels, la, lo) <= rangeM;
+    final out = <RoadPoly>[];
+    for (final r in items) {
+      var cur = <List<double>>[];
+      for (var i = 0; i < r.pts.length; i++) {
+        final p = r.pts[i];
+        if (inside(p[0], p[1])) {
+          if (cur.isEmpty && i > 0) {
+            final q = r.pts[i - 1];
+            cur.add(_clipSegWith(q[0], q[1], p[0], p[1], inside) ?? p);
+          }
+          cur.add(p);
+        } else if (cur.isNotEmpty) {
+          final q = r.pts[i - 1];
+          cur.add(_clipSegWith(q[0], q[1], p[0], p[1], inside) ?? q);
+          if (cur.length >= 2) out.add(RoadPoly(cur, r.grade, r.name));
+          cur = <List<double>>[];
+        }
+      }
+      if (cur.length >= 2) out.add(RoadPoly(cur, r.grade, r.name));
+    }
+    return out;
+  }
+
+  /// 段与「inside 区域」的交点（两端须分处内外），二分逼近。
+  static List<double>? _clipSegWith(double aLat, double aLon, double bLat,
+      double bLon, bool Function(double, double) inside) {
+    final inA = inside(aLat, aLon);
+    final inB = inside(bLat, bLon);
+    if (inA == inB) return null;
+    var xLat = aLat, xLon = aLon, yLat = bLat, yLon = bLon;
+    if (inA) {
+      xLat = bLat; xLon = bLon; yLat = aLat; yLon = aLon;
+    }
+    var lo = 0.0, hi = 1.0;
+    for (var i = 0; i < 20; i++) {
+      final t = (lo + hi) / 2;
+      if (inside(xLat + (yLat - xLat) * t, xLon + (yLon - xLon) * t)) {
+        hi = t;
+      } else {
+        lo = t;
+      }
+    }
+    return [xLat + (yLat - xLat) * hi, xLon + (yLon - xLon) * hi];
+  }
+
   static List<RoadPoly> cropRoadsToBbox(List<RoadPoly> items, List<double> bbox) {
     final out = <RoadPoly>[];
     for (final r in items) {
@@ -472,7 +572,7 @@ class BasemapFetcher {
 
   static Future<BasemapData> fetchFor(
     List<MapLabel> labels, {
-    double rangeM = 100,
+    double rangeM = 50,
     String tdtKey = '',
     String amapKey = '',
     String overpassEndpoints = '', // 用户自定义 Overpass 端点原文（多分隔符；空=用内置）
@@ -498,7 +598,8 @@ class BasemapFetcher {
       endpoints: overpassEps,
       parse: OverpassClient.parseRoads,
       // ⚠️ 关键修复（v3.9.2）：道路必须**沿边界几何截断**，不是"点中即保留整条"。
-      crop: (items) => cropRoadsToBbox(items, bbox),
+      // 沿线路缓冲裁剪（不是矩形包围盒）：只留轨迹附近 rangeM 米内的路。
+      crop: (items) => cropRoadsToRoute(items, labels, rangeM),
     );
     final bldF = _load<BuildingPoly>(
       kind: 'buildings',
@@ -509,7 +610,8 @@ class BasemapFetcher {
       endpoints: overpassEps,
       parse: OverpassClient.parseBuildings,
       crop: (items) => items
-          .where((b) => b.outer.any((p) => _inBbox(p[0], p[1], bbox)))
+          .where((b) => b.outer.any(
+              (p) => distToRouteM(labels, p[0], p[1]) <= rangeM))
           .toList(),
     );
     final plcF = _load<PlaceFeature>(
@@ -520,8 +622,9 @@ class BasemapFetcher {
       refresh: refresh,
       endpoints: overpassEps,
       parse: OverpassClient.parsePlaces,
-      crop: (items) =>
-          items.where((p) => _inBbox(p.lat, p.lon, bbox)).toList(),
+      crop: (items) => items
+          .where((p) => distToRouteM(labels, p.lat, p.lon) <= rangeM)
+          .toList(),
     );
 
     final roads = await roadsF;
@@ -570,7 +673,9 @@ class BasemapFetcher {
     // 天地图 / 高德兜底，出口统一按本次 bbox 再裁一次。即使命中"污染期"写入的
     // 旧地名缓存（项目级近乎永久），也不会把范围外的地名带进 DXF
     // （用户复现的"矢量图外侧很远处密密麻麻的名字"）。count 同步修正，口径一致。
-    final finalPlaces = cropPlaces(places.items, bbox);
+    // 出口再按**沿线路缓冲**兜底裁一次（含容差），矩形包围盒不再作为最终口径。
+    final finalPlaces = cropPlacesToRoute(
+        places.items, labels, rangeM + placeCropTolM);
     if (finalPlaces.length != places.items.length) {
       places = _LoadResult(
         DatasetReport(
@@ -733,6 +838,13 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
           List<PlaceFeature> places, List<double> bbox) =>
       places
           .where((p) => _inBboxTol(p.lat, p.lon, bbox, placeCropTolM))
+          .toList();
+
+  /// 按**沿线路缓冲**（米）裁剪地名（纯函数，出口兜底用）。
+  static List<PlaceFeature> cropPlacesToRoute(
+          List<PlaceFeature> places, List<MapLabel> labels, double rangeM) =>
+      places
+          .where((p) => distToRouteM(labels, p.lat, p.lon) <= rangeM)
           .toList();
 
   /// 合并 OSM 与天地图地名，按「名称相同 + 50m 内」去重（OSM 优先）。

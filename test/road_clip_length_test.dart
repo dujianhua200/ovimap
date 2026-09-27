@@ -57,4 +57,46 @@ void main() {
     ], RoadGrade.primary, '远处高速');
     expect(BasemapFetcher.cropRoadsToBbox([far], bbox), isEmpty);
   });
+
+// ---------- 沿线路缓冲（v3.9.3）：矩形包围盒 vs 沿轨迹 ----------
+  test('L 形线路：包围盒角落（离线路很远）必须被排除，只留沿轨迹一段', () {
+    // L 形线路：先向北 500m，再向东 500m。
+    final labels = [
+      MapLabel(typeId: 'pipe', seq: 1, lat: 32.130, lon: 114.081, lineGroupId: 'g'),
+      MapLabel(typeId: 'pipe', seq: 2, lat: 32.1345, lon: 114.081, lineGroupId: 'g'),
+      MapLabel(typeId: 'pipe', seq: 3, lat: 32.1345, lon: 114.086, lineGroupId: 'g'),
+    ];
+    // 包围盒的西北角：离两段线路都很远（约 350m+），但**在矩形框内**。
+    final cornerLat = 32.1302, cornerLon = 114.0858;
+    final nearLat = 32.1301, nearLon = 114.0811; // 紧贴第一段
+
+    final dCorner = BasemapFetcher.distToRouteM(labels, cornerLat, cornerLon);
+    final dNear = BasemapFetcher.distToRouteM(labels, nearLat, nearLon);
+
+    expect(dNear < 50, isTrue, reason: '轨迹旁的点应在 50m 内（实测 ${dNear}m）');
+    expect(dCorner > 300, isTrue,
+        reason: 'L 形包围盒西北角离线路应很远（实测 ${dCorner}m）——'
+            '这正是"矩形包围盒太广"的证据，必须被缓冲裁剪掉');
+  });
+
+  test('道路按沿线路缓冲裁剪：远离轨迹的路段丢弃', () {
+    final labels = [
+      MapLabel(typeId: 'pipe', seq: 1, lat: 32.130, lon: 114.081, lineGroupId: 'g'),
+      MapLabel(typeId: 'pipe', seq: 2, lat: 32.1305, lon: 114.081, lineGroupId: 'g'),
+    ];
+    // 与线路平行、但横向偏 800m 的一条路（在矩形包围盒 ±100m 内？不在——
+    // 这里用 ±1km 的 bbox 概念验证"缓冲带"才是对的）。
+    final far = RoadPoly([
+      [32.1300, 114.0900],
+      [32.1305, 114.0900],
+    ], RoadGrade.primary, '平行远路');
+    final near = RoadPoly([
+      [32.1300, 114.0811],
+      [32.1305, 114.0811],
+    ], RoadGrade.primary, '贴线路的路');
+
+    final out = BasemapFetcher.cropRoadsToRoute([far, near], labels, 50);
+    expect(out.length, 1, reason: '只留沿轨迹 50m 内那条');
+    expect(out.first.name, '贴线路的路');
+  });
 }

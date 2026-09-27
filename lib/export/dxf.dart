@@ -115,7 +115,7 @@ class DxfExporter {
     bool straightenedWiring = false, // 附加拉直沿线配线图（长杆路）
     // —— 本次新增（均带默认值，旧调用点无需修改）——
     DxfVersion version = DxfVersion.r12, // 默认 R12（已用 ezdxf 严格打开验证）
-    double rangeM = 100, // 底图外扩范围（米）：默认 100（UI 传值优先）
+    double rangeM = 50, // 底图范围（米）：默认沿线 50（UI 传值优先）
     bool layerRoads = true,
     bool layerBuildingOutline = true,
     bool buildingFill = false, // 建筑填充（默认关；true 时 R2000=HATCH / R12=SOLID）
