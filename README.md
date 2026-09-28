@@ -7,7 +7,13 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.9.4**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.9.5**（Windows x64 / macOS Universal / Android）
+
+> **v3.9.5：出图字号与路宽**
+> ① **距离标注字高改为纸面 2.5mm**（此前直接写 2.5 被当作 **2.5 米**，图上巨大——
+> 这才是"字太大"的真因），字体统一宋体；② 标签与字号**和谐匹配**：
+> 主标签 2.0mm、备注/盘留 1.5~1.6mm，同样走纸面换算；③ **道路宽度放大一倍**
+> （半宽纸面表 ×2，路名字高随双线间隙自动 clamp）。
 
 > **v3.9.4：底图多一路「电力线 + 水系沟渠」**（矢量数据太少的第一批缓解）。
 > 通信线路设计必须与电力杆线的交越/平行关系一起看、过河过沟要参照，

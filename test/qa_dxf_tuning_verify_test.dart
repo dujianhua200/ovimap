@@ -139,14 +139,15 @@ int get kScale {
 }
 
 // 等级 → 纸面半宽 mm（与 dxf_layers 规格表一致，独立抄录用于核算）
+// v3.9.5 起路宽整体加倍（用户反馈"路有点窄"）——镜像表同步。
 double _halfWmm(RoadGrade g) => switch (g) {
-      RoadGrade.trunk => 0.45,
-      RoadGrade.primary => 0.38,
-      RoadGrade.secondary => 0.30,
-      RoadGrade.tertiary => 0.25,
-      RoadGrade.residential => 0.18,
-      RoadGrade.service => 0.12,
-      RoadGrade.other => 0.10,
+      RoadGrade.trunk => 0.90,
+      RoadGrade.primary => 0.76,
+      RoadGrade.secondary => 0.60,
+      RoadGrade.tertiary => 0.50,
+      RoadGrade.residential => 0.36,
+      RoadGrade.service => 0.24,
+      RoadGrade.other => 0.20,
     };
 
 double _halfWm(RoadGrade g) => _halfWmm(g) / 1000 * kScale;

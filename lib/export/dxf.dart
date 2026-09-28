@@ -200,6 +200,12 @@ class DxfExporter {
     // 图幅比例：**只按线路范围估算**（不被过大的底图外扩拖大），
     // 用于所有底图线宽/字号的「纸面毫米 → 图纸米」换算，图签亦报此比例（N5 修正）。
     final routeScale = _pickScale(extMinX, extMinY, extMaxX, extMaxY);
+    // 字高按**纸面毫米**换算（v3.9.5）：此前直接写 2.5/3 被当作 2.5 米，
+    // 图上极其巨大。用户要求：距离 2.5mm（宋体），其余与它和谐匹配。
+    final segFontM = _mmOf(2.5, routeScale);
+    final subFontM = _mmOf(1.6, routeScale);
+    final labelFontM = _mmOf(2.0, routeScale);
+    final noteFontM = _mmOf(1.5, routeScale);
 
     // 周边矢量（底图）：**必须先于业务实体写出**。
     // DXF 中「后画者在上层」（见 _appendBasemap 内注释），故底图（含建筑填充 HATCH/SOLID）
@@ -310,18 +316,19 @@ class DxfExporter {
         chainCum += segmentDistance;
         final segText = GeoUtil.segTextFor(b, _formatDistNoUnit(segmentDistance),
             prefix: segPrefix);
-        _text(c, 'JuLi', mx, my + 1.2, 2.5, segText,
+        // 宋体（STYLE 表里注册的是 SimSun）；字高 2.5 —— 用户指定。
+        _text(c, 'JuLi', mx, my + 1.2, segFontM, segText,
             angle: angle, style: true);
         // 盘留标注（段下方第一行）
         var extraY = my - 3.4;
         if (b.slackM > 0) {
-          _text(c, 'JuLi', mx, extraY, 2, '盘留${_formatSlack(b.slackM)}m',
+          _text(c, 'JuLi', mx, extraY, subFontM, '盘留${_formatSlack(b.slackM)}m',
               angle: angle, style: true);
           extraY -= 2.6;
         }
         // 本段光缆型号（再下一行）
         if (b.segCable.trim().isNotEmpty) {
-          _text(c, 'JuLi', mx, extraY, 2, b.segCable.trim(),
+          _text(c, 'JuLi', mx, extraY, subFontM, b.segCable.trim(),
               angle: angle, style: true);
         }
         // 桩号：每杆位置标 K+里程（跨链连续；段距优先用人工确认值）
@@ -352,7 +359,9 @@ class DxfExporter {
         final lt = l.type;
         final disp = l.name.trim().isNotEmpty ? l.name.trim() : lt.symbol;
         if (l.typeId == 'text') {
-          if (disp.isNotEmpty) _text(c, 'BiaoQian', x, y, 2.5, disp);
+          if (disp.isNotEmpty) {
+            _text(c, 'BiaoQian', x, y, labelFontM, disp, style: true);
+          }
           continue;
         }
         String block;
@@ -375,17 +384,17 @@ class DxfExporter {
         }
         // 箱内符号文字（独立 TEXT，便于改字）
         if (lt.isBox && disp.isNotEmpty) {
-          _text(c, 'BiaoQian', x - 1.2, y - 0.8, 1.6, disp);
+          _text(c, 'BiaoQian', x - 1.2, y - 0.8, noteFontM, disp, style: true);
         } else if (!lt.isBox && disp.isNotEmpty) {
-          _text(c, 'BiaoQian', x, y + 3, 3, disp);
+          _text(c, 'BiaoQian', x, y + 3, labelFontM, disp, style: true);
         }
         if (l.holes > 0) {
           _appendHoleDots(c, x, y + 5.5, l);
-          _text(c, 'BiaoQian', x, y - 4, 2,
+          _text(c, 'BiaoQian', x, y - 4, noteFontM,
               '${l.holes}孔${l.usedHoles > 0 ? '用${l.usedHoles}' : ''}');
         }
         if (l.note.trim().isNotEmpty) {
-          _text(c, 'BiaoQian', x, y - 6, 2, l.note.trim());
+          _text(c, 'BiaoQian', x, y - 6, noteFontM, l.note.trim(), style: true);
         }
         // 现场取证照片数（竣工溯源：CAD 图上知道该点有 N 张现场照片）
         if (l.photoPaths.isNotEmpty) {
@@ -1658,14 +1667,15 @@ class DxfExporter {
       _mmOf(_roadLabelMm(g), scale);
 
   /// 等级 → 半宽（纸面毫米）。
+  /// 路宽（纸面毫米，v3.9.5 起整体**放大一倍**——用户反馈"路有点窄"）。
   static double _roadHalfWidthMm(RoadGrade g) => switch (g) {
-        RoadGrade.trunk => 0.45,
-        RoadGrade.primary => 0.38,
-        RoadGrade.secondary => 0.30,
-        RoadGrade.tertiary => 0.25,
-        RoadGrade.residential => 0.18,
-        RoadGrade.service => 0.12,
-        RoadGrade.other => 0.10,
+        RoadGrade.trunk => 0.90,
+        RoadGrade.primary => 0.76,
+        RoadGrade.secondary => 0.60,
+        RoadGrade.tertiary => 0.50,
+        RoadGrade.residential => 0.36,
+        RoadGrade.service => 0.24,
+        RoadGrade.other => 0.20,
       };
 
   /// 等级 → 路名字号（纸面毫米）。

@@ -248,8 +248,8 @@ void main() {
     final texts = _on(_entities(text), 'TEXT', 'DaoLu');
     expect(texts, isNotEmpty, reason: '应有路名 TEXT');
 
-    // 比例 1:1000（0.002° 跨度 3 杆）→ trunk 半宽 = 0.45mm/1000×1000 = 0.45m
-    const halfW = 0.45 / 1000.0 * 1000;
+    // 比例 1:1000（0.002° 跨度 3 杆）→ trunk 半宽 = 0.90mm/1000×1000 = 0.9m（v3.9.5 加倍）
+    const halfW = 0.90 / 1000.0 * 1000;
     for (final t in texts) {
       final y = double.parse(t.first('20')!);
       final h = double.parse(t.first('40')!);
@@ -366,11 +366,11 @@ void main() {
     expect(_on(_entities(tDef), 'TEXT', 'DaoLu'), isEmpty,
         reason: 'other 级道路默认不应标注路名');
 
-    // 放开：标注存在，但字号必须 clamp 进双线间隙（other 半宽 0.10mm）
+    // 放开：标注存在，但字号必须 clamp 进双线间隙（other 半宽 0.20mm，v3.9.5 加倍）
     final tAll = await _exportText(dir, bm, showMinorRoadNames: true, name: '窄路放开');
     final texts = _on(_entities(tAll), 'TEXT', 'DaoLu');
     expect(texts, isNotEmpty);
-    const halfW = 0.10 / 1000.0 * 1000; // other 半宽（米，比例 1:1000）
+    const halfW = 0.20 / 1000.0 * 1000; // other 半宽（米，比例 1:1000；v3.9.5 加倍）
     for (final t in texts) {
       final y = double.parse(t.first('20')!);
       final h = double.parse(t.first('40')!);
