@@ -7,7 +7,14 @@
 [![Android 打包](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-android.yml)
 [![桌面端构建](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/dujianhua200/ovimap/actions/workflows/build-desktop.yml)
 
-**当前版本：v3.9.5**（Windows x64 / macOS Universal / Android）
+**当前版本：v3.9.6**（Windows x64 / macOS Universal / Android）
+
+> **v3.9.6：符号与文字按通信工程图纸惯例重排**（对照用户提供的真实设计图纸与图例）
+> ① **箱体/人孔文字入框**：分纤盒、接头盒、人孔、手井画**矩形框（随文字自适应），
+> 名称/编号在框内**——即行业里"数值中间的矩形框"画法；交接箱 = 矩形 + 对角线 X；
+> ② **符号尺寸 = 纸面毫米**（人孔 6×3.5、箱体 5×3、杆圆 r1.2、引上边 3），插入时按
+> 出图比例缩放，与字号同一坐标体系，不再忽大忽小；③ 文字/符号偏移全部纸面毫米化
+> （名称上方 3mm、孔数下方 4mm、备注 6mm）。
 
 > **v3.9.5：出图字号与路宽**
 > ① **距离标注字高改为纸面 2.5mm**（此前直接写 2.5 被当作 **2.5 米**，图上巨大——

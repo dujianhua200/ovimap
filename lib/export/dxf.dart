@@ -352,6 +352,14 @@ class DxfExporter {
     // 标签符号按图例转成 CAD 符号块（INSERT 引用，可在 CAD 中整体编辑）。
     // 轨迹/无标签点不输出符号。
     if (includeLabelSymbols) {
+      // 符号与文字同一坐标体系（对照通信工程图纸）：块基准 = 1:1000 纸面 mm，
+      // 插入缩放 = routeScale/1000；文字偏移一律**纸面毫米**，不再用米。
+      final symScale = routeScale / 1000.0;
+      final offUpM = _mmOf(3.0, routeScale); // 名称在符号上方 3mm
+      final offDownM = _mmOf(4.0, routeScale); // 孔数/附加在下方 4mm
+      final offNoteM = _mmOf(6.0, routeScale); // 备注 6mm
+      final offPhotoM = _mmOf(8.0, routeScale); // 照片数 8mm
+      final holeDotsUpM = _mmOf(5.5, routeScale); // 芯线占用点 5.5mm
       for (final l in labels) {
         if (l.typeId == 'track' || l.typeId == 'none') continue;
         final x = (l.lon - baseLon) * scaleX;
@@ -374,7 +382,34 @@ class DxfExporter {
         } else {
           block = 'HZ_POLE';
         }
-        _appendInsert(c, 'BiaoQian', block, x, y);
+        // 箱体/人孔（box/oval）：**矩形框随文字自适应、文字在框内**——
+        // 对照真实通信图纸（分纤盒/接头盒画法）：框宽=文字宽+2mm 边距，
+        // 框高=字高+1.6mm 边距；交接箱额外画对角线 X（行业符号）。
+        if (lt.isBox || lt.isOval) {
+          if (disp.isNotEmpty) {
+            var wChars = 0.0;
+            for (final ch in disp.runes) {
+              wChars += ch < 128 ? 0.55 : 1.0;
+            }
+            final textW = wChars * labelFontM;
+            final boxW = textW + _mmOf(2.0, routeScale);
+            final boxH = labelFontM + _mmOf(1.6, routeScale);
+            _appendRect(c, 'BiaoQian', x - boxW / 2, y - boxH / 2,
+                x + boxW / 2, y + boxH / 2);
+            if (lt.id == 'crossbox') {
+              // 交接箱 = 矩形 + 对角线 X（通信行业符号）
+              _appendLine(c, 'BiaoQian', x - boxW / 2, y - boxH / 2,
+                  x + boxW / 2, y + boxH / 2);
+              _appendLine(c, 'BiaoQian', x - boxW / 2, y + boxH / 2,
+                  x + boxW / 2, y - boxH / 2);
+            }
+            _appendTextCentered(c, 'BiaoQian', x, y, labelFontM, disp);
+          } else {
+            _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
+          }
+        } else {
+          _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
+        }
         // 有拓扑时箱体（光交/分光箱/分纤盒/ONU/机房/基站）的文字
         // 由地理式配线统一输出标签牌，这里只画符号，避免文字重叠
         final topoBox = hasTopo && (lt.role >= 1 && lt.role <= 4 || lt.role == 7);
@@ -382,23 +417,24 @@ class DxfExporter {
           _appendHoleDots(c, x, y + 5.5, l); // 芯线/管孔占用可视化
           continue;
         }
-        // 箱内符号文字（独立 TEXT，便于改字）
-        if (lt.isBox && disp.isNotEmpty) {
-          _text(c, 'BiaoQian', x - 1.2, y - 0.8, noteFontM, disp, style: true);
-        } else if (!lt.isBox && disp.isNotEmpty) {
-          _text(c, 'BiaoQian', x, y + 3, labelFontM, disp, style: true);
+        // 箱体/人孔文字已在框内（上方入框画法）；杆/引上文字在符号上方。
+        if (!lt.isBox && !lt.isOval && disp.isNotEmpty) {
+          _text(c, 'BiaoQian', x, y + offUpM, labelFontM, disp, style: true);
         }
         if (l.holes > 0) {
-          _appendHoleDots(c, x, y + 5.5, l);
-          _text(c, 'BiaoQian', x, y - 4, noteFontM,
-              '${l.holes}孔${l.usedHoles > 0 ? '用${l.usedHoles}' : ''}');
+          _appendHoleDots(c, x, y + holeDotsUpM, l);
+          _text(c, 'BiaoQian', x, y - offDownM, noteFontM,
+              '${l.holes}孔${l.usedHoles > 0 ? '用${l.usedHoles}' : ''}',
+              style: true);
         }
         if (l.note.trim().isNotEmpty) {
-          _text(c, 'BiaoQian', x, y - 6, noteFontM, l.note.trim(), style: true);
+          _text(c, 'BiaoQian', x, y - offNoteM, noteFontM, l.note.trim(),
+              style: true);
         }
         // 现场取证照片数（竣工溯源：CAD 图上知道该点有 N 张现场照片）
         if (l.photoPaths.isNotEmpty) {
-          _text(c, 'BiaoQian', x, y - 8, 2, '[${l.photoPaths.length}图]');
+          _text(c, 'BiaoQian', x, y - offPhotoM, noteFontM,
+              '[${l.photoPaths.length}图]', style: true);
         }
       }
     }
@@ -860,22 +896,25 @@ class DxfExporter {
     }
     var b = StringBuffer();
     var bc = _Ctx(b, version, c.h);
-    _appendOval(bc, '0', 0, 0, 1.1, 0.75);
+    // 符号块基准尺寸 = **1:1000 出图比例下的纸面毫米值**（人孔 6×3.5mm、
+    // 箱体 5×3mm、引上边 3mm、杆圆 r=1.2mm——通信工程制图惯例，符号远小
+    // 于文字块、与字号协调）。插入时按 routeScale/1000 缩放（见符号循环）。
+    _appendOval(bc, '0', 0, 0, 3.0, 1.75);
     _appendBlock(c, version, 'HZ_OVAL', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
-    _appendRect(bc, '0', -1.6, -1.1, 1.6, 1.1);
+    _appendRect(bc, '0', -2.5, -1.5, 2.5, 1.5);
     _appendBlock(c, version, 'HZ_BOX', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
-    _appendTri(bc, '0', 0, 0, 1.4);
+    _appendTri(bc, '0', 0, 0, 1.5);
     _appendBlock(c, version, 'HZ_TRI', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
     bc.ent('CIRCLE', '0', 'AcDbCircle');
-    bc.sb.write('10\n0\n20\n0\n30\n0\n40\n1.5\n');
-    _appendLine(bc, '0', -1.5, 0, 1.5, 0);
-    _appendLine(bc, '0', 0, -1.5, 0, 1.5);
+    bc.sb.write('10\n0\n20\n0\n30\n0\n40\n1.2\n');
+    _appendLine(bc, '0', -1.2, 0, 1.2, 0);
+    _appendLine(bc, '0', 0, -1.2, 0, 1.2);
     _appendBlock(c, version, 'HZ_POLE', b.toString());
     c.sb.write('0\nENDSEC\n');
   }
@@ -899,10 +938,12 @@ class DxfExporter {
   }
 
   static void _appendInsert(
-      _Ctx c, String layer, String name, double x, double y) {
+      _Ctx c, String layer, String name, double x, double y,
+      {double sx = 1, double sy = 1}) {
     c.ent('INSERT', layer, 'AcDbBlockReference');
     c.sb.write('2\n$name\n'
-        '10\n${_fmt(x)}\n20\n${_fmt(y)}\n30\n0\n41\n1\n42\n1\n50\n0\n');
+        '10\n${_fmt(x)}\n20\n${_fmt(y)}\n30\n0\n'
+        '41\n${_fmt(sx)}\n42\n${_fmt(sy)}\n50\n0\n');
   }
 
   // ================= 配线图（DXF 内自动生成） =================
