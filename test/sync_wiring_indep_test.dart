@@ -71,10 +71,19 @@ void main() {
       expect(toolbar.contains('SyncController? sync'), isTrue);
       expect(status.contains('SyncController? sync'), isTrue);
       expect(left.contains('context.watch<SyncController?>()'), isTrue);
-      expect(drawer.contains('context.watch<SyncController?>()'), isTrue);
+      // 抽屉经 FavTree.projectTrailing 闭包接入（形参名 mctx），判据放宽到调用本身。
+      expect(drawer.contains('watch<SyncController?>()'), isTrue,
+          reason: '抽屉以 SyncController? 可空方式接入（AOT 安全）');
       expect(left.contains('SyncBadge('), isTrue);
       expect(drawer.contains('SyncBadge('), isTrue);
-      expect(drawer.contains("'sync_project'"), isTrue);
+      // 「同步该工程」入口随 7 个移动端工程操作收拢到共享模块
+      // fav_mobile_actions.dart（FavMenuExtra 扩展点），抽屉经 menuExtra 接入。
+      expect(drawer.contains('favMobileProjectExtra()'), isTrue,
+          reason: '抽屉经 menuExtra 接入 7 个移动端工程操作');
+      final mobileActions =
+          read('lib/ui/favorites/fav_mobile_actions.dart');
+      expect(mobileActions.contains("'extra:sync_project'"), isTrue,
+          reason: '「同步该工程」仍在（旧抽屉 ⋯ 菜单能力不丢失）');
     });
 
     test('设置面板含「云同步」入口', () {

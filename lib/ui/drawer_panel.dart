@@ -6,6 +6,8 @@ import '../models/fav_node.dart';
 import '../models/map_label.dart';
 import '../state/app_state.dart';
 import '../state/fav_tree_controller.dart';
+import '../sync/sync_controller.dart';
+import '../sync/sync_models.dart';
 import 'design_tokens.dart';
 import 'dialogs.dart';
 import 'favorites/fav_actions.dart';
@@ -13,6 +15,7 @@ import 'favorites/fav_mobile_actions.dart';
 import 'favorites/fav_tree.dart';
 import 'favorites/select_bar.dart';
 import 'favorites/trash.dart';
+import 'sync/sync_panel.dart';
 
 /// 收藏夹抽屉（移动端）：奥维式收藏树。
 ///
@@ -114,6 +117,16 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                       query: _query,
                       onLocate: _onLocate,
                       onOpenProject: _onOpenProject,
+                      // 移动端：工程行同步状态徽标
+                      // （T17：SyncController? 可空接入，AOT 安全）。
+                      // 「⋯」菜单由 FavTree 在 compact 模式内置，
+                      // 这里只补徽标（旧抽屉的 per-row 徽标能力不丢失）。
+                      projectTrailing: (mctx, node) {
+                        final sync = mctx.watch<SyncController?>();
+                        final status =
+                            sync?.statusFor(node.id) ?? SyncStatus.localOnly;
+                        return SyncBadge(status: status);
+                      },
                       // 移动端：行尾「⋯」由 FavTree 内置（所有行），菜单追加项为
                       // 7 个旧抽屉独有工程操作（同步该工程/历史版本/拓扑连线/
                       // 配线图PNG/竣工成册/导入箱体/竣工对比设计）。
