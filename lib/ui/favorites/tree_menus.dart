@@ -142,7 +142,8 @@ TrashStore _trashOf(BuildContext context, AppState st) {
   try {
     return Provider.of<TrashStore>(context, listen: false);
   } catch (_) {
-    return TrashStore(onChanged: () => st.refreshCollections());
+    return TrashStore(
+        onChanged: () => st.refreshCollections(), appState: st);
   }
 }
 
@@ -153,20 +154,19 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
       final name = await askText(context,
           title: node.isFolder ? '重命名文件夹' : '重命名', initial: node.name);
       if (name == null || !context.mounted) return;
+      // 经 controller 的 undoable 包裹（内部刷新），可撤销；不直接调 store。
       if (node.isFolder) {
-        await st.store.renameFolder(node.id, name);
+        await c.renameFolderUndoable(node.id, name);
       } else if (node.isProject) {
-        await st.store.renameCollection(node.id, name);
+        await c.renameCollectionUndoable(node.id, name);
       }
-      await st.refreshCollections();
       break;
 
     case 'newSub':
       final name = await askText(context,
           title: '新建子文件夹', hint: '文件夹名称（建在「${node.name}」内）');
       if (name == null || !context.mounted) return;
-      await st.store.addFolder(name, node.id);
-      await st.refreshCollections();
+      await c.addFolderUndoable(name, node.id);
       if (context.mounted) toast(context, '已创建文件夹「$name」');
       break;
 
@@ -220,9 +220,7 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
                 ? meta!.width
                 : 3.0);
         if (picked == null || !context.mounted) return;
-        await st.store
-            .setCollectionStyle(node.id, picked.$1, picked.$2);
-        await st.refreshCollections();
+        await c.setCollectionStyleUndoable(node.id, picked.$1, picked.$2);
         if (context.mounted) toast(context, '已更新「${node.name}」样式');
       } else if (node.isMark && node.label != null) {
         if (!context.mounted) return;
@@ -275,33 +273,14 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
       final ok = await askConfirm(context,
           title: '合并工程',
           content: '将「${node.name}」（${fromLabels.length} 点）并入「$toName」，'
-              '「${node.name}」随后会被删除（先备份进回收站，可还原）。确定？',
+              '「${node.name}」随后会被删除（可撤销）。确定？',
           okText: '合并');
       if (!ok || !context.mounted) return;
-      // 先备份进回收站再合：源工程被删后 mergeProject 读不到点，
-      // 所以这里手动把已捕获的点追加到目标工程。
-      await _trashOf(context, st).trashNode(c, node);
-      if (fromLabels.isNotEmpty) {
-        final toMeta = c.find(toCid!)?.project;
-        if (toMeta != null) {
-          final toLabels = await c.store.loadCollection(toCid!);
-          for (final l in fromLabels) {
-            l.seq = toLabels.length + 1;
-            toLabels.add(l);
-          }
-          await c.store.finishCollection(
-            existingId: toCid!,
-            name: toMeta.name,
-            kind: toMeta.kind,
-            folderId: toMeta.folder,
-            editMode: toMeta.editMode,
-            labels: toLabels,
-          );
-          await st.refreshCollections();
-        }
-      }
+      // 经 controller 的 undoable 合并：do 前快照源工程（含原 meta），
+      // 撤销时按 id 精确剔除并入点并重建源工程（W1 全局撤销）。
+      final moved = await c.mergeProject(node.id, toCid!);
       if (context.mounted) {
-        toast(context, '已合并 ${fromLabels.length} 点到「$toName」');
+        toast(context, '已合并 $moved 点到「$toName」');
       }
       break;
     }

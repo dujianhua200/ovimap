@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/fav_node.dart';
 import '../../state/app_state.dart';
 import '../../state/fav_tree_controller.dart';
+import '../../state/undo_stack.dart';
 import '../design_tokens.dart';
 import '../dialogs.dart';
 import 'fav_actions.dart';
@@ -23,41 +26,81 @@ class FavSelectBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final st = Provider.of<AppState>(context, listen: false);
     return ListenableBuilder(
       listenable: controller,
       builder: (ctx, _) {
         final n = controller.selected.length;
-        if (n == 0) return const SizedBox.shrink();
-        return Container(
-          color: kAccent.withValues(alpha: 0.08),
-          padding: const EdgeInsets.fromLTRB(12, 2, 6, 2),
-          child: Row(children: [
-            Text('已选 $n 项',
-                style: const TextStyle(
-                    color: kAccent,
-                    fontSize: TokFs.caption,
-                    fontWeight: FontWeight.w600)),
-            const Spacer(),
-            _mini(ctx, Icons.select_all, '全选', () => _selectAll()),
-            _mini(ctx, Icons.deselect, '取消选择',
-                () => controller.clearSelection()),
-            _mini(ctx, Icons.drive_file_move_outlined, '移动到',
-                () => _moveTo(ctx)),
-            _mini(ctx, Icons.palette_outlined, '改样式',
-                () => _restyle(ctx)),
-            _mini(ctx, Icons.delete_outline, '删除（进回收站）',
-                () => _delete(ctx),
-                color: kDanger),
-            _mini(ctx, Icons.close, '关闭',
-                () => controller.clearSelection()),
-          ]),
+        if (n > 0) {
+          // 选择操作条：布局与基线完全一致（窄屏下加按钮会溢出，见
+          // favorites_stack_nav_test；撤销/重做走下方 slim 条）。
+          return Container(
+            color: kAccent.withValues(alpha: 0.08),
+            padding: const EdgeInsets.fromLTRB(12, 2, 6, 2),
+            child: Row(children: [
+              Text('已选 $n 项',
+                  style: const TextStyle(
+                      color: kAccent,
+                      fontSize: TokFs.caption,
+                      fontWeight: FontWeight.w600)),
+              const Spacer(),
+              _mini(ctx, Icons.select_all, '全选', () => _selectAll()),
+              _mini(ctx, Icons.deselect, '取消选择',
+                  () => controller.clearSelection()),
+              _mini(ctx, Icons.drive_file_move_outlined, '移动到',
+                  () => _moveTo(ctx)),
+              _mini(ctx, Icons.palette_outlined, '改样式',
+                  () => _restyle(ctx)),
+              _mini(ctx, Icons.delete_outline, '删除（进回收站）',
+                  () => _delete(ctx),
+                  color: kDanger),
+              _mini(ctx, Icons.close, '关闭',
+                  () => controller.clearSelection()),
+            ]),
+          );
+        }
+        // 无选中：有可撤销/重做时显示 slim 撤销条，否则保持原行为渲染为空。
+        // 桌面/移动共用（本组件两端都在用）。
+        return ListenableBuilder(
+          listenable: st.undoStack,
+          builder: (ctx2, _) {
+            final gs = st.undoStack;
+            if (!gs.canUndo && !gs.canRedo) {
+              return const SizedBox.shrink();
+            }
+            return Container(
+              color: kAccent.withValues(alpha: 0.08),
+              padding: const EdgeInsets.fromLTRB(12, 2, 6, 2),
+              child: Row(children: [
+                const Spacer(),
+                _undoRedoBtn(ctx2, gs, true),
+                _undoRedoBtn(ctx2, gs, false),
+              ]),
+            );
+          },
         );
       },
     );
   }
 
+  /// 撤销/重做按钮：canUndo/canRedo 控制 enable，tooltip 显示最近一条描述。
+  Widget _undoRedoBtn(BuildContext context, UndoStack gs, bool isUndo) {
+    final can = isUndo ? gs.canUndo : gs.canRedo;
+    final desc = isUndo ? gs.lastUndoDescription : gs.lastRedoDescription;
+    final tip = isUndo
+        ? (can ? '撤销：$desc' : '没有可撤销的操作')
+        : (can ? '重做：$desc' : '没有可重做的操作');
+    return _mini(
+      context,
+      isUndo ? Icons.undo : Icons.redo,
+      tip,
+      can ? () => unawaited(isUndo ? gs.undo() : gs.redo()) : null,
+      color: can ? kTextMain : kTextHint,
+    );
+  }
+
   Widget _mini(BuildContext context, IconData icon, String tip,
-      VoidCallback onTap,
+      VoidCallback? onTap,
       {Color color = kTextSub}) {
     final btn = isDesktop
         ? Tooltip(
@@ -120,7 +163,6 @@ class FavSelectBar extends StatelessWidget {
   }
 
   Future<void> _restyle(BuildContext context) async {
-    final st = Provider.of<AppState>(context, listen: false);
     final projects =
         _selectedNodes().where((n) => n.isProject).toList();
     if (projects.isEmpty) {
@@ -130,9 +172,9 @@ class FavSelectBar extends StatelessWidget {
     final picked = await pickProjectStyle(context);
     if (picked == null || !context.mounted) return;
     for (final p in projects) {
-      await st.store.setCollectionStyle(p.id, picked.$1, picked.$2);
+      // 经 controller 的 undoable 包裹（内部刷新），可撤销；不直接调 store。
+      await controller.setCollectionStyleUndoable(p.id, picked.$1, picked.$2);
     }
-    await st.refreshCollections();
     if (context.mounted) {
       toast(context, '已更新 ${projects.length} 个工程的样式');
     }
@@ -224,6 +266,7 @@ TrashStore _trashOf(BuildContext context, AppState st) {
   try {
     return Provider.of<TrashStore>(context, listen: false);
   } catch (_) {
-    return TrashStore(onChanged: () => st.refreshCollections());
+    return TrashStore(
+        onChanged: () => st.refreshCollections(), appState: st);
   }
 }

@@ -15,6 +15,7 @@ import '../../services/platform_caps.dart';
 import '../../services/tile_cache.dart';
 import '../../services/track_check.dart';
 import '../../state/app_state.dart';
+import '../../state/undo_stack.dart';
 import '../../sync/sync_controller.dart';
 import '../design_tokens.dart';
 import '../dialogs.dart';
@@ -178,16 +179,40 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   void _save() => showFinishDialog(context, _st);
 
+  /// 撤销：全局栈与草稿栈按时间戳二选一（W1）。
+  ///
+  /// 全局栈非空且其最近变更晚于草稿栈最近压栈 → 走全局撤销；
+  /// 否则走草稿快照撤销；两边都空则无操作。
   void _undo() {
-    _st.undoDraft();
+    final st = _st;
+    if (shouldUseGlobalUndo(
+      canUndo: st.undoStack.canUndo,
+      lastChangeAt: st.undoStack.lastChangeAt,
+      lastDraftPushAt: st.lastDraftUndoPushAt,
+    )) {
+      unawaited(st.undoStack.undo());
+    } else if (st.canUndoSnapshot) {
+      st.undoDraft();
+    }
     setState(() {
       _selLabel = null;
       _selCid = '';
     });
   }
 
+  /// 重做：与 [_undo] 对偶的二选一。
   void _redo() {
-    _st.redo();
+    final st = _st;
+    if (shouldUseGlobalUndo(
+      // 重做路径：形参 canUndo 传入 canRedo（同一"最近变更"时间戳）。
+      canUndo: st.undoStack.canRedo,
+      lastChangeAt: st.undoStack.lastChangeAt,
+      lastDraftPushAt: st.lastDraftUndoPushAt,
+    )) {
+      unawaited(st.undoStack.redo());
+    } else if (st.canRedo) {
+      st.redo();
+    }
     setState(() {
       _selLabel = null;
       _selCid = '';
