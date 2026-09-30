@@ -63,6 +63,12 @@ class MapLabel {
   /// 竣工结算常用：杆位/箱体/隐患点拍照挂接，随点导出可溯源。
   List<String> photoPaths;
 
+  /// 扩展属性袋（Phase 5 起）：勘察表单等业务挂接在 `extra['survey']` 下。
+  ///
+  /// 纯加法：toJson 非空才写 `m['extra']`；老数据 fromJson 后为 null；
+  /// clone() 深拷贝。磁盘格式零破坏。
+  Map<String, dynamic>? extra;
+
   MapLabel({
     String? id,
     this.typeId = 'pipe',
@@ -87,8 +93,10 @@ class MapLabel {
     this.cableSpec = '',
     this.cableCores = 0,
     List<String>? photoPaths,
+    Map<String, dynamic>? extra,
   })  : id = id ?? _uuid(),
-        photoPaths = photoPaths ?? [];
+        photoPaths = photoPaths ?? [],
+        extra = _deepCopyExtra(extra);
 
   LabelType get type => LabelType.fromId(typeId);
 
@@ -101,6 +109,22 @@ class MapLabel {
     final h = bytes.map(hex).join();
     return '${h.substring(0, 8)}-${h.substring(8, 12)}-'
         '${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+  }
+
+  /// [extra] 深拷贝（Map/List 递归复制，标量原样保留）。
+  static Map<String, dynamic>? _deepCopyExtra(Map<String, dynamic>? src) {
+    if (src == null) return null;
+    Object? copyOf(Object? v) {
+      if (v is Map) {
+        return {
+          for (final e in v.entries) e.key.toString(): copyOf(e.value)
+        };
+      }
+      if (v is List) return [for (final e in v) copyOf(e)];
+      return v;
+    }
+
+    return copyOf(src) as Map<String, dynamic>;
   }
 
   MapLabel clone() => MapLabel(
@@ -127,6 +151,7 @@ class MapLabel {
         cableSpec: cableSpec,
         cableCores: cableCores,
         photoPaths: List<String>.from(photoPaths),
+        extra: _deepCopyExtra(extra),
       );
 
   // ---- JSON（与旧版 Java 数据格式完全兼容） ----
@@ -154,6 +179,7 @@ class MapLabel {
     if (distanceM != null) m['distanceM'] = distanceM;
     if (slackM > 0) m['slackM'] = slackM;
     if (photoPaths.isNotEmpty) m['photoPaths'] = photoPaths;
+    if (extra != null && extra!.isNotEmpty) m['extra'] = extra;
     return m;
   }
 
@@ -183,6 +209,10 @@ class MapLabel {
       photoPaths: (jo['photoPaths'] as List?)
           ?.map((e) => e.toString())
           .toList(),
+      extra: jo.containsKey('extra') && jo['extra'] is Map
+          ? (jo['extra'] as Map)
+              .map((k, v) => MapEntry(k.toString(), v))
+          : null,
     );
   }
 }

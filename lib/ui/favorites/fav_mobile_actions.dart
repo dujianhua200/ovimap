@@ -12,6 +12,7 @@ import '../../export/topo_png.dart';
 import '../export_center.dart';
 import '../sync/sync_panel.dart';
 import '../../design/design_menu_extra.dart';
+import '../../survey/survey_menu_extra.dart';
 import 'tree_menus.dart';
 
 /// 移动端独有工程操作：旧 drawer_panel（87c98ee^）的 per-row 能力，接回共享菜单。
@@ -54,17 +55,23 @@ List<PopupMenuEntry<String>> favMobileProjectEntries() => const [
 /// 移动端工程操作扩展点：`FavTree(menuExtra: favMobileProjectExtra())`。
 ///
 /// 除 7 个旧工程操作外，另拼入 Phase 4 提效三件套（智能布杆/配盘表/汇总材料表；
-/// 材料表在文件夹节点上同样出现）。
+/// 材料表在文件夹节点上同样出现），以及 Phase 5 勘察表单（标记节点）。
 final _designExtra = buildDesignMenuExtra();
+final _surveyExtra = buildSurveyMenuExtra();
 
 FavMenuExtra favMobileProjectExtra() => FavMenuExtra(
       entries: (node) => [
         if (node.isProject) ...favMobileProjectEntries(),
         ..._designExtra.entries(node),
+        ..._surveyExtra.entries(node),
       ],
       onSelected: (ctx, c, node, value) async {
         if (isDesignMenuValue(value)) {
           await _designExtra.onSelected(ctx, c, node, value);
+          return;
+        }
+        if (isSurveyMenuValue(value)) {
+          await _surveyExtra.onSelected(ctx, c, node, value);
           return;
         }
         await handleFavMobileProjectAction(ctx, node, value);

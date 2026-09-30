@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../models/fav_node.dart';
 import '../../models/map_label.dart';
 import '../../design/design_menu_extra.dart';
+import '../../survey/survey_menu_extra.dart';
 import '../../services/store.dart';
 import '../../state/app_state.dart';
 import '../../state/fav_tree_controller.dart';
@@ -97,6 +98,9 @@ class _LeftPanelState extends State<LeftPanel> {
 
   /// Phase 4 提效三件套（智能布杆/配盘表/材料表）菜单扩展。
   late final FavMenuExtra _designExtra = buildDesignMenuExtra();
+
+  /// Phase 5 勘察表单菜单扩展（标记节点）。
+  late final FavMenuExtra _surveyExtra = buildSurveyMenuExtra();
 
   @override
   void initState() {
@@ -409,6 +413,8 @@ class _LeftPanelState extends State<LeftPanel> {
     }
     // Phase 4 提效三件套：智能布杆/配盘表/汇总材料表（project/folder 按需出现）。
     items.addAll(_designExtra.entries(node));
+    // Phase 5 勘察表单（标记节点）。
+    items.addAll(_surveyExtra.entries(node));
     return items;
   }
 
@@ -416,6 +422,10 @@ class _LeftPanelState extends State<LeftPanel> {
       FavNode node, String value) async {
     if (isDesignMenuValue(value)) {
       await _designExtra.onSelected(ctx, c, node, value);
+      return;
+    }
+    if (isSurveyMenuValue(value)) {
+      await _surveyExtra.onSelected(ctx, c, node, value);
       return;
     }
     switch (value) {
