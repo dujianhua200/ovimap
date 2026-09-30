@@ -185,7 +185,13 @@ class TrashStore extends ChangeNotifier {
     final payload =
         Map<String, dynamic>.from(jsonDecode(item.payloadJson) as Map);
     if (item.kind == 'project') {
-      await _restoreProject(payload);
+      // 原 folder 不存在则回根。
+      final meta = Map<String, dynamic>.from(payload['meta'] as Map);
+      if (!await _folderExists(meta['folder'] as String? ?? '')) {
+        meta['folder'] = '';
+        meta['folderId'] = '';
+      }
+      await _restoreProject({'meta': meta, 'labels': payload['labels']});
     } else if (item.kind == 'folder') {
       final folders = ((payload['folders'] as List?) ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
@@ -306,6 +312,12 @@ class TrashStore extends ChangeNotifier {
       pending = next;
     }
     await robustWriteAsString(f, jsonEncode(cur));
+  }
+
+  /// 文件夹 id 是否存在（'' = 根，恒存在）。
+  Future<bool> _folderExists(String fid) async {
+    if (fid.isEmpty) return true;
+    return (await _store.loadFolders()).any((f) => f.id == fid);
   }
 
   /// 镜像 store._loadIndexItems（读 index.json 原文条目）。
