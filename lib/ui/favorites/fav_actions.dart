@@ -75,7 +75,8 @@ Future<bool> askConfirm(BuildContext context,
 /// - project → 按 `AppState.visibleCids` 差值调 `st.toggleVisible(cid)`
 ///  （只在状态不一致时调，避免重复 toggle）；
 /// - folder → 递归其下所有 project 做同样的差值联动；
-/// - mark → 仅树（地图暂无单点显隐，Phase 3 做）。
+/// - mark → D2：树 hiddenIds 照旧，另联动 `st.hiddenLabelIds`
+///  （地图渲染/点选跳过，polyline 保持连续不断）。
 Future<void> setNodeVisible(BuildContext context, FavTreeController c,
     FavNode node, bool visible) async {
   final st = Provider.of<AppState>(context, listen: false);
@@ -91,8 +92,10 @@ Future<void> setNodeVisible(BuildContext context, FavTreeController c,
     for (final cid in c.projectCidsUnder(node.id)) {
       await syncProject(cid);
     }
+  } else if (node.isMark && node.label != null) {
+    // D2：mark 级地图显隐——树照旧，另联动 hiddenLabelIds + prefs + notify。
+    st.setLabelHidden(node.label!.id, !visible);
   }
-  // mark：仅树，地图暂无单点显隐。
 }
 
 /// 首帧可见性对齐：以 `st.visibleCids`（地图真相）为准对齐 `c.hiddenIds`。

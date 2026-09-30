@@ -42,6 +42,8 @@ class AppState extends ChangeNotifier {
   static const prefCustom = 'customSources';
   static const prefFmt = 'coordFmt';
   static const prefVisible = 'visibleCids';
+  /// mark 级地图显隐：隐藏的 label id 集合（逗号分隔），D2。
+  static const prefHiddenLabelIds = 'hiddenLabelIds';
   static const prefCam = 'camera';
   static const prefCompass = 'compassMode';
   static const prefAutoNum = 'autoNumber';
@@ -169,6 +171,9 @@ class AppState extends ChangeNotifier {
   List<Folder> folders = [];
   final Set<String> visibleCids = {};
 
+  /// mark 级地图显隐（D2）：隐藏的 label id 集合。内存 + prefs 持久化。
+  /// 渲染（marker/段注记/点选）跳过其中的点；polyline 保持连续不断。
+  final Set<String> hiddenLabelIds = {};
   final Map<String, List<MapLabel>> overlayLabels = {};
 
   // ---- 相机 ----
@@ -210,6 +215,14 @@ class AppState extends ChangeNotifier {
     // D3 双源统一：index.json 是较新的写入机制（`visible` 可选字段），优先——
     // index.json 里 visible==false 的 cid 从 visibleCids 剔除。
     await applyIndexVisibilityOverride();
+
+    // mark 级地图显隐（D2）：隐藏 label id 集合，逗号分隔持久化。
+    try {
+      final hid = prefs.getString(prefHiddenLabelIds);
+      if (hid != null && hid.isNotEmpty) {
+        hiddenLabelIds.addAll(hid.split(','));
+      }
+    } catch (_) {}
 
     // 相机
     try {
@@ -1319,6 +1332,15 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// mark 级地图显隐（D2）：visible=false → 加入隐藏集（地图不渲染、不点中），
+  /// true → 移出。prefs 持久化 + 通知。
+  void setLabelHidden(String labelId, bool hidden) {
+    final changed =
+        hidden ? hiddenLabelIds.add(labelId) : hiddenLabelIds.remove(labelId);
+    if (!changed) return;
+    prefs.setString(prefHiddenLabelIds, hiddenLabelIds.join(','));
+    notifyListeners();
+  }
 
   /// 打开收藏到编辑器。
   Future<void> openCollection(CollectionMeta meta) async {

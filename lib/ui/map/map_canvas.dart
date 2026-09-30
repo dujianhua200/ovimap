@@ -269,7 +269,9 @@ class _MapCanvasState extends State<MapCanvas> {
     for (final cid in st.visibleCids) {
       final list = st.overlayLabels[cid];
       if (list == null || list.isEmpty) continue;
-      final hit = _hitTestGeo(list, point);
+      // D2：隐藏的点点不中（草稿不受 mark 显隐影响，仍可点中编辑）。
+      final hit =
+          _hitTestGeo(withoutHiddenLabels(list, st.hiddenLabelIds), point);
       if (hit != null) return (hit, cid);
     }
     return null;
@@ -607,8 +609,17 @@ List<Polyline> buildTopoLines(AppState st) {
 }
 
 /// 业务符号标记（可见收藏 → 草稿 → 拓扑选中 → 测量点）。供两套壳注入。
+/// mark 级地图显隐（D2）：按 [AppState.hiddenLabelIds] 过滤点位的纯函数。
+///
+/// marker / 段注记 / 点选共用；polyline **不用**它——隐藏点仍参与连线，
+/// 线链保持连续不断（只不画点、不注记、不点中）。
+List<MapLabel> withoutHiddenLabels(
+        Iterable<MapLabel> ls, Set<String> hidden) =>
+    [for (final l in ls) if (!hidden.contains(l.id)) l];
+
 List<Marker> buildBusinessMarkers(AppState st, MapCamera cam,
     {required bool mapReady}) {
+
   final markers = <Marker>[];
   if (!mapReady) return markers;
 
@@ -631,10 +642,10 @@ List<Marker> buildBusinessMarkers(AppState st, MapCamera cam,
     ));
   }
 
-  // 可见收藏（底层）
+  // 可见收藏（底层）：D2——hiddenLabelIds 的点不画符号。
   for (final entry in st.overlayLabels.entries) {
     if (!st.visibleCids.contains(entry.key)) continue;
-    for (final l in entry.value) {
+    for (final l in withoutHiddenLabels(entry.value, st.hiddenLabelIds)) {
       addFor(l);
     }
   }
@@ -692,6 +703,9 @@ List<SegText> collectSegTexts(AppState st, MapCamera cam) {
       }
       if (j >= pts.length) continue;
       final b = pts[j];
+      // D2：段注记归属 b（segTextFor 取 b 的 distLabel/segKind）——b 被隐藏则
+      // 该段不注记；草稿（编辑器）不受 mark 显隐影响。
+      if (!isDraft && st.hiddenLabelIds.contains(b.id)) continue;
       final da = st.toDisplay(a.lat, a.lon);
       final db = st.toDisplay(b.lat, b.lon);
       final spa = cam.latLngToScreenOffset(LatLng(da[0], da[1]));
