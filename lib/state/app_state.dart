@@ -512,20 +512,6 @@ class AppState extends ChangeNotifier {
   /// 把某个标记点从原收藏移到目标文件夹（落到该层的「标记」收藏里；
   /// 目标层没有就新建一个）。用于「所有条目都可拖拽/移动到文件夹」。
   Future<void> moveMarkToFolder(String fromCid, MapLabel l, String toFolder) async {
-    final from = await store.loadCollection(fromCid);
-    from.removeWhere((e) => e.id == l.id);
-    final fromMeta = collections.where((m) => m.id == fromCid).toList();
-    if (fromMeta.isNotEmpty) {
-      await store.finishCollection(
-        existingId: fromCid,
-        name: fromMeta.first.name,
-        kind: fromMeta.first.kind,
-        folderId: fromMeta.first.folder,
-        editMode: fromMeta.first.editMode,
-        labels: from,
-      );
-    }
-
     // 目标层的「标记」收藏（没有则建）。
     CollectionMeta? target;
     for (final m in collections) {
@@ -535,28 +521,71 @@ class AppState extends ChangeNotifier {
         break;
       }
     }
-    String toCid;
-    List<MapLabel> toLabels;
+    final String toCid;
     if (target == null) {
-      toLabels = [l..seq = 1];
       toCid = await store.finishCollection(
           name: kMarkBook,
           kind: 'mark',
           folderId: toFolder,
           editMode: 'design',
-          labels: toLabels);
+          labels: <MapLabel>[]);
+      await refreshCollections();
     } else {
       toCid = target.id;
-      toLabels = await store.loadCollection(toCid);
-      l.seq = toLabels.length + 1;
-      toLabels.add(l);
+    }
+    await moveLabelToProject(fromCid: fromCid, label: l, toCid: toCid);
+  }
+
+  /// 公共：将单个标记从 fromCid 移动到 toCid（跨工程移动）。
+  ///
+  /// Phase 1 收藏树控制器（FavTreeController.moveMarkToProject）复用；
+  /// [moveMarkToFolder] 内部同样走此方法（先解析 / 创建目标「标记」工程）。
+  /// 目标工程的既有元数据（名称 / 类型 / 文件夹）予以保留，不回写覆盖。
+  Future<void> moveLabelToProject({
+    required String fromCid,
+    required MapLabel label,
+    required String toCid,
+  }) async {
+    if (fromCid == toCid) return;
+    final from = await store.loadCollection(fromCid);
+    from.removeWhere((e) => e.id == label.id);
+    final fromMeta = collections.where((m) => m.id == fromCid).toList();
+    if (fromMeta.isNotEmpty) {
+      final fm = fromMeta.first;
       await store.finishCollection(
-          existingId: toCid,
-          name: kMarkBook,
-          kind: 'mark',
-          folderId: toFolder,
-          editMode: 'design',
-          labels: toLabels);
+        existingId: fromCid,
+        name: fm.name,
+        kind: fm.kind,
+        folderId: fm.folder,
+        editMode: fm.editMode,
+        labels: from,
+      );
+    }
+
+    final toMeta = collections.where((m) => m.id == toCid).toList();
+    final toLabels = await store.loadCollection(toCid);
+    label.seq = toLabels.length + 1;
+    toLabels.add(label);
+    if (toMeta.isNotEmpty) {
+      final tm = toMeta.first;
+      await store.finishCollection(
+        existingId: toCid,
+        name: tm.name,
+        kind: tm.kind,
+        folderId: tm.folder,
+        editMode: tm.editMode,
+        labels: toLabels,
+      );
+    } else {
+      // 防御：索引缺失时按「标记」工程兜底创建，不丢点。
+      await store.finishCollection(
+        existingId: toCid,
+        name: kMarkBook,
+        kind: 'mark',
+        folderId: '',
+        editMode: 'design',
+        labels: toLabels,
+      );
     }
     await refreshCollections();
     overlayLabels[toCid] = await store.loadCollection(toCid);
