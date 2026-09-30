@@ -24,7 +24,15 @@ import 'tree_menus.dart';
 /// - [query]（加法）搜索关键词；非空时进入搜索模式：结果列表之上保留
 ///   文件夹投放行（审计问题 3）；
 /// - [projectTrailing]（加法）工程行右侧附加组件（桌面：同步徽标 + ⋮ 菜单）；
-/// - [menuExtra]（加法）节点菜单的追加项（桌面：「把当前画布收藏到此」）。
+/// - [menuExtra]（加法）节点菜单的追加项（桌面：「把当前画布收藏到此」；
+///   移动：`favMobileProjectExtra()` 的 7 个工程操作）。
+///
+/// 平台差异（`PlatformCaps.isDesktop` 分支）：
+/// - 拖拽：桌面行用 [Draggable]（鼠标即拖）；移动端用 [LongPressDraggable]，
+///   行上竖滑留给滚动（P0）；
+/// - compact（移动）模式：所有行尾都有「⋯」→ [showFavNodeMenu]（移动端底弹样式），
+///   文件夹/mark/chain 行不再没有菜单入口；
+/// - 多选：移动端长按进入多选；多选非空时点选 = 切换选中（toggle）。
 class FavTree extends StatefulWidget {
   const FavTree({
     super.key,
@@ -319,25 +327,11 @@ class _FavTreeState extends State<FavTree> {
     final payloadIds =
         inSel && c.selected.length > 1 ? c.selected.toList() : [node.id];
     final draggingRow = row;
-    row = Draggable<FavDragPayload>(
-      data: FavDragPayload(payloadIds),
-      onDragStarted: () => favDragInProgress.value = true,
-      onDragEnd: (_) => favDragInProgress.value = false,
-      onDraggableCanceled: (_, _) => favDragInProgress.value = false,
-      feedback: Material(
-        color: TokC.card,
-        elevation: 4,
-        borderRadius: BorderRadius.circular(TokR.s),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(
-              payloadIds.length > 1
-                  ? '${node.name}（等 ${payloadIds.length} 项）'
-                  : node.name,
-              style:
-                  const TextStyle(color: kTextMain, fontSize: TokFs.small)),
-        ),
-      ),
+    row = _dragSource(
+      payloadIds: payloadIds,
+      feedbackLabel: payloadIds.length > 1
+          ? '${node.name}（等 ${payloadIds.length} 项）'
+          : node.name,
       childWhenDragging: Opacity(opacity: 0.35, child: draggingRow),
       child: draggingRow,
     );
@@ -456,10 +450,27 @@ class _FavTreeState extends State<FavTree> {
               ),
             if (widget.projectTrailing != null && node.isProject)
               widget.projectTrailing!(context, node),
+            // compact（移动）模式：所有行尾「⋯」→ 共享节点菜单（移动端底弹样式）。
+            // 文件夹/mark/chain 行此前在移动端没有菜单入口。
+            if (widget.compact) _compactMenuButton(node),
             _eyeButton(node),
           ]),
         ),
       ),
+    );
+  }
+
+  /// compact（移动）行尾「⋯」：打开共享节点菜单（移动端底弹样式）。
+  /// 长按手势仍归多选（移动线），这里不动。
+  Widget _compactMenuButton(FavNode node) {
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      tooltip: '更多操作',
+      onPressed: () => showFavNodeMenu(context, c, node,
+          isDesktop: false, extra: widget.menuExtra),
+      icon: const Icon(Icons.more_vert, size: 16, color: kTextHint),
     );
   }
 
@@ -568,7 +579,13 @@ class _FavTreeState extends State<FavTree> {
       _rangeSelect(node.id);
       return;
     }
-    if (c.selected.isNotEmpty) c.clearSelection();
+    // 多选模式下点选 = 切换选中（toggle），不执行打开/定位/展开；
+    // 选空后回到普通模式，下一次点选恢复默认动作。
+    if (c.selected.isNotEmpty) {
+      c.toggleSelect(node.id);
+      _anchor = node.id;
+      return;
+    }
     _anchor = node.id;
     if (node.isFolder) {
       c.selectTreeFolder(node.id);
@@ -691,6 +708,7 @@ class _FavTreeState extends State<FavTree> {
                 style: const TextStyle(
                     color: kTextMain, fontSize: TokFs.body)),
           ),
+          if (widget.compact) _compactMenuButton(f),
           _eyeButton(f),
         ]),
       ),
@@ -748,6 +766,7 @@ class _FavTreeState extends State<FavTree> {
                 ],
               ),
             ),
+            if (widget.compact) _compactMenuButton(node),
             _eyeButton(node),
           ]),
         ),
@@ -757,25 +776,54 @@ class _FavTreeState extends State<FavTree> {
     final inSel = c.selected.contains(node.id);
     final payloadIds =
         inSel && c.selected.length > 1 ? c.selected.toList() : [node.id];
-    row = Draggable<FavDragPayload>(
-      data: FavDragPayload(payloadIds),
-      onDragStarted: () => favDragInProgress.value = true,
-      onDragEnd: (_) => favDragInProgress.value = false,
-      onDraggableCanceled: (_, _) => favDragInProgress.value = false,
-      feedback: Material(
-        color: TokC.card,
-        elevation: 4,
-        borderRadius: BorderRadius.circular(TokR.s),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Text(node.name,
-              style:
-                  const TextStyle(color: kTextMain, fontSize: TokFs.small)),
-        ),
-      ),
+    row = _dragSource(
+      payloadIds: payloadIds,
+      feedbackLabel: node.name,
       childWhenDragging: Opacity(opacity: 0.35, child: row),
       child: row,
     );
     return row;
+  }
+
+  /// 拖拽源：桌面（鼠标）用 [Draggable] 即拖；移动端用 [LongPressDraggable]，
+  /// 行上竖滑必须留给滚动（P0：Draggable 会吞掉竖滑，树几乎无法滚动）。
+  /// 移动端长按同时进入多选（行内 InkWell onLongPress）并拿起拖拽，
+  /// 松手取消拖拽后选中保留，语义自洽。
+  Widget _dragSource({
+    required List<String> payloadIds,
+    required String feedbackLabel,
+    required Widget child,
+    Widget? childWhenDragging,
+  }) {
+    final feedback = Material(
+      color: TokC.card,
+      elevation: 4,
+      borderRadius: BorderRadius.circular(TokR.s),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(feedbackLabel,
+            style: const TextStyle(color: kTextMain, fontSize: TokFs.small)),
+      ),
+    );
+    if (PlatformCaps.isDesktop) {
+      return Draggable<FavDragPayload>(
+        data: FavDragPayload(payloadIds),
+        onDragStarted: () => favDragInProgress.value = true,
+        onDragEnd: (_) => favDragInProgress.value = false,
+        onDraggableCanceled: (_, _) => favDragInProgress.value = false,
+        feedback: feedback,
+        childWhenDragging: childWhenDragging ?? child,
+        child: child,
+      );
+    }
+    return LongPressDraggable<FavDragPayload>(
+      data: FavDragPayload(payloadIds),
+      onDragStarted: () => favDragInProgress.value = true,
+      onDragEnd: (_) => favDragInProgress.value = false,
+      onDraggableCanceled: (_, _) => favDragInProgress.value = false,
+      feedback: feedback,
+      childWhenDragging: childWhenDragging ?? child,
+      child: child,
+    );
   }
 }

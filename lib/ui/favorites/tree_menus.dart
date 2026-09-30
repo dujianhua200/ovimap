@@ -10,7 +10,12 @@ import 'fav_actions.dart';
 import 'fav_tree.dart';
 import 'trash.dart';
 
-/// 收藏树节点菜单的桌面追加项（如「把当前画布收藏到此」）。
+/// 收藏树节点菜单的追加项扩展点（桌面/移动通用）。
+///
+/// - 桌面：如「把当前画布收藏到此」（left_panel 传入）；
+/// - 移动：如 7 个工程操作（`favMobileProjectExtra()`，drawer_panel 传入）。
+/// 桌面走 showMenu 追加；移动走底弹菜单追加（PopupMenuItem 的 tap 即
+/// Navigator.pop 返回 value，同样可用）。
 class FavMenuExtra {
   const FavMenuExtra({required this.entries, required this.onSelected});
 
@@ -103,19 +108,24 @@ Future<void> showFavNodeMenu(BuildContext context, FavTreeController c,
     sel = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final it in items)
-              ListTile(
-                dense: true,
-                title: Text(it.label,
-                    style: TextStyle(
-                        color: it.danger ? kDanger : kTextMain)),
-                onTap: () => Navigator.pop(ctx, it.value),
-              ),
-            // 移动端暂不支持 extra 追加项（保持菜单简洁）。
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final it in items)
+                ListTile(
+                  dense: true,
+                  title: Text(it.label,
+                      style: TextStyle(
+                          color: it.danger ? kDanger : kTextMain)),
+                  onTap: () => Navigator.pop(ctx, it.value),
+                ),
+              // 追加项（value 以 `extra:` 开头）：桌面/移动通用扩展点。
+              // PopupMenuItem 的 handleTap 即 Navigator.pop(ctx, value)，
+              // 在底弹里同样能返回值。
+              if (extra != null) ...extra.entries(node),
+            ],
+          ),
         ),
       ),
     );

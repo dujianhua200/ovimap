@@ -9,10 +9,10 @@ import '../state/fav_tree_controller.dart';
 import 'design_tokens.dart';
 import 'dialogs.dart';
 import 'favorites/fav_actions.dart';
+import 'favorites/fav_mobile_actions.dart';
 import 'favorites/fav_tree.dart';
 import 'favorites/select_bar.dart';
 import 'favorites/trash.dart';
-import 'favorites/tree_menus.dart';
 
 /// 收藏夹抽屉（移动端）：奥维式收藏树。
 ///
@@ -114,19 +114,10 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                       query: _query,
                       onLocate: _onLocate,
                       onOpenProject: _onOpenProject,
-                      // 移动端：工程行右侧「⋯」进共享节点菜单
-                      // （树行内无长按菜单手势，靠此恢复旧抽屉的 per-row 菜单能力）。
-                      projectTrailing: (mctx, node) => IconButton(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                            minWidth: 32, minHeight: 32),
-                        tooltip: '更多操作',
-                        onPressed: () => showFavNodeMenu(mctx, c, node,
-                            isDesktop: false),
-                        icon: const Icon(Icons.more_vert,
-                            size: 16, color: kTextHint),
-                      ),
+                      // 移动端：行尾「⋯」由 FavTree 内置（所有行），菜单追加项为
+                      // 7 个旧抽屉独有工程操作（同步该工程/历史版本/拓扑连线/
+                      // 配线图PNG/竣工成册/导入箱体/竣工对比设计）。
+                      menuExtra: favMobileProjectExtra(),
                     ),
                   ),
                   // 多选模式：底部批量操作条（无选中时内部渲染为空）。
