@@ -112,6 +112,8 @@ const List<OviMenuGroupDef> oviMenuGroups = <OviMenuGroupDef>[
             SingleActivator(LogicalKeyboardKey.keyK, meta: true, alt: true)),
     OviMenuItemDef('auto_seg_label', '按敷设方式生成段标（固化）'),
     OviMenuItemDef('topo_guide', '拓扑连线指引', dividerBefore: true),
+    // ODN 拓扑图：扩展点 value 沿用收藏树菜单的 `extra:` 命名空间，避免与既有 id 冲突。
+    OviMenuItemDef('extra:odn-topo', 'ODN 拓扑图'),
     OviMenuItemDef('symbol_lib', '符号库…'),
   ]),
   OviMenuGroupDef('视图', <OviMenuItemDef>[
@@ -169,6 +171,7 @@ class OviMenuActions {
     required this.onPoleTable,
     required this.onTrackCheck,
     required this.onInspect,
+    required this.onOdnTopo,
     required this.onOffline,
     required this.onStorageCleanup,
     required this.onSync,
@@ -194,6 +197,10 @@ class OviMenuActions {
 
   /// 出图体检：由壳注入，因为"定位到某一档"需要地图相机控制权（菜单层不持相机）。
   final VoidCallback onInspect;
+
+  /// ODN 拓扑图：由壳注入，节点点击定位同样需要地图相机控制权。
+  /// 选工程是异步对话框，壳实现里自行 unawaited(openOdnTopoViewer(...))。
+  final VoidCallback onOdnTopo;
   final VoidCallback onOffline;
   final VoidCallback onStorageCleanup;
   final VoidCallback onSync;
@@ -285,6 +292,9 @@ Future<void> dispatchOviMenuItem(
       break;
     case 'topo_guide':
       await showTopoGuide(context);
+      break;
+    case 'extra:odn-topo':
+      a.onOdnTopo();
       break;
     case 'symbol_lib':
       await showSymbolLibrary(context, st);

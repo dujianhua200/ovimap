@@ -14,6 +14,7 @@ Future<void> showToolsMenu(
   AppState st, {
   required Future<void> Function() onPoleTable,
   required Future<void> Function() onTrackCheck,
+  required VoidCallback onOdnTopo,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -37,6 +38,7 @@ Future<void> showToolsMenu(
               () => showTemplateDialog(context, st)),
           sheetTile(context, '杆路轨迹核查（查漏杆/错位）', onTrackCheck),
           sheetTile(context, '拓扑连线指引', () => showTopoGuide(context)),
+          sheetTile(context, 'ODN 拓扑图', onOdnTopo),
         ],
       ),
     ),

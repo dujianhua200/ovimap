@@ -103,6 +103,7 @@ Future<void> _verifyMacosMenus(WidgetTester tester) async {
       onToggleRight: noop.call,
       onFocusMap: noop.call,
       onInspect: noop.call,
+      onOdnTopo: noop.call,
       onZoomIn: noop.call,
       onZoomOut: noop.call,
       onResetView: noop.call,

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../geo/geo_util.dart';
 import '../../models/map_label.dart';
+import '../../odn/odn_viewer.dart';
 import '../../services/export_saver.dart';
 import '../../services/file_drop.dart';
 import '../../services/photos.dart';
@@ -461,6 +462,23 @@ class _WorkspacePageState extends State<WorkspacePage> {
     );
   }
 
+  /// ODN 拓扑图（桌面菜单入口）：选工程是异步流程，这里 fire-and-forget；
+  /// 节点定位直接用节点坐标（拓扑可能来自收藏工程，不一定在当前草稿里，
+  /// 不能走按 id 查草稿的 [_locateLabels]）。
+  void _showOdnTopo() {
+    unawaited(openOdnTopoViewer(
+      context,
+      _st,
+      onLocateLabel: (l) {
+        final d = _st.toDisplay(l.lat, l.lon);
+        if (_mapReady) {
+          final z = _mc.camera.zoom;
+          _mc.move(LatLng(d[0], d[1]), z < 17 ? 17.0 : z);
+        }
+      },
+    ));
+  }
+
   /// 把体检报出的点选中并把地图移过去。
   ///
   /// 取所有相关点的重心作为落点（段级问题给的是两个端点，看重心才能同时看到两端），
@@ -816,6 +834,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         onPoleTable: _showPoleTable,
         onTrackCheck: _showTrackCheck,
         onInspect: _inspect,
+        onOdnTopo: _showOdnTopo,
         onOffline: _onOffline,
         onStorageCleanup: _storageCleanup,
         onSync: _showSyncInfo,

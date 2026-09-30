@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../geo/geo_util.dart';
 import '../models/label_type.dart';
 import '../models/map_label.dart';
+import '../odn/odn_viewer.dart';
 import '../services/loc.dart';
 import '../services/photos.dart';
 import '../services/platform_caps.dart';
@@ -341,16 +342,7 @@ class _HomePageState extends State<HomePage> {
       drawer: FavoritesDrawer(
         st: st,
         // 收藏树点位定位：把相机移到该点位（抽屉已关闭；地图未就绪时 _mc.camera 会抛，用 try 保护）。
-        onLocateLabel: (l) {
-          final d = st.toDisplay(l.lat, l.lon);
-          var zoom = 17.0;
-          try {
-            final z = _mc.camera.zoom;
-            if (z > zoom) zoom = z;
-          } catch (_) {}
-          _mc.moveAndRotate(
-              LatLng(d[0], d[1]), zoom, _cam?.rotation ?? 0);
-        },
+        onLocateLabel: _locateLabel,
       ),
       body: Stack(
         children: [
@@ -1042,7 +1034,27 @@ class _HomePageState extends State<HomePage> {
       st,
       onPoleTable: () => _showPoleTable(st),
       onTrackCheck: () => _showTrackCheck(st),
+      onOdnTopo: () => _showOdnTopo(st),
     );
+  }
+
+  /// 点位定位（收藏树 / ODN 拓扑图共用）：把相机移到该点位；
+  /// 地图未就绪时 _mc.camera 会抛，用 try 保护。
+  void _locateLabel(MapLabel l) {
+    final st = context.read<AppState>();
+    final d = st.toDisplay(l.lat, l.lon);
+    var zoom = 17.0;
+    try {
+      final z = _mc.camera.zoom;
+      if (z > zoom) zoom = z;
+    } catch (_) {}
+    _mc.moveAndRotate(LatLng(d[0], d[1]), zoom, _cam?.rotation ?? 0);
+  }
+
+  /// ODN 拓扑图（移动端工具菜单入口）：选工程是异步流程，这里 fire-and-forget；
+  /// 节点定位复用 [_locateLabel]。
+  void _showOdnTopo(AppState st) {
+    unawaited(openOdnTopoViewer(context, st, onLocateLabel: _locateLabel));
   }
 
   /// ⚙设置面板（地图/存储/采集/高级/关于）。
