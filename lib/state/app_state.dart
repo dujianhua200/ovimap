@@ -21,6 +21,7 @@ import '../services/loc.dart';
 import '../services/store.dart';
 import '../services/tianditu.dart';
 import '../sync/sync_controller.dart';
+import 'undo_stack.dart';
 
 /// 应用模式。
 enum AppMode { view, edit, measureDist, measureArea, topoLink, boxSelect }
@@ -49,6 +50,17 @@ class AppState extends ChangeNotifier {
   static const prefTplId = 'tplId';
 
   final LabelStore store = LabelStore.instance;
+
+  /// 全局撤销/重做栈（W1）：收藏结构性操作（移动/重命名/回收站/合并/
+  /// 标记编辑）的撤销。UI 经 `st.undoStack` 访问，无需改 provider。
+  ///
+  /// 与草稿快照栈（pushUndoSnapshot/undoDraft/redo）并存：草稿栈管
+  /// "正在编辑的草稿点位"，本栈管"已落盘的收藏结构"；workspace_page 按
+  /// 时间戳二选一（见 undo_stack.dart 的 shouldUseGlobalUndo）。
+  final UndoStack undoStack = UndoStack();
+
+  /// 草稿快照栈最近一次压栈时间（供全局/草稿二选一逻辑用）。
+  DateTime lastDraftUndoPushAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 云同步编排器（架构文档 §12.9）。可为 null（未接入同步 / 测试环境）。
   ///
@@ -666,6 +678,7 @@ class AppState extends ChangeNotifier {
         .add(jsonEncode(labels.map((e) => e.toJson()).toList()));
     if (_undoSnapshots.length > _undoLimit) _undoSnapshots.removeAt(0);
     _redoSnapshots.clear();
+    lastDraftUndoPushAt = DateTime.now();
   }
 
   bool get canUndoSnapshot => _undoSnapshots.isNotEmpty;
@@ -886,24 +899,81 @@ class AppState extends ChangeNotifier {
   }
 
   /// 更新某个可见收藏工程里的一个点（普通模式点选编辑保存时调用）。
+  ///
+  /// 记录到全局撤销栈：undo 记旧 label JSON（do 前捕获）。调用点均为
+  /// 低频路径（属性保存按钮/移到定位/段距编辑确认），无逐帧拖拽调用，
+  /// 故直接在方法内记录，不做手势合并。
   Future<void> updateOverlayLabel(String cid, MapLabel l) async {
     final list = overlayLabels[cid];
     if (list == null) return;
     final i = list.indexWhere((e) => e.id == l.id);
     if (i < 0) return;
-    list[i] = l;
-    await store.saveCollectionLabels(cid, list);
-    notifyListeners();
+    final oldJson = jsonEncode(list[i].toJson());
+    final nm = l.name.isEmpty ? '未命名标记' : l.name;
+    await undoStack.execute(
+      '修改标记「$nm」',
+      () async {
+        final cur = overlayLabels[cid];
+        if (cur == null) return false;
+        final j = cur.indexWhere((e) => e.id == l.id);
+        if (j < 0) return false;
+        cur[j] = l;
+        await store.saveCollectionLabels(cid, cur);
+        notifyListeners();
+        return true;
+      },
+      () async {
+        final old = MapLabel.fromJson(
+            Map<String, dynamic>.from(jsonDecode(oldJson) as Map));
+        final cur = overlayLabels[cid] ?? await store.loadCollection(cid);
+        final j = cur.indexWhere((e) => e.id == old.id);
+        if (j >= 0) {
+          cur[j] = old;
+        } else {
+          cur.add(old);
+        }
+        await store.saveCollectionLabels(cid, cur);
+        notifyListeners();
+        return true;
+      },
+    );
   }
 
   /// 从某个可见收藏工程里删除一个点。
+  ///
+  /// 记录到全局撤销栈：undo 记 label JSON + 原 index，撤销时插回原位。
+  /// 同 updateOverlayLabel，调用点均为低频确认路径，直接记录。
   Future<void> removeOverlayLabel(String cid, MapLabel l) async {
     final list = overlayLabels[cid];
     if (list == null) return;
-    list.removeWhere((e) => e.id == l.id);
-    await store.saveCollectionLabels(cid, list);
-    await store.setCollectionCount(cid, list.length);
-    notifyListeners();
+    final i = list.indexWhere((e) => e.id == l.id);
+    if (i < 0) return;
+    final labelJson = jsonEncode(list[i].toJson());
+    final nm = l.name.isEmpty ? '未命名标记' : l.name;
+    await undoStack.execute(
+      '删除标记「$nm」',
+      () async {
+        final cur = overlayLabels[cid];
+        if (cur == null) return false;
+        cur.removeWhere((e) => e.id == l.id);
+        await store.saveCollectionLabels(cid, cur);
+        await store.setCollectionCount(cid, cur.length);
+        notifyListeners();
+        return true;
+      },
+      () async {
+        final restored = MapLabel.fromJson(
+            Map<String, dynamic>.from(jsonDecode(labelJson) as Map));
+        final cur = overlayLabels[cid] ?? await store.loadCollection(cid);
+        // 幂等：点已在（重复撤销）则不再插入。
+        if (cur.any((e) => e.id == restored.id)) return true;
+        cur.insert(i.clamp(0, cur.length), restored);
+        await store.saveCollectionLabels(cid, cur);
+        await store.setCollectionCount(cid, cur.length);
+        notifyListeners();
+        return true;
+      },
+    );
   }
 
   // ---- 待定编辑：拖动点位（奥维/Bigemap 顶点编辑式交互） ----
