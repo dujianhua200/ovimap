@@ -246,8 +246,14 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
     final name = await askText(context,
         title: '新建文件夹', hint: '文件夹名称（将建在：$parentName）');
     if (name == null) return;
-    await st.store.addFolder(name, parentId);
-    await st.refreshCollections();
+    // 走 controller 的可撤销通道（内部 refresh；undo = 删除新建的空文件夹）。
+    final newId = await c.addFolderUndoable(name, parentId);
+    if (!context.mounted) return;
+    if (newId == null) {
+      toast(context, '创建文件夹失败');
+      return;
+    }
+    toast(context, '已创建文件夹「$name」');
   }
 
   /// 导出全部收藏为 KML（旧抽屉头部能力，保留）。

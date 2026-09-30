@@ -151,15 +151,7 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
     AppState st, FavNode node, String action) async {
   switch (action) {
     case 'rename':
-      final name = await askText(context,
-          title: node.isFolder ? '重命名文件夹' : '重命名', initial: node.name);
-      if (name == null || !context.mounted) return;
-      // 经 controller 的 undoable 包裹（内部刷新），可撤销；不直接调 store。
-      if (node.isFolder) {
-        await c.renameFolderUndoable(node.id, name);
-      } else if (node.isProject) {
-        await c.renameCollectionUndoable(node.id, name);
-      }
+      await renameFavNode(context, c, node);
       break;
 
     case 'newSub':
@@ -269,18 +261,23 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
       if (!picked || toCid == null || !context.mounted) return;
       final toName = c.find(toCid!)?.name ?? '';
       final fromLabels = await c.labelsOf(node.id);
+      final toLabels = await c.labelsOf(toCid!);
       if (!context.mounted) return;
       final ok = await askConfirm(context,
           title: '合并工程',
-          content: '将「${node.name}」（${fromLabels.length} 点）并入「$toName」，'
-              '「${node.name}」随后会被删除（可撤销）。确定？',
+          content: '将「${node.name}」（${fromLabels.length} 点）并入'
+              '「$toName」（${toLabels.length} 点），「${node.name}」随后会被'
+              '删除（可撤销）。确定？',
           okText: '合并');
       if (!ok || !context.mounted) return;
       // 经 controller 的 undoable 合并：do 前快照源工程（含原 meta），
       // 撤销时按 id 精确剔除并入点并重建源工程（W1 全局撤销）。
       final moved = await c.mergeProject(node.id, toCid!);
       if (context.mounted) {
-        toast(context, '已合并 $moved 点到「$toName」');
+        toast(context,
+            moved > 0 || fromLabels.isEmpty
+                ? '已合并 $moved 点到「$toName」'
+                : '合并失败：目标工程已失效');
       }
       break;
     }
@@ -307,17 +304,23 @@ Future<void> _deleteNode(BuildContext context, FavTreeController c,
   if (node.isFolder) {
     final subCount =
         c.folders.where((f) => _isDescendant(c, f.id, node.id)).length;
-    final n = await c.countOf(node.id);
+    final nFolders = 1 + subCount;
+    final nProjects = c.projectCidsUnder(node.id).length;
     if (!context.mounted) return;
+    // B3：删除文件夹/工程确认框文案统一为「将把 X 个文件夹、Y 个工程移入回收站」
+    // （实际计数；现在是回收站不是彻底删除）。
     final ok = await askConfirm(context,
         title: '删除文件夹',
-        content: '将删除「${node.name}」'
-            '${subCount > 0 ? '及其 $subCount 个子文件夹' : ''}'
-            '（共 $n 个条目，含标记点），'
-            '删除后可在回收站还原。确定？',
+        content: '「${node.name}」：将把 $nFolders 个文件夹、$nProjects 个工程'
+            '移入回收站。\n可在回收站还原。确定？',
         okText: '删除');
     if (!ok || !context.mounted) return;
-    await trash.trashNode(c, node);
+    final trashId = await trash.trashNode(c, node);
+    if (!context.mounted) return;
+    if (trashId.isEmpty) {
+      toast(context, '删除失败：条目已失效');
+      return;
+    }
     if (c.treeSelectedFolderId == node.id ||
         _isDescendant(c, c.treeSelectedFolderId, node.id)) {
       c.selectTreeFolder('');
@@ -328,10 +331,16 @@ Future<void> _deleteNode(BuildContext context, FavTreeController c,
     if (!context.mounted) return;
     final ok = await askConfirm(context,
         title: '删除工程',
-        content: '将删除「${node.name}」（$n 点），可在回收站还原。确定？',
+        content: '将把 0 个文件夹、1 个工程（「${node.name}」，$n 点）'
+            '移入回收站。\n可在回收站还原。确定？',
         okText: '删除');
     if (!ok || !context.mounted) return;
-    await trash.trashNode(c, node);
+    final trashId = await trash.trashNode(c, node);
+    if (!context.mounted) return;
+    if (trashId.isEmpty) {
+      toast(context, '删除失败：条目已失效');
+      return;
+    }
     if (context.mounted) toast(context, '「${node.name}」已移入回收站');
   } else if (node.isMark && node.label != null) {
     final ok = await askConfirm(context,
@@ -354,6 +363,28 @@ Future<void> _deleteNode(BuildContext context, FavTreeController c,
     }
     if (context.mounted) toast(context, '已删除「${node.name}」');
   }
+}
+
+/// 重命名单个收藏树节点（右键/长按菜单与 F2 快捷键共用入口）。
+///
+/// - folder → [FavTreeController.renameFolderUndoable]，
+///   project → [FavTreeController.renameCollectionUndoable]
+///   （经 controller 的 undoable 包裹，可撤销；不直接调 store）；
+/// - 成功给轻提示，失败报原因（B2：原先静默）。
+Future<void> renameFavNode(
+    BuildContext context, FavTreeController c, FavNode node) async {
+  if (!node.isFolder && !node.isProject) {
+    toast(context, '只能重命名文件夹或工程');
+    return;
+  }
+  final name = await askText(context,
+      title: node.isFolder ? '重命名文件夹' : '重命名', initial: node.name);
+  if (name == null || !context.mounted) return;
+  final ok = node.isFolder
+      ? await c.renameFolderUndoable(node.id, name)
+      : await c.renameCollectionUndoable(node.id, name);
+  if (!context.mounted) return;
+  toast(context, ok ? '已重命名为「$name」' : '重命名失败：条目已失效');
 }
 
 bool _isDescendant(FavTreeController c, String fid, String ancestor) {
