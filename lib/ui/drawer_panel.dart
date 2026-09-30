@@ -94,7 +94,8 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
     // 抽屉内单实例，徽标与批量删除共用。
     return ChangeNotifierProvider<TrashStore>(
       create: (_) {
-        final t = TrashStore(onChanged: () => st.refreshCollections());
+        final t = TrashStore(
+            onChanged: () => st.refreshCollections(), appState: st);
         t.load();
         return t;
       },

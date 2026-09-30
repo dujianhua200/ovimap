@@ -8,6 +8,7 @@ import '../../models/fav_node.dart';
 import '../../models/map_label.dart';
 import '../../services/store.dart'
     show CollectionMeta, LabelStore, robustWriteAsString;
+import '../../state/app_state.dart';
 import '../../state/fav_tree_controller.dart';
 import '../design_tokens.dart';
 import '../dialogs.dart';
@@ -53,12 +54,16 @@ class TrashItem {
 }
 
 class TrashStore extends ChangeNotifier {
-  TrashStore({this.onChanged, LabelStore? store})
+  TrashStore({this.onChanged, LabelStore? store, this.appState})
       : _store = store ?? LabelStore.instance;
 
   /// 删除/恢复/清空后调用（调用方接 `st.refreshCollections()` 等）。
   final Future<void> Function()? onChanged;
   final LabelStore _store;
+
+  /// 宿主 [AppState]（undo 记录用；为 null 时退化为 raw 行为，不记录）。
+  /// 生产环境经各 `_trashOf` 传入；测试按需传入。
+  final AppState? appState;
 
   final List<TrashItem> _items = [];
   List<TrashItem> get items => List.unmodifiable(_items);
@@ -93,13 +98,43 @@ class TrashStore extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// 把节点送进回收站。
+  /// 把节点送进回收站（可撤销，返回 trashId）。
+  ///
+  /// undo = restore(trashId)；redo = 根据 nodeId 经 controller.find 找
+  /// 当前节点重新 trash，找不到则 redo 返回 false 不抛错。
+  /// 逆操作经 public [restore] 实现——suspend 机制保证 undo/redo 期间
+  /// 内层 execute 只执行本体、不再重复记录。
+  Future<String> trashNode(FavTreeController c, FavNode node) async {
+    final st = c.appState;
+    final nodeId = node.id;
+    final kindName = node.isFolder ? '文件夹' : '工程';
+    final displayName = node.name;
+    var trashId = '';
+    await st.undoStack.execute(
+      '删除$kindName「$displayName」（进回收站）',
+      () async {
+        final cur = c.find(nodeId);
+        if (cur == null) return false;
+        trashId = await _trashNodeRaw(c, cur);
+        return true;
+      },
+      () async {
+        await restore(trashId);
+        return true;
+      },
+    );
+    return trashId;
+  }
+
+  /// 把节点送进回收站（raw：自身不记录撤销，由 [trashNode] 包裹）。
   ///
   /// - project → `deleteCollection`，payload 记 CollectionMeta JSON + labels；
   /// - folder → 整棵子树：子树内工程逐个 `deleteCollection`（payload 记
   ///   meta + labels），再 `store.deleteFolder` 删文件夹条目，payload 记
   ///   folder JSON 列表 + 工程 cid 列表。
-  Future<void> trashNode(FavTreeController c, FavNode node) async {
+  ///
+  /// 返回本次的 trashId。
+  Future<String> _trashNodeRaw(FavTreeController c, FavNode node) async {
     await load();
     final st = c.appState;
     final trashId = 't${DateTime.now().microsecondsSinceEpoch}';
@@ -174,14 +209,39 @@ class TrashStore extends ChangeNotifier {
     await _persist();
     notifyListeners();
     await onChanged?.call();
+    return trashId;
   }
 
-  /// 还原。原 parentId / folder 不存在则回根（''）。
+  /// 还原（可撤销）。原 parentId / folder 不存在则回根（''）。
+  ///
+  /// undo = 删除还原的内容（project：deleteCollection；folder：按 payload
+  /// 删工程 + 文件夹条目——先删工程再删文件夹条目，避免 deleteFolder 把
+  /// 其它工程上移）并把 TrashItem 写回 trash.json；redo = 再次 restore。
   Future<void> restore(String trashId) async {
     await load();
     final i = _items.indexWhere((e) => e.trashId == trashId);
     if (i < 0) return;
     final item = _items[i];
+    final st = appState;
+    if (st == null) {
+      await _restoreItem(item);
+      return;
+    }
+    await st.undoStack.execute(
+      '还原「${item.name}」',
+      () async {
+        await _restoreItem(item);
+        return true;
+      },
+      () async {
+        await _unrestoreItem(st, item);
+        return true;
+      },
+    );
+  }
+
+  /// 还原本体（raw：自身不记录撤销，由 [restore] 包裹）。
+  Future<void> _restoreItem(TrashItem item) async {
     final payload =
         Map<String, dynamic>.from(jsonDecode(item.payloadJson) as Map);
     if (item.kind == 'project') {
@@ -210,26 +270,129 @@ class TrashStore extends ChangeNotifier {
         await _restoreProject({'meta': meta, 'labels': p['labels']});
       }
     }
-    _items.removeAt(i);
+    _items.removeWhere((e) => e.trashId == item.trashId);
     await _persist();
     notifyListeners();
     await onChanged?.call();
   }
 
+  /// 还原的逆操作（raw）：删除还原的内容，并把 TrashItem 写回 trash.json。
+  Future<void> _unrestoreItem(AppState st, TrashItem item) async {
+    final payload =
+        Map<String, dynamic>.from(jsonDecode(item.payloadJson) as Map);
+    if (item.kind == 'project') {
+      final meta = Map<String, dynamic>.from(payload['meta'] as Map);
+      final cid = meta['id'] as String? ?? '';
+      if (cid.isNotEmpty) await st.deleteCollection(cid);
+    } else if (item.kind == 'folder') {
+      // 先删工程：避免 deleteFolder 把残留工程上移到父级。
+      for (final p in ((payload['projects'] as List?) ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))) {
+        final meta = Map<String, dynamic>.from(p['meta'] as Map);
+        final cid = meta['id'] as String? ?? '';
+        if (cid.isNotEmpty) await st.deleteCollection(cid);
+      }
+      for (final f in ((payload['folders'] as List?) ?? [])
+          .map((e) => Map<String, dynamic>.from(e as Map))) {
+        final fid = f['id'] as String? ?? '';
+        if (fid.isNotEmpty) await _store.deleteFolder(fid);
+      }
+    }
+    // 把 TrashItem 写回 trash.json（幂等：已存在则跳过）。
+    await load();
+    if (_items.any((e) => e.trashId == item.trashId)) return;
+    _items.add(item);
+    _items.sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
+    await _persist();
+    notifyListeners();
+    await onChanged?.call();
+  }
+
+  /// 彻底删除（可撤销）：捕获被删的 TrashItem，undo = 写回 trash.json。
   Future<void> deleteForever(String trashId) async {
     await load();
-    _items.removeWhere((e) => e.trashId == trashId);
-    await _persist();
-    notifyListeners();
-    await onChanged?.call();
+    final removed =
+        _items.where((e) => e.trashId == trashId).toList();
+    if (removed.isEmpty) return;
+    final st = appState;
+    Future<void> raw() async {
+      await load();
+      _items.removeWhere((e) => e.trashId == trashId);
+      await _persist();
+      notifyListeners();
+      await onChanged?.call();
+    }
+
+    Future<void> writeBack(List<TrashItem> items) async {
+      await load();
+      for (final r in items) {
+        if (_items.any((e) => e.trashId == r.trashId)) continue;
+        _items.add(r);
+      }
+      _items.sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
+      await _persist();
+      notifyListeners();
+      await onChanged?.call();
+    }
+
+    if (st == null) {
+      await raw();
+      return;
+    }
+    await st.undoStack.execute(
+      '彻底删除「${removed.first.name}」',
+      () async {
+        await raw();
+        return true;
+      },
+      () async {
+        await writeBack(removed);
+        return true;
+      },
+    );
   }
 
+  /// 清空回收站（可撤销）：捕获全部 TrashItem，undo = 写回。
   Future<void> emptyTrash() async {
     await load();
-    _items.clear();
-    await _persist();
-    notifyListeners();
-    await onChanged?.call();
+    if (_items.isEmpty) return;
+    final removed = List<TrashItem>.of(_items);
+    final st = appState;
+    Future<void> raw() async {
+      await load();
+      _items.clear();
+      await _persist();
+      notifyListeners();
+      await onChanged?.call();
+    }
+
+    Future<void> writeBack(List<TrashItem> items) async {
+      await load();
+      for (final r in items) {
+        if (_items.any((e) => e.trashId == r.trashId)) continue;
+        _items.add(r);
+      }
+      _items.sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
+      await _persist();
+      notifyListeners();
+      await onChanged?.call();
+    }
+
+    if (st == null) {
+      await raw();
+      return;
+    }
+    await st.undoStack.execute(
+      '清空回收站（${removed.length} 项）',
+      () async {
+        await raw();
+        return true;
+      },
+      () async {
+        await writeBack(removed);
+        return true;
+      },
+    );
   }
 
   // ---------- 还原的文件读写（镜像 store.dart 格式，不动 store.dart） ----------

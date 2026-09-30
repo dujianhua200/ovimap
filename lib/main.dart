@@ -66,7 +66,8 @@ class OviMapApp extends StatelessWidget {
         // 数据文件为 labels/trash.json（新增文件，磁盘格式零改动）。
         ChangeNotifierProvider<TrashStore>(
           create: (ctx) => TrashStore(
-              onChanged: () => ctx.read<AppState>().refreshCollections())
+              onChanged: () => ctx.read<AppState>().refreshCollections(),
+              appState: ctx.read<AppState>())
             ..load(),
         ),
         // 云同步编排器（T15/T16）：单个 `SYNC_TOKEN` 单用户多设备，不做账号体系。

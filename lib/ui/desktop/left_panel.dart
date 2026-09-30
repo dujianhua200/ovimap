@@ -126,7 +126,8 @@ class _LeftPanelState extends State<LeftPanel> {
     try {
       return Provider.of<TrashStore>(context, listen: false);
     } catch (_) {
-      return TrashStore(onChanged: () => st.refreshCollections());
+      return TrashStore(
+          onChanged: () => st.refreshCollections(), appState: st);
     }
   }
 
@@ -155,7 +156,8 @@ class _LeftPanelState extends State<LeftPanel> {
             child: ChangeNotifierProvider<TrashStore>(
               create: (_) {
                 final t = TrashStore(
-                    onChanged: () => st.refreshCollections());
+                    onChanged: () => st.refreshCollections(),
+                    appState: st);
                 t.load();
                 return t;
               },
