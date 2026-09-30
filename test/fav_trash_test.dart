@@ -191,4 +191,51 @@ void main() {
         orElse: () => kids.first);
     expect(() => trash.trashNode(c, mark), throwsArgumentError);
   });
+
+  test('D1：30 天过期——load() 丢弃超期条目并把裁剪写回 trash.json', () async {
+    final dir = await labelsDir();
+    final f = File('${dir.path}/trash.json');
+    TrashItem item(String tid, String name, DateTime at) => TrashItem(
+        trashId: tid,
+        kind: 'project',
+        name: name,
+        payloadJson: '{}',
+        deletedAt: at);
+    final now = DateTime.now();
+    await f.writeAsString(jsonEncode([
+      item('t-old', '旧工程', now.subtract(const Duration(days: 31))).toJson(),
+      item('t-edge', '恰好30天', now.subtract(const Duration(days: 30))).toJson(),
+      item('t-new', '新工程', now).toJson(),
+    ]));
+
+    await trash.load();
+
+    // 超 30 天的被丢弃；恰好 30 天（inDays == 30）保留。
+    expect(trash.items.map((e) => e.trashId), ['t-new', 't-edge']);
+    // 裁剪后的列表写回了磁盘。
+    final back = (jsonDecode(await f.readAsString()) as List)
+        .map((e) => (e as Map)['trashId'])
+        .toList();
+    expect(back, ['t-new', 't-edge']);
+  });
+
+  test('D1：未过期时 load() 不重写 trash.json（mtime 不变）', () async {
+    final dir = await labelsDir();
+    final f = File('${dir.path}/trash.json');
+    final now = DateTime.now();
+    await f.writeAsString(jsonEncode([
+      TrashItem(
+              trashId: 't-new',
+              kind: 'project',
+              name: '新工程',
+              payloadJson: '{}',
+              deletedAt: now)
+          .toJson(),
+    ]));
+    final mtime = f.lastModifiedSync();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await trash.load();
+    expect(trash.items, hasLength(1));
+    expect(f.lastModifiedSync(), mtime);
+  });
 }

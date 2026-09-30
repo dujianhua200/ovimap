@@ -85,6 +85,12 @@ class TrashStore extends ChangeNotifier {
               TrashItem.fromJson(Map<String, dynamic>.from(e as Map))));
         _items.sort((a, b) => b.deletedAt.compareTo(a.deletedAt));
       }
+      // D1：30 天过期——deletedAt 超过 30 天的条目自动丢弃，并把裁剪后的
+      // 列表写回 trash.json。解析失败的 deletedAt 兜底为 epoch（必过期被清）。
+      final now = DateTime.now();
+      final before = _items.length;
+      _items.removeWhere((e) => now.difference(e.deletedAt).inDays > 30);
+      if (_items.length != before) await _persist();
     } catch (_) {
       _items.clear();
     }
