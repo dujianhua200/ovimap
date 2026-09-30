@@ -338,7 +338,20 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       backgroundColor: TokC.panelSolid,
-      drawer: FavoritesDrawer(st: st),
+      drawer: FavoritesDrawer(
+        st: st,
+        // 收藏树点位定位：把相机移到该点位（抽屉已关闭；地图未就绪时 _mc.camera 会抛，用 try 保护）。
+        onLocateLabel: (l) {
+          final d = st.toDisplay(l.lat, l.lon);
+          var zoom = 17.0;
+          try {
+            final z = _mc.camera.zoom;
+            if (z > zoom) zoom = z;
+          } catch (_) {}
+          _mc.moveAndRotate(
+              LatLng(d[0], d[1]), zoom, _cam?.rotation ?? 0);
+        },
+      ),
       body: Stack(
         children: [
           // ---- 地图（共享核心） ----
