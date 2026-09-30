@@ -327,10 +327,21 @@ class FavTreeController extends ChangeNotifier {
   }
 
   Future<void> _loadVisibility() async {
+    hiddenIds
+      ..clear()
+      ..addAll(await loadIndexHiddenIds(_store));
+  }
+
+  /// 读 index.json 里 `visible == false` 的 id 集合（纯函数，无副作用）。
+  ///
+  /// D3 双源统一：[AppState.init] 与 [_loadVisibility] 共用——index.json 是
+  /// 较新的写入机制（`visible` 可选字段），跨端/持久化补充，init 时优先剔除。
+  static Future<Set<String>> loadIndexHiddenIds(LabelStore store) async {
+    final out = <String>{};
     try {
-      final dir = await _store.labelsDir();
+      final dir = await store.labelsDir();
       final f = File('${dir.path}/index.json');
-      if (!f.existsSync()) return;
+      if (!f.existsSync()) return out;
       final decoded = jsonDecode(await f.readAsString());
       final List items = decoded is List
           ? decoded
@@ -338,17 +349,22 @@ class FavTreeController extends ChangeNotifier {
       for (final e in items) {
         final m = (e as Map).cast<String, dynamic>();
         final id = m['id'];
-        if (id is String && m['visible'] == false) hiddenIds.add(id);
+        if (id is String && m['visible'] == false) out.add(id);
       }
     } catch (_) {}
+    return out;
   }
 
   /// 把 project 的可见性以可选字段 `visible` 写回 index.json。
   /// 纯加法：只动该字段，其余键原样保留；visible=true 时删掉该键保持文件干净。
   /// 不经过 store.dart（红线：不改其磁盘格式逻辑），此处自包含读写。
-  Future<void> _persistProjectVisible(String cid, bool visible) async {
+  ///
+  /// public static：D3 双源统一——[AppState.toggleVisible]/[AppState.setVisibleBulk]
+  /// 写 prefs 的同时经此双写 index.json（同一份逻辑，不复制）。
+  static Future<void> persistProjectVisible(
+      LabelStore store, String cid, bool visible) async {
     try {
-      final dir = await _store.labelsDir();
+      final dir = await store.labelsDir();
       final f = File('${dir.path}/index.json');
       if (!f.existsSync()) return;
       final decoded = jsonDecode((await f.readAsString()).trim());
@@ -378,6 +394,9 @@ class FavTreeController extends ChangeNotifier {
       await robustWriteAsString(f, jsonEncode({'items': items}));
     } catch (_) {}
   }
+
+  Future<void> _persistProjectVisible(String cid, bool visible) =>
+      persistProjectVisible(_store, cid, visible);
 
   // ---------- 移动操作（全部走现有 store/AppState 方法，不造新格式） ----------
   //

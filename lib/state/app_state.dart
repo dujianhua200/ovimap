@@ -21,6 +21,7 @@ import '../services/loc.dart';
 import '../services/store.dart';
 import '../services/tianditu.dart';
 import '../sync/sync_controller.dart';
+import 'fav_tree_controller.dart';
 import 'undo_stack.dart';
 
 /// 应用模式。
@@ -167,6 +168,7 @@ class AppState extends ChangeNotifier {
   List<CollectionMeta> collections = [];
   List<Folder> folders = [];
   final Set<String> visibleCids = {};
+
   final Map<String, List<MapLabel>> overlayLabels = {};
 
   // ---- 相机 ----
@@ -204,6 +206,10 @@ class AppState extends ChangeNotifier {
         visibleCids.addAll(vis.split(','));
       }
     } catch (_) {}
+
+    // D3 双源统一：index.json 是较新的写入机制（`visible` 可选字段），优先——
+    // index.json 里 visible==false 的 cid 从 visibleCids 剔除。
+    await applyIndexVisibilityOverride();
 
     // 相机
     try {
@@ -1264,38 +1270,55 @@ class AppState extends ChangeNotifier {
   }
 
   void toggleVisible(String cid) {
-    if (visibleCids.contains(cid)) {
-      visibleCids.remove(cid);
-      overlayLabels.remove(cid);
-    } else {
+    final nowVisible = !visibleCids.contains(cid);
+    if (nowVisible) {
       visibleCids.add(cid);
       store.loadCollection(cid).then((ls) {
         overlayLabels[cid] = ls;
         notifyListeners();
       });
+    } else {
+      visibleCids.remove(cid);
+      overlayLabels.remove(cid);
     }
     prefs.setString(prefVisible, visibleCids.join(','));
+    // D3 双源统一：index.json 双写（project `visible` 可选字段，跨端补充）。
+    unawaited(FavTreeController.persistProjectVisible(store, cid, nowVisible));
     notifyListeners();
   }
 
   /// 文件夹级批量显隐（奥维图层管理式）：把 [cids] 全部设为可见/隐藏。
   Future<void> setVisibleBulk(Iterable<String> cids, bool visible) async {
-    var changed = false;
+    final changed = <String>[];
     for (final cid in cids) {
       if (visible && !visibleCids.contains(cid)) {
         visibleCids.add(cid);
-        changed = true;
+        changed.add(cid);
       } else if (!visible && visibleCids.contains(cid)) {
         visibleCids.remove(cid);
         overlayLabels.remove(cid);
-        changed = true;
+        changed.add(cid);
       }
     }
-    if (!changed) return;
+    if (changed.isEmpty) return;
     prefs.setString(prefVisible, visibleCids.join(','));
+    // D3 双源统一：index.json 双写，循环后只写一次。
+    for (final cid in changed) {
+      await FavTreeController.persistProjectVisible(store, cid, visible);
+    }
     if (visible) await _loadVisibleOverlays();
     notifyListeners();
   }
+
+  /// D3 双源统一：init 时把 index.json 里 `visible == false` 的 cid
+  /// 从 [visibleCids] 剔除（index.json 是较新的写入机制，优先于 prefs）。
+  /// 抽成方法以便测试直接覆盖（init 内联调用）。
+  Future<void> applyIndexVisibilityOverride() async {
+    try {
+      visibleCids.removeAll(await FavTreeController.loadIndexHiddenIds(store));
+    } catch (_) {}
+  }
+
 
   /// 打开收藏到编辑器。
   Future<void> openCollection(CollectionMeta meta) async {
