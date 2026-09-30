@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import '../design/drum_plan.dart';
 import '../geo/geo_util.dart';
 import '../models/diff_report.dart';
 import '../models/map_label.dart';
@@ -385,6 +386,43 @@ class CsvExporter {
 
     final dir = await LabelStore.instance.exportDir();
     final f = File('${dir.path}/${sanitizeName(name)}_竣工对比设计.csv');
+    await robustWriteBytes(f, [0xEF, 0xBB, 0xBF, ...utf8.encode(sb.toString())]);
+    return f;
+  }
+
+  // ================= 光缆配盘表 =================
+
+  /// 光缆配盘表 CSV：盘号/段落范围/光缆型号/盘长/已用/利用率/告警。
+  /// [plans] 为 [planDrums] 的输出，[params] 为计算参数（写入表头备查）。
+  static Future<File> exportDrumPlan(
+      String name, List<DrumPlan> plans, DrumPlanParams params) async {
+    final sb = StringBuffer();
+    sb.write('光缆配盘表\r\n');
+    sb.write('单盘盘长(米),${params.drumLengthM.toStringAsFixed(0)}\r\n');
+    sb.write('接头预留(米/处),${params.spliceSlackM.toStringAsFixed(1)}\r\n');
+    sb.write('引上预留(米/处),'
+        '${params.countRiserSlack ? params.riserSlackM.toStringAsFixed(1) : '未计入'}\r\n');
+    sb.write('敷设方式,${_csvEscape(params.layingMethod)}\r\n');
+    sb.write('余缆告警阈值(米),${params.minRemnantM.toStringAsFixed(0)}\r\n');
+    sb.write('\r\n');
+    sb.write('盘号,段落范围,光缆型号,盘长(米),已用(米),利用率,告警\r\n');
+    for (final d in plans) {
+      sb.write('${d.drumNo},'
+          '${_csvEscape(d.segs)},'
+          '${_csvEscape(d.cableModel)},'
+          '${d.drumLengthM.toStringAsFixed(0)},'
+          '${d.usedM.toStringAsFixed(1)},'
+          '${(d.utilization * 100).toStringAsFixed(1)}%,'
+          '${_csvEscape(d.warnings.join('；'))}\r\n');
+    }
+    if (plans.isEmpty) {
+      sb.write('提示,无段落数据（工程内没有可成链的点位）,,\r\n');
+    }
+    sb.write('\r\n口径说明,每段需求=丈量长+接头预留(+引上预留)；'
+        '同盘型号一致；段长取人工确认值(distanceM)或坐标计算值\r\n');
+
+    final dir = await LabelStore.instance.exportDir();
+    final f = File('${dir.path}/${sanitizeName(name)}_配盘表.csv');
     await robustWriteBytes(f, [0xEF, 0xBB, 0xBF, ...utf8.encode(sb.toString())]);
     return f;
   }
