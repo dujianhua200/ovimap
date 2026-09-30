@@ -104,6 +104,7 @@ void main() {
               onUndo: () {},
               onRedo: () {},
               onDeleteSelection: () => deleted++,
+              onRename: () {},
               onExport: () {},
               onFocusSearch: () {},
               onOpenProject: () {},

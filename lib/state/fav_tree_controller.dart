@@ -149,6 +149,9 @@ class FavTreeController extends ChangeNotifier {
 
   FavNode? find(String id) => _index[id];
 
+  /// 索引中的全部节点 id（含已懒加载的子节点）：Ctrl+A 全选的口径。
+  Iterable<String> get allIndexedIds => _index.keys;
+
   /// 从根到该节点的路径（含自身）；id 不存在或成环时返回已走部分。
   List<FavNode> pathOf(String id) {
     final path = <FavNode>[];

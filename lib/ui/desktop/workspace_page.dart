@@ -15,11 +15,13 @@ import '../../services/platform_caps.dart';
 import '../../services/tile_cache.dart';
 import '../../services/track_check.dart';
 import '../../state/app_state.dart';
+import '../../state/fav_tree_controller.dart';
 import '../../state/undo_stack.dart';
 import '../../sync/sync_controller.dart';
 import '../design_tokens.dart';
 import '../dialogs.dart';
 import '../export_center.dart';
+import '../favorites/tree_keys.dart';
 import '../map/map_canvas.dart';
 import '../sync/sync_panel.dart';
 import 'app_menu_bar.dart';
@@ -726,6 +728,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
       onUndo: _undo,
       onRedo: _redo,
       onDeleteSelection: _deleteSelection,
+      // F2（全局，焦点在地图等非树区域时）：重命名左栏当前树选择；
+      // 焦点在树内时由 TreeKeyHandler 的同名 Intent 优先处理。
+      onRename: () =>
+          renameTreeSelection(context, context.read<FavTreeController>()),
       onExport: _export,
       onFocusSearch: _focusSearch,
       onOpenProject: _openProjectFile,

@@ -40,6 +40,8 @@ import 'package:flutter/services.dart';
 /// | Esc | [EscapeIntent] | 取消当前操作 / 结束模式 | 非编辑态 |
 /// | Backspace | [UndoPointIntent] | 退掉最后一个点/连线 | 非编辑态 |
 /// | Delete | [DeleteSelectionIntent] | 删除选中点 | 非编辑态 |
+/// | F2 | [RenameIntent] | 重命名当前选中的单个收藏树节点 | 非编辑态 |
+/// （收藏树内 Ctrl+A 全选见 [TreeKeyHandler]，同样仅非编辑态注册。）
 class SaveIntent extends Intent {
   const SaveIntent();
 }
@@ -57,6 +59,21 @@ class RedoIntent extends Intent {
 /// Delete：删除选择集。
 class DeleteSelectionIntent extends Intent {
   const DeleteSelectionIntent();
+}
+
+/// F2：重命名当前选中的单个收藏树节点。
+///
+/// 裸键：按规则 1 仅在非文本编辑态注册（见 [TreeKeyHandler]，桌面/移动共用）。
+class RenameIntent extends Intent {
+  const RenameIntent();
+}
+
+/// Ctrl+A / ⌘A：全选收藏树索引中的全部节点。
+///
+/// 仅由 [TreeKeyHandler] 在非文本编辑态注册（搜索框里的 Ctrl+A 仍是全选文本），
+/// 不进全局表。
+class SelectAllIntent extends Intent {
+  const SelectAllIntent();
 }
 
 /// Ctrl+E：打开导出。
@@ -128,6 +145,7 @@ class DesktopShortcuts extends StatefulWidget {
     required this.onUndo,
     required this.onRedo,
     required this.onDeleteSelection,
+    required this.onRename,
     required this.onExport,
     required this.onFocusSearch,
     required this.onOpenProject,
@@ -147,6 +165,10 @@ class DesktopShortcuts extends StatefulWidget {
   final VoidCallback onUndo;
   final VoidCallback onRedo;
   final VoidCallback onDeleteSelection;
+
+  /// F2：重命名当前选中的单个收藏树节点（焦点在地图等非树区域时生效；
+  /// 焦点在树内时由 [TreeKeyHandler] 的同名 Intent 优先处理）。
+  final VoidCallback onRename;
   final VoidCallback onExport;
   final VoidCallback onFocusSearch;
   final VoidCallback onOpenProject;
@@ -291,6 +313,7 @@ class _DesktopShortcutsState extends State<DesktopShortcuts> {
             const UndoPointIntent(),
         const SingleActivator(LogicalKeyboardKey.delete):
             const DeleteSelectionIntent(),
+        const SingleActivator(LogicalKeyboardKey.f2): const RenameIntent(),
       },
     };
 
@@ -306,6 +329,8 @@ class _DesktopShortcutsState extends State<DesktopShortcuts> {
               onInvoke: (_) => _run(widget.onRedo)),
           DeleteSelectionIntent: CallbackAction<DeleteSelectionIntent>(
               onInvoke: (_) => _run(widget.onDeleteSelection)),
+          RenameIntent: CallbackAction<RenameIntent>(
+              onInvoke: (_) => _run(widget.onRename)),
           ExportIntent: CallbackAction<ExportIntent>(
               onInvoke: (_) => _run(widget.onExport)),
           FocusSearchIntent: CallbackAction<FocusSearchIntent>(

@@ -15,6 +15,7 @@ import 'favorites/fav_mobile_actions.dart';
 import 'favorites/fav_tree.dart';
 import 'favorites/select_bar.dart';
 import 'favorites/trash.dart';
+import 'favorites/tree_keys.dart';
 import 'sync/sync_panel.dart';
 
 /// 收藏夹抽屉（移动端）：奥维式收藏树。
@@ -104,39 +105,45 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
           backgroundColor: TokC.panelSolid,
           child: SafeArea(
             // 整抽屉跟随控制器刷新：多选计数等保持最新（树体内部另有监听）。
+            // F2 重命名 / Ctrl+A 全选走共享 [TreeKeyHandler]（移动硬件键盘生效；
+            // autofocus 让抽屉打开即有焦点，文本编辑态自动让出 Ctrl+A）。
             child: ListenableBuilder(
               listenable: c,
-              builder: (_, _) => Column(
-                children: [
-                  _header(ctx, c),
-                  _searchBar(),
-                  const Divider(height: 1, color: TokC.divider),
-                  Expanded(
-                    child: FavTree(
-                      controller: c,
-                      compact: true,
-                      query: _query,
-                      onLocate: _onLocate,
-                      onOpenProject: _onOpenProject,
-                      // 移动端：工程行同步状态徽标
-                      // （T17：SyncController? 可空接入，AOT 安全）。
-                      // 「⋯」菜单由 FavTree 在 compact 模式内置，
-                      // 这里只补徽标（旧抽屉的 per-row 徽标能力不丢失）。
-                      projectTrailing: (mctx, node) {
-                        final sync = mctx.watch<SyncController?>();
-                        final status =
-                            sync?.statusFor(node.id) ?? SyncStatus.localOnly;
-                        return SyncBadge(status: status);
-                      },
-                      // 移动端：行尾「⋯」由 FavTree 内置（所有行），菜单追加项为
-                      // 7 个旧抽屉独有工程操作（同步该工程/历史版本/拓扑连线/
-                      // 配线图PNG/竣工成册/导入箱体/竣工对比设计）。
-                      menuExtra: favMobileProjectExtra(),
+              builder: (_, _) => TreeKeyHandler(
+                controller: c,
+                autofocus: true,
+                child: Column(
+                  children: [
+                    _header(ctx, c),
+                    _searchBar(),
+                    const Divider(height: 1, color: TokC.divider),
+                    Expanded(
+                      child: FavTree(
+                        controller: c,
+                        compact: true,
+                        query: _query,
+                        onLocate: _onLocate,
+                        onOpenProject: _onOpenProject,
+                        // 移动端：工程行同步状态徽标
+                        // （T17：SyncController? 可空接入，AOT 安全）。
+                        // 「⋯」菜单由 FavTree 在 compact 模式内置，
+                        // 这里只补徽标（旧抽屉的 per-row 徽标能力不丢失）。
+                        projectTrailing: (mctx, node) {
+                          final sync = mctx.watch<SyncController?>();
+                          final status =
+                              sync?.statusFor(node.id) ?? SyncStatus.localOnly;
+                          return SyncBadge(status: status);
+                        },
+                        // 移动端：行尾「⋯」由 FavTree 内置（所有行），菜单追加项为
+                        // 7 个旧抽屉独有工程操作（同步该工程/历史版本/拓扑连线/
+                        // 配线图PNG/竣工成册/导入箱体/竣工对比设计）。
+                        menuExtra: favMobileProjectExtra(),
+                      ),
                     ),
-                  ),
-                  // 多选模式：底部批量操作条（无选中时内部渲染为空）。
-                  FavSelectBar(controller: c, isDesktop: false),
-                ],
+                    // 多选模式：底部批量操作条（无选中时内部渲染为空）。
+                    FavSelectBar(controller: c, isDesktop: false),
+                  ],
+                ),
               ),
             ),
           ),
