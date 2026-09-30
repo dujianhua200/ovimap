@@ -10,7 +10,6 @@ import '../../state/undo_stack.dart';
 import '../design_tokens.dart';
 import '../dialogs.dart';
 import 'fav_actions.dart';
-import 'trash.dart';
 import 'tree_drag.dart';
 
 /// 收藏树多选操作条（桌面/移动共用；移动线直接用）。
@@ -171,102 +170,24 @@ class FavSelectBar extends StatelessWidget {
     }
     final picked = await pickProjectStyle(context);
     if (picked == null || !context.mounted) return;
+    var failCount = 0;
     for (final p in projects) {
       // 经 controller 的 undoable 包裹（内部刷新），可撤销；不直接调 store。
-      await controller.setCollectionStyleUndoable(p.id, picked.$1, picked.$2);
+      if (!await controller.setCollectionStyleUndoable(
+          p.id, picked.$1, picked.$2)) {
+        failCount++;
+      }
     }
     if (context.mounted) {
-      toast(context, '已更新 ${projects.length} 个工程的样式');
+      toast(context,
+          failCount == 0
+              ? '已更新 ${projects.length} 个工程的样式'
+              : '样式更新完成，$failCount 个工程失败（条目已失效）');
     }
   }
 
-  Future<void> _delete(BuildContext context) async {
-    final st = Provider.of<AppState>(context, listen: false);
-    final trash = _trashOf(context, st);
-    final nodes = _selectedNodes();
-    if (nodes.isEmpty) return;
-
-    // 文件夹级联会带走整棵子树：子树内的工程/标记先剔除，避免重复处理。
-    final doomedFolders = <String>{};
-    for (final n in nodes) {
-      if (!n.isFolder) continue;
-      doomedFolders.add(n.id);
-      var grew = true;
-      while (grew) {
-        grew = false;
-        for (final f in controller.folders) {
-          if (doomedFolders.contains(f.pid) &&
-              doomedFolders.add(f.id)) {
-            grew = true;
-          }
-        }
-      }
-    }
-    bool inDoomed(FavNode n) {
-      if (n.isFolder) return false; // 文件夹自身走 trashNode
-      final pid = n.isProject
-          ? n.pid
-          : (controller.find(n.labelCid ?? '')?.pid ?? '');
-      return doomedFolders.contains(pid);
-    }
-
-    final folders = <FavNode>[];
-    final projects = <FavNode>[];
-    final marks = <FavNode>[];
-    for (final n in nodes) {
-      if (inDoomed(n)) continue;
-      if (n.isFolder) {
-        folders.add(n);
-      } else if (n.isProject) {
-        projects.add(n);
-      } else if (n.isMark && n.label != null) {
-        marks.add(n);
-      } else if (n.isChain) {
-        for (final m in await controller.childrenOf(n.id)) {
-          if (m.isMark && m.label != null) marks.add(m);
-        }
-      }
-    }
-    final parts = <String>[
-      if (folders.isNotEmpty) '${folders.length} 个文件夹（含子树）',
-      if (projects.isNotEmpty) '${projects.length} 个工程',
-      if (marks.isNotEmpty) '${marks.length} 个标记',
-    ];
-    if (parts.isEmpty) {
-      if (!context.mounted) return;
-      toast(context, '所选条目已失效');
-      controller.clearSelection();
-      return;
-    }
-    if (!context.mounted) return;
-    final ok = await askConfirm(context,
-        title: '删除所选',
-        content:
-            '将删除：${parts.join('、')}。\n文件夹与工程进回收站（可还原），标记直接删除。确定？',
-        okText: '删除');
-    if (!ok || !context.mounted) return;
-    for (final f in folders) {
-      await trash.trashNode(controller, f);
-      if (!context.mounted) return;
-    }
-    for (final p in projects) {
-      await trash.trashNode(controller, p);
-      if (!context.mounted) return;
-    }
-    for (final m in marks) {
-      await st.removeOverlayLabel(m.labelCid ?? '', m.label!);
-      if (!context.mounted) return;
-    }
-    controller.clearSelection();
-    if (context.mounted) toast(context, '已删除所选（文件夹/工程已进回收站）');
-  }
-}
-
-TrashStore _trashOf(BuildContext context, AppState st) {
-  try {
-    return Provider.of<TrashStore>(context, listen: false);
-  } catch (_) {
-    return TrashStore(
-        onChanged: () => st.refreshCollections(), appState: st);
-  }
+  /// 删除所选：收敛到 fav_actions 的共享实现（与桌面左栏 Delete/Backspace
+  /// 快捷键同一套；批量标记合并为一条撤销记录）。
+  Future<void> _delete(BuildContext context) =>
+      deleteSelectedTreeNodes(context, controller);
 }

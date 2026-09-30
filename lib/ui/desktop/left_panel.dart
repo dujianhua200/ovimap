@@ -19,6 +19,7 @@ import '../favorites/fav_actions.dart';
 import '../favorites/fav_tree.dart';
 import '../favorites/select_bar.dart';
 import '../favorites/trash.dart';
+import '../favorites/tree_keys.dart';
 import '../favorites/tree_menus.dart';
 import '../sync/sync_panel.dart';
 import 'batch_export.dart';
@@ -122,33 +123,28 @@ class _LeftPanelState extends State<LeftPanel> {
     super.dispose();
   }
 
-  TrashStore _trashOf() {
-    try {
-      return Provider.of<TrashStore>(context, listen: false);
-    } catch (_) {
-      return TrashStore(
-          onChanged: () => st.refreshCollections(), appState: st);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = _ctrl!;
-    // Delete / Backspace 删除所选（奥维同款）；批量选择必须**看得见**——
-    // 标题栏按钮 + 右键菜单 + 快捷键三条路都给（用户反馈只靠 Ctrl 找不到）。
-    // ⚠️ Focus(autofocus: true) 让 Delete/Ctrl+A 快捷键真正生效（此前无焦点不触发）。
+    // Delete / Backspace 删除所选（奥维同款）；F2 重命名 / Ctrl+A 全选由共享
+    // [TreeKeyHandler] 提供（桌面/移动硬件键盘同一套逻辑）；
+    // 批量选择必须**看得见**——标题栏按钮 + 右键菜单 + 快捷键三条路都给
+    // （用户反馈只靠 Ctrl 找不到）。
+    // ⚠️ Focus(autofocus: true) 让 Delete 等快捷键真正生效（此前无焦点不触发）。
     return ListenableBuilder(
       listenable: st,
-      builder: (ctx, _) => CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.delete): _deleteSelected,
-          const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelected,
-          const SingleActivator(LogicalKeyboardKey.keyA, control: true):
-              _selectAll,
-        },
-        child: Focus(
-          autofocus: true,
-          child: Container(
+      // TreeKeyHandler 必须在 autofocus Focus **之上**：按键事件从焦点节点
+      // 向上冒泡，Shortcuts 只有位于焦点祖先链上才能收到。
+      builder: (ctx, _) => TreeKeyHandler(
+        controller: c,
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.delete): _deleteSelected,
+            const SingleActivator(LogicalKeyboardKey.backspace): _deleteSelected,
+          },
+          child: Focus(
+            autofocus: true,
+            child: Container(
             color: TokC.panelSolid,
             // TrashStore 提给子树（含 FavSelectBar / showFavNodeMenu 的
             // _trashOf 回退查找）：面板内单实例，徽标与批量删除共用。
@@ -197,6 +193,7 @@ class _LeftPanelState extends State<LeftPanel> {
                 ),
               ),
             ),
+          ),
           ),
         ),
       ),
@@ -360,106 +357,14 @@ class _LeftPanelState extends State<LeftPanel> {
     await batchExportDxf(context, st, targets);
   }
 
-  // ---------- 多选：全选 / 删除所选 ----------
+  // ---------- 多选：删除所选 ----------
+  //
+  // 全选（Ctrl+A）/ 重命名（F2）由共享 [TreeKeyHandler] 提供，逻辑只写一遍。
 
-  /// 全选：全部文件夹 + 工程（标记需展开工程后单独选；与 [FavSelectBar] 同口径）。
-  void _selectAll() {
-    final c = _ctrl!;
-    c.selectAll([
-      for (final f in c.folders) f.id,
-      for (final p in c.projects) p.id,
-    ]);
-    toast(context, '已全选 ${c.selected.length} 项，Delete 或工具条删除');
-  }
-
-  /// 删除所选：文件夹（级联）/ 工程 / 标记点三类混合，一次确认全部处理。
-  ///
-  /// 语义与共享 [FavSelectBar] 的删除一致（文件夹/工程进回收站，标记直接删）；
-  /// favorites/ 已冻结、其删除逻辑为私有，此处保留一份桌面侧实现，
-  /// 供 Delete/Backspace 快捷键与右键「删除所选 N 项」共用。
-  Future<void> _deleteSelected() async {
-    final c = _ctrl!;
-    final trash = _trashOf();
-    final nodes = [
-      for (final id in c.selected) c.find(id),
-    ].whereType<FavNode>().toList();
-    if (nodes.isEmpty) {
-      toast(context, '先选条目（点击 / Ctrl 多选 / Ctrl+A 全选）');
-      return;
-    }
-
-    // 文件夹级联会带走整棵子树：子树内的工程/标记先剔除，避免重复处理。
-    final doomedFolders = <String>{};
-    for (final n in nodes) {
-      if (!n.isFolder) continue;
-      doomedFolders.add(n.id);
-      var grew = true;
-      while (grew) {
-        grew = false;
-        for (final f in c.folders) {
-          if (doomedFolders.contains(f.pid) && doomedFolders.add(f.id)) {
-            grew = true;
-          }
-        }
-      }
-    }
-    bool inDoomed(FavNode n) {
-      if (n.isFolder) return false; // 文件夹自身走 trashNode
-      final pid =
-          n.isProject ? n.pid : (c.find(n.labelCid ?? '')?.pid ?? '');
-      return doomedFolders.contains(pid);
-    }
-
-    final folders = <FavNode>[];
-    final projects = <FavNode>[];
-    final marks = <FavNode>[];
-    for (final n in nodes) {
-      if (inDoomed(n)) continue;
-      if (n.isFolder) {
-        folders.add(n);
-      } else if (n.isProject) {
-        projects.add(n);
-      } else if (n.isMark && n.label != null) {
-        marks.add(n);
-      } else if (n.isChain) {
-        for (final m in await c.childrenOf(n.id)) {
-          if (m.isMark && m.label != null) marks.add(m);
-        }
-      }
-    }
-    final parts = <String>[
-      if (folders.isNotEmpty) '${folders.length} 个文件夹（含子树）',
-      if (projects.isNotEmpty) '${projects.length} 个工程',
-      if (marks.isNotEmpty) '${marks.length} 个标记',
-    ];
-    if (parts.isEmpty) {
-      if (!mounted) return;
-      toast(context, '所选条目已失效');
-      c.clearSelection();
-      return;
-    }
-    if (!mounted) return;
-    final ok = await askConfirm(context,
-        title: '删除所选',
-        content:
-            '将删除：${parts.join('、')}。\n文件夹与工程进回收站（可还原），标记直接删除。确定？',
-        okText: '删除');
-    if (!ok || !mounted) return;
-    for (final f in folders) {
-      await trash.trashNode(c, f);
-      if (!mounted) return;
-    }
-    for (final p in projects) {
-      await trash.trashNode(c, p);
-      if (!mounted) return;
-    }
-    for (final m in marks) {
-      await st.removeOverlayLabel(m.labelCid ?? '', m.label!);
-      if (!mounted) return;
-    }
-    c.clearSelection();
-    if (mounted) toast(context, '已删除所选（文件夹/工程已进回收站）');
-  }
+  /// 删除所选：收敛到 fav_actions 的共享实现（与 [FavSelectBar] 同一套，
+  /// W1 遗留收敛项；批量标记合并为一条撤销记录）。
+  Future<void> _deleteSelected() =>
+      deleteSelectedTreeNodes(context, _ctrl!);
 
   // ---------- 桌面特有右键菜单项 ----------
 
