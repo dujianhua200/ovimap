@@ -29,6 +29,38 @@ class FavTreeController extends ChangeNotifier {
   final AppState _st;
   LabelStore get _store => _st.store;
 
+  // ---------- Phase 2 共享组件用的公开访问（纯加法） ----------
+
+  /// 宿主 [AppState]（回收站/显隐联动等共享组件用）。
+  AppState get appState => _st;
+
+  /// 底层 [LabelStore]（回收站读写 trash.json 等用；不绕过磁盘格式）。
+  LabelStore get store => _store;
+
+  /// 点位真相源（公开版 [_labelsOf]）：含未展开工程的 labels，走磁盘缓存，
+  /// 绝不读 [AppState.overlayLabels]。返回拷贝，调用方不要原地修改。
+  Future<List<MapLabel>> labelsOf(String cid) async =>
+      List<MapLabel>.of(await _labelsOf(cid));
+
+  /// 全部文件夹 / 工程节点（搜索、全选、文件夹选择器等用）。
+  Iterable<FavNode> get folders => _folderNodes;
+  Iterable<FavNode> get projects => _projectNodes;
+
+  /// [folderId] 下（含子孙文件夹）的全部工程 cid（文件夹级显隐联动用）。
+  List<String> projectCidsUnder(String folderId) {
+    final folderIds = _descendantFolderIds(folderId)..add(folderId);
+    return [
+      for (final p in _projectNodes)
+        if (folderIds.contains(p.pid)) p.id,
+    ];
+  }
+
+  /// 公开版成环检查（拖拽预检用）。
+  bool wouldCycle(String fid, String parentId) => _wouldCycle(fid, parentId);
+
+  /// 对外触发一次树刷新通知（首帧可见性对齐等"只改内存"的场景用）。
+  void notifyTreeChanged() => notifyListeners();
+
   late final Future<void> _ready;
 
   /// 构造后触发的异步初始化（读可见性 + 建树）完成信号；测试与 UI 可 await。
