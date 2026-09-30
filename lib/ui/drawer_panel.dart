@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../export/kml.dart';
+import '../design/project_wizard_page.dart';
 import '../models/fav_node.dart';
 import '../models/map_label.dart';
 import '../state/app_state.dart';
@@ -188,6 +189,14 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
             tooltip: '新建文件夹（建在当前选中层）',
             onPressed: () => _addFolder(context, c),
             icon: const Icon(Icons.create_new_folder_outlined,
+                color: kAccent, size: 20),
+          ),
+          // 工程向导：从模板一键生成目录结构（可选分支；原有直接新建流程不动）。
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: '从模板新建（工程向导）',
+            onPressed: () => showProjectWizardDialog(context, controller: c),
+            icon: const Icon(Icons.auto_awesome_outlined,
                 color: kAccent, size: 20),
           ),
           _trashButton(context, c),

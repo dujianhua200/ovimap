@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../models/fav_node.dart';
 import '../../models/map_label.dart';
 import '../../design/design_menu_extra.dart';
+import '../../design/project_wizard_page.dart';
 import '../../survey/survey_menu_extra.dart';
 import '../../services/store.dart';
 import '../../state/app_state.dart';
@@ -28,7 +29,8 @@ import 'batch_export.dart';
 
 /// 桌面左栏（Phase 2 收尾：树体换共享 [FavTree]，旧 1460 行自绘实现退役）。
 ///
-/// 内容自上而下：标题 + 新建工程 / 新建文件夹 / 回收站 → 搜索框 →
+/// 内容自上而下：标题 + 新建工程 / 新建文件夹 / 从模板新建（工程向导） /
+/// 回收站 → 搜索框 →
 /// 共享收藏树（[FavTree]，compact: false 桌面行高）→ 底部多选操作条
 /// （[FavSelectBar]，isDesktop: true）→ 底部「导入区」（点击选文件 /
 /// 应用内拖拽 → `.ovimap`/`.geojson` 分派，T21）。
@@ -237,6 +239,15 @@ class _LeftPanelState extends State<LeftPanel> {
             tooltip: '新建文件夹（建在当前选中层）',
             onPressed: _addFolder,
             icon: const Icon(Icons.create_new_folder_outlined,
+                color: kAccent, size: 20),
+          ),
+          // 工程向导：从模板一键生成目录结构（可选分支；原有直接新建流程不动）。
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: '从模板新建（工程向导）',
+            onPressed: () =>
+                showProjectWizardDialog(context, controller: c),
+            icon: const Icon(Icons.auto_awesome_outlined,
                 color: kAccent, size: 20),
           ),
           // 有选中时：批量导出所选工程（DXF，T21 旧能力保留）。
