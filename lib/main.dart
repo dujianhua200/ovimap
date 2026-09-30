@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 
 import 'services/platform_caps.dart';
 import 'state/app_state.dart';
+import 'state/fav_tree_controller.dart';
 import 'sync/sync_controller.dart';
 import 'ui/desktop/workspace_page.dart';
+import 'ui/favorites/trash.dart';
 import 'ui/home_page.dart';
 
 void main(List<String> args) {
@@ -54,6 +56,18 @@ class OviMapApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<AppState>(
           create: (_) => AppState(startupProjectPath: startupProjectPath)..init(),
+        ),
+        // 收藏树统一控制器（Phase 2）：桌面/移动收藏夹 UI 的唯一数据源；
+        // 点位真相源只走它，不碰 AppState.overlayLabels（审计问题 2）。
+        ChangeNotifierProvider<FavTreeController>(
+          create: (ctx) => FavTreeController(ctx.read<AppState>()),
+        ),
+        // 回收站（Phase 2，审计问题 8）：删除进回收站，可还原/彻底删除；
+        // 数据文件为 labels/trash.json（新增文件，磁盘格式零改动）。
+        ChangeNotifierProvider<TrashStore>(
+          create: (ctx) => TrashStore(
+              onChanged: () => ctx.read<AppState>().refreshCollections())
+            ..load(),
         ),
         // 云同步编排器（T15/T16）：单个 `SYNC_TOKEN` 单用户多设备，不做账号体系。
         // 与 AppState 通过回调接线（`AppState.attachSyncController`），避免循环依赖。
