@@ -97,6 +97,15 @@ class DesignDiffReport {
       poles.where((p) => p.status != DiffStatus.same).toList();
 }
 
+/// 杆位行是否超阈红显：[DiffStatus.moved]（偏移 > 阈值）才红；
+/// 偏移恰好 = 阈值（边界）时状态为 same，不红。
+bool diffPoleOverThreshold(DiffPoleItem p) => p.status == DiffStatus.moved;
+
+/// 段长行是否超阈红显：|差值| > [segDeltaThreshold] 才红；
+/// 恰好 = 阈值（边界）时不红。
+bool diffSegOverThreshold(DiffSegItem s, double segDeltaThreshold) =>
+    s.deltaM.abs() > segDeltaThreshold;
+
 /// 批量属性编辑指令：可空字段 = 不改。
 ///
 /// · [segKind] null=不改；

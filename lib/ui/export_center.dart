@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../export/archive_book.dart';
 import '../export/csv.dart';
@@ -196,22 +197,66 @@ Future<void> _showDiffReport(
   List<MapLabel> design,
   List<MapLabel> comp,
 ) async {
-  var threshold = 1.0;
+  // 阈值记忆：沿用上次选择（showDxfOptions 的 dxf* 口径）；默认 偏移 10m / 段长偏差 5m。
+  final prefs = await SharedPreferences.getInstance();
+  var offsetThreshold = prefs.getDouble('diffOffsetM') ?? 10.0;
+  var segThreshold = prefs.getDouble('diffSegDeltaM') ?? 5.0;
   var onlyChanged = false;
-  final thCtl = TextEditingController(text: '1.0');
+  final offCtl = TextEditingController(text: _fmtM(offsetThreshold));
+  final segCtl = TextEditingController(text: _fmtM(segThreshold));
   final name =
       completionMeta.name.isEmpty ? '未命名项目' : completionMeta.name;
 
+  if (!context.mounted) return;
   await showDarkDialog(
     context,
     title: '变更对照：$name',
     content: StatefulBuilder(
       builder: (ctx, setSt) {
         final report = CsvExporter.buildDesignDiff(design, comp,
-            offsetThreshold: threshold);
-        final poles = onlyChanged ? report.changedPoles : report.poles;
+            offsetThreshold: offsetThreshold);
+        final poles =
+            onlyChanged ? report.changedPoles : report.poles;
+        int byStatus(DiffStatus s) =>
+            poles.where((p) => p.status == s).length;
+        final added = poles
+            .where((p) => p.status == DiffStatus.added)
+            .toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+        final removed = poles
+            .where((p) => p.status == DiffStatus.removed)
+            .toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+        // 偏移组按偏移量降序：偏差最大的排前面。
+        final moved = poles
+            .where((p) => p.status == DiffStatus.moved)
+            .toList()
+          ..sort((a, b) => b.offsetM.compareTo(a.offsetM));
+        final same = poles
+            .where((p) => p.status == DiffStatus.same)
+            .toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+        // 段距表按 |差值| 降序：变化最大的杆段排前面。
+        final segs = [...report.segs]
+          ..sort((a, b) => b.deltaM.abs().compareTo(a.deltaM.abs()));
         final s = report.summary;
         final maxH = MediaQuery.of(ctx).size.height * 0.58;
+
+        void applyThresholds() {
+          final o = double.tryParse(offCtl.text.trim());
+          final g = double.tryParse(segCtl.text.trim());
+          if (o == null || o < 0 || g == null || g < 0) {
+            toast(ctx, '阈值无效（需为非负数）');
+            return;
+          }
+          prefs.setDouble('diffOffsetM', o);
+          prefs.setDouble('diffSegDeltaM', g);
+          setSt(() {
+            offsetThreshold = o;
+            segThreshold = g;
+          });
+        }
+
         return SizedBox(
           width: double.maxFinite,
           child: ConstrainedBox(
@@ -226,38 +271,47 @@ Future<void> _showDiffReport(
                   const SizedBox(height: 6),
                   _sumRow('新增杆位', '${s.added}', TokC.ok),
                   _sumRow('缺失杆位', '${s.removed}', TokC.danger),
-                  _sumRow('偏移杆位', '${s.moved}', TokC.warn),
+                  _sumRow('偏移杆位', '${s.moved}', TokC.danger),
                   _sumRow('一致杆位', '${s.kept}', kTextSub),
                   _sumRow('净长度差', '${s.netLenDiffM.toStringAsFixed(1)} m',
                       kTextMain),
                   const Divider(color: TokC.divider),
+                  // —— 阈值设置（对话框顶部可调，记住上次选择） ——
+                  const Text('阈值设置',
+                      style: TextStyle(color: kAccent, fontSize: 12.5)),
+                  const SizedBox(height: 4),
                   Row(children: [
-                    const Text('偏移阈值(米)',
+                    const Text('偏移(米)',
                         style: TextStyle(color: kTextMain, fontSize: 12.5)),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: TextField(
-                        controller: thCtl,
+                        controller: offCtl,
                         keyboardType: const TextInputType.numberWithOptions(
                             decimal: true),
                         style:
                             const TextStyle(color: kTextMain, fontSize: 13),
-                        decoration: dec('1.0'),
-                        onSubmitted: (v) {
-                          final d = double.tryParse(v.trim());
-                          if (d != null && d >= 0) setSt(() => threshold = d);
-                        },
+                        decoration: dec('10'),
+                        onSubmitted: (_) => applyThresholds(),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text('段长偏差(米)',
+                        style: TextStyle(color: kTextMain, fontSize: 12.5)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: TextField(
+                        controller: segCtl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        style:
+                            const TextStyle(color: kTextMain, fontSize: 13),
+                        decoration: dec('5'),
+                        onSubmitted: (_) => applyThresholds(),
                       ),
                     ),
                     TextButton(
-                      onPressed: () {
-                        final d = double.tryParse(thCtl.text.trim());
-                        if (d != null && d >= 0) {
-                          setSt(() => threshold = d);
-                        } else {
-                          toast(ctx, '阈值无效');
-                        }
-                      },
+                      onPressed: applyThresholds,
                       child: const Text('应用',
                           style: TextStyle(color: kAccent)),
                     ),
@@ -271,13 +325,37 @@ Future<void> _showDiffReport(
                     onChanged: (v) => setSt(() => onlyChanged = v),
                   ),
                   const SizedBox(height: 4),
-                  Text('杆位对照（${poles.length}/${report.poles.length}）',
+                  // —— 杆位对照：按 新增/缺失/偏移/一致 分组小节 ——
+                  const Text('杆位对照',
+                      style: TextStyle(color: kAccent, fontSize: 12.5)),
+                  if (byStatus(DiffStatus.added) > 0) ...[
+                    _diffGroup('新增杆位', added.length, TokC.ok),
+                    for (final p in added) _poleRow(p),
+                  ],
+                  if (byStatus(DiffStatus.removed) > 0) ...[
+                    _diffGroup('缺失杆位', removed.length, TokC.danger),
+                    for (final p in removed) _poleRow(p),
+                  ],
+                  if (byStatus(DiffStatus.moved) > 0) ...[
+                    _diffGroup('偏移杆位（超 ${offsetThreshold.toStringAsFixed(0)} 米阈值）',
+                        moved.length, TokC.danger),
+                    for (final p in moved) _poleRow(p),
+                  ],
+                  if (!onlyChanged && byStatus(DiffStatus.same) > 0) ...[
+                    _diffGroup('一致杆位', same.length, kTextSub),
+                    for (final p in same) _poleRow(p),
+                  ],
+                  if (poles.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text('无变更项',
+                          style: TextStyle(color: kTextSub, fontSize: 11.5)),
+                    ),
+                  const SizedBox(height: 6),
+                  // —— 光缆长度变化：同名相邻杆段距对照 ——
+                  Text('光缆长度变化（${segs.length} 段）',
                       style: const TextStyle(color: kAccent, fontSize: 12.5)),
-                  for (final p in poles) _poleRow(p),
-                  const SizedBox(height: 10),
-                  Text('段距对比（${report.segs.length}）',
-                      style: const TextStyle(color: kAccent, fontSize: 12.5)),
-                  if (report.segs.isEmpty)
+                  if (segs.isEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(report.notes.join('；'),
@@ -285,7 +363,7 @@ Future<void> _showDiffReport(
                               color: kTextSub, fontSize: 11.5)),
                     )
                   else
-                    for (final seg in report.segs) _segRow(seg),
+                    for (final seg in segs) _segRow(seg, segThreshold),
                 ],
               ),
             ),
@@ -297,7 +375,7 @@ Future<void> _showDiffReport(
       darkTextBtn('导出 CSV', () async {
         try {
           final f = await CsvExporter.exportDesignDiff(name, design, comp,
-              offsetThreshold: threshold);
+              offsetThreshold: offsetThreshold);
           if (context.mounted) shareFile(context, f);
         } catch (e) {
           if (context.mounted) toast(context, '导出失败：$e');
@@ -307,6 +385,17 @@ Future<void> _showDiffReport(
     ],
   );
 }
+
+String _fmtM(double v) =>
+    v == v.roundToDouble() ? '${v.round()}' : '$v';
+
+/// 偏差表分组小节标题：`名称（n）`。
+Widget _diffGroup(String label, int count, Color color) => Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 2),
+      child: Text('$label（$count）',
+          style: TextStyle(
+              color: color, fontSize: 12.5, fontWeight: FontWeight.bold)),
+    );
 
 Widget _sumRow(String label, String value, Color color) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 1.5),
@@ -328,10 +417,11 @@ Widget _poleRow(DiffPoleItem p) {
     DiffStatus.moved => '偏移',
     DiffStatus.same => '一致',
   };
+  // 超标（偏移 > 阈值）红显；边界（= 阈值）时状态为 same，不红。
   final color = switch (p.status) {
     DiffStatus.added => TokC.ok,
     DiffStatus.removed => TokC.danger,
-    DiffStatus.moved => TokC.warn,
+    DiffStatus.moved => TokC.danger,
     DiffStatus.same => kTextSub,
   };
   final extra = switch (p.status) {
@@ -356,22 +446,24 @@ Widget _poleRow(DiffPoleItem p) {
   );
 }
 
-Widget _segRow(DiffSegItem seg) => Padding(
+Widget _segRow(DiffSegItem seg, double segThreshold) {
+  // 段长偏差超阈（|Δ| > 阈值）红显；边界（= 阈值）不红。
+  final over = diffSegOverThreshold(seg, segThreshold);
+  return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1.5),
       child: Row(children: [
         Expanded(
           child: Text(seg.seg,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: kTextMain, fontSize: 12.5)),
+              style: TextStyle(
+                  color: over ? TokC.danger : kTextMain, fontSize: 12.5)),
         ),
         Text(
             '${seg.designM.toStringAsFixed(1)} → ${seg.compM.toStringAsFixed(1)} '
             '(${seg.deltaM >= 0 ? '+' : ''}${seg.deltaM.toStringAsFixed(1)})',
             style: TextStyle(
-                color: seg.deltaM.abs() > 0.05
-                    ? TokC.warn
-                    : kTextSub,
-                fontSize: 12)),
+                color: over ? TokC.danger : kTextSub, fontSize: 12)),
       ]),
     );
+}

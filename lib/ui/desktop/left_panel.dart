@@ -56,7 +56,7 @@ import 'batch_export.dart';
 /// ## 桌面特有菜单（[FavMenuExtra] 扩展点）
 ///
 /// 共享菜单之外的旧面板工程操作：同步该工程 / 历史版本 / 批量导出 DXF /
-/// 竣工资料成册；文件夹的「把当前画布收藏到此」；以及「删除所选 N 项」。
+/// 竣工资料成册 / 竣工对比设计；文件夹的「把当前画布收藏到此」；以及「删除所选 N 项」。
 class LeftPanel extends StatefulWidget {
   const LeftPanel({
     super.key,
@@ -420,6 +420,10 @@ class _LeftPanelState extends State<LeftPanel> {
             value: 'extra:archive',
             height: 34,
             child: Text('竣工资料成册', style: labelStyle)),
+        PopupMenuItem(
+            value: 'extra:design-diff',
+            height: 34,
+            child: Text('竣工对比设计', style: labelStyle)),
       ]);
     }
     // Phase 4 提效三件套：智能布杆/配盘表/汇总材料表（project/folder 按需出现）。
@@ -443,6 +447,13 @@ class _LeftPanelState extends State<LeftPanel> {
       case 'extra:delSel':
         await _deleteSelected();
         return;
+      case 'extra:design-diff': {
+        // 竣工对比：本工程=竣工版，对话框内再选设计版（复用选工程逻辑）。
+        final m = node.project;
+        if (m == null || !mounted) return;
+        await showDesignDiffDialog(ctx, st, m);
+        return;
+      }
       case 'extra:saveHere':
         // 先把目标文件夹选上，保存对话框的"所属文件夹"即默认落在右键的这层。
         st.folderId = node.id;
