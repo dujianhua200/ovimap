@@ -1,16 +1,18 @@
-// 收藏夹树护栏（v3.6.0 用户给奥维截图定版：整树平铺、+/− 折叠、[n] 计数、
-// 点名称选层过滤下方列表、搜索跨全库）。
+// 收藏夹树护栏（Phase 2：桌面左栏树体换共享 FavTree；整树平铺、+/− 折叠、
+// [n] 计数、搜索跨全库；树选中层走 FavTreeController.treeSelectedFolderId）。
 //
 // 数据：根工程 P2；文件夹 A（内含工程 P1 与子文件夹 B）。
 // 真实文件 I/O 用 `tester.runAsync`；选层/折叠是纯 setState。
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ovimap/models/map_label.dart';
 import 'package:ovimap/services/app_paths.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
+import 'package:ovimap/state/fav_tree_controller.dart';
 import 'package:ovimap/sync/sync_controller.dart';
 import 'package:ovimap/ui/desktop/left_panel.dart';
 import 'package:provider/provider.dart';
@@ -20,16 +22,37 @@ import '_fs_cleanup.dart';
 
 final store = LabelStore.instance;
 
-Future<void> mountPanel(WidgetTester tester, AppState st) async {
+/// 当前挂载面板使用的树控制器（断言树选中层用）。
+FavTreeController? testCtrl;
+
+Future<void> mountPanel(WidgetTester tester, AppState st,
+    {void Function(MapLabel)? onLocate}) async {
+  // ⚠️ testWidgets body 是假时钟区：控制器构造里的真实 IO（_init/_loadVisibility）
+  // 若直接 await 会永久挂起，必须在 runAsync 里做；同时预热点位缓存——
+  // FavTree 的 FutureBuilder 在假时钟区里读盘也会挂起，缓存命中则走 microtask
+  // 可正常完成（countOf/childrenOf/search 全走 _labelsOf 缓存）。
+  await tester.runAsync(() async {
+    testCtrl = FavTreeController(st);
+    await testCtrl!.ready;
+    for (final p in testCtrl!.projects) {
+      await testCtrl!.labelsOf(p.id);
+    }
+  });
   await tester.pumpWidget(
     MultiProvider(
-      providers: [Provider<SyncController?>.value(value: null)],
+      providers: [
+        Provider<SyncController?>.value(value: null),
+        // 共享收藏组件经 Provider 取 AppState（显隐联动等）；
+        // AppState 是 ChangeNotifier，必须用 ChangeNotifierProvider。
+        ChangeNotifierProvider<AppState>.value(value: st),
+        ChangeNotifierProvider<FavTreeController>.value(value: testCtrl!),
+      ],
       child: MaterialApp(
         home: Scaffold(
           body: SizedBox(
             width: 320,
             height: 700,
-            child: LeftPanel(st: st, onNewProject: () {}),
+            child: LeftPanel(st: st, onNewProject: () {}, onLocate: onLocate),
           ),
         ),
       ),
@@ -83,21 +106,25 @@ void main() {
     expect(find.text('[2]'), findsOneWidget, reason: '根行收藏夹[2 个工程]');
   });
 
-  testWidgets('点 A 行：选中该层并同步 folderId（树保持全量可见）', (tester) async {
+  testWidgets('点 A 行：选中该层（Phase 2：树选中走 treeSelectedFolderId，树保持全量可见）',
+      (tester) async {
     await mountPanel(tester, st);
     await tester.tap(find.text('A'));
     await tester.pumpAndSettle();
-    expect(st.folderId, aid, reason: '保存对话框默认层跟随选中');
+    expect(testCtrl!.treeSelectedFolderId, aid, reason: '树选中层走控制器');
     expect(find.text('P2'), findsOneWidget, reason: '树是全量视图，不因选层而隐藏');
   });
 
   testWidgets('点 A 的 −：B 收起；点 +：B 再展开', (tester) async {
     await mountPanel(tester, st);
-    // 初始根与 A 都展开 ⇒ 两个 remove；树顺序 根, A, B ⇒ at(1) 是 A 的。
-    expect(find.byIcon(Icons.remove), findsNWidgets(2));
-    await tester.tap(find.byIcon(Icons.remove).at(1));
+    // 根行无 +/−；A / B / P1 / P2 行有（空文件夹/空工程也显示）。
+    // 树顺序 根, A, B, P1, P2 ⇒ at(0) 是 A 的。
+    expect(find.byIcon(Icons.remove), findsNWidgets(4));
+    await tester.tap(find.byIcon(Icons.remove).at(0));
     await tester.pumpAndSettle();
     expect(find.text('B'), findsNothing, reason: '收起后 B 隐藏');
+    expect(find.text('P1'), findsNothing, reason: '收起后 P1 隐藏');
+    expect(find.text('A'), findsOneWidget, reason: 'A 行本身保留');
     expect(find.byIcon(Icons.add), findsOneWidget);
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
@@ -125,18 +152,7 @@ void main() {
 
     // 点击点行 → 定位回调（属性对话框链路由右键菜单既有用例覆盖）。
     var located = <MapLabel>[];
-    await tester.pumpWidget(MultiProvider(
-      providers: [Provider<SyncController?>.value(value: null)],
-      child: MaterialApp(
-        home: Scaffold(
-          body: LeftPanel(
-              st: st,
-              onNewProject: () {},
-              onLocate: (l) => located.add(l)),
-        ),
-      ),
-    ));
-    await tester.pumpAndSettle();
+    await mountPanel(tester, st, onLocate: (l) => located.add(l));
     await tester.tap(find.text('标记1'));
     await tester.pump(const Duration(milliseconds: 50));
     expect(located.length, 1, reason: '瞬间定位');
@@ -157,24 +173,27 @@ void main() {
 
   testWidgets('批量选择入口必须可见（用户反馈：只靠 Ctrl 找不到）', (tester) async {
     await mountPanel(tester, st);
-    // 工具条四件套：全选 / 取消 / 导出所选 / 删除所选（+ 新建文件夹在标题栏）。
-    expect(find.byTooltip('全选（Ctrl+A）'), findsOneWidget);
-    expect(find.byTooltip('取消选择'), findsOneWidget);
-    expect(find.byTooltip('导出所选工程（DXF）'), findsOneWidget);
-    expect(find.byTooltip('删除所选（Delete）'), findsOneWidget);
+    // 标题栏常驻：新建工程 / 新建文件夹 / 回收站。
+    expect(find.byTooltip('新建工程'), findsOneWidget);
+    expect(find.byTooltip('新建文件夹（建在当前选中层）'), findsOneWidget);
+    expect(find.byTooltip('回收站'), findsOneWidget);
 
-    // 全选后：显示「已选 N 项」，删除按钮可用（enabled）。
-    await tester.tap(find.byTooltip('全选（Ctrl+A）'));
+    // Ctrl+A 全选 → 底部多选操作条出现（共享 FavSelectBar）。
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
     await tester.pumpAndSettle();
     expect(find.textContaining('已选 '), findsOneWidget,
-        reason: '工具条实时显示已选数');
+        reason: '操作条实时显示已选数');
+    expect(find.byTooltip('全选'), findsOneWidget);
+    expect(find.byTooltip('取消选择'), findsOneWidget);
+    expect(find.byTooltip('移动到'), findsOneWidget);
+    expect(find.byTooltip('改样式'), findsOneWidget);
+    expect(find.byTooltip('删除（进回收站）'), findsOneWidget);
 
-    // 项目里的条目都可被选中：文件夹 A/B、工程 P1/P2 都在选中集里。
-    // （真正的删除动作走 store 层护栏：deleteFolder 级联 + deleteCollection
-    //   已在 collection_autosave_indep_test 覆盖；此处只锁「入口可见」，
-    //   避免依赖弹框+真实 IO 的脆弱链路。）
+    // 取消选择 → 操作条收起。
     await tester.tap(find.byTooltip('取消选择'));
     await tester.pumpAndSettle();
-    expect(find.text('全部条目'), findsOneWidget);
+    expect(find.textContaining('已选 '), findsNothing);
   });
 }

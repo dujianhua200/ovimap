@@ -12,6 +12,7 @@ import 'package:ovimap/models/map_label.dart';
 import 'package:ovimap/services/app_paths.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
+import 'package:ovimap/state/fav_tree_controller.dart';
 import 'package:ovimap/sync/sync_controller.dart';
 import 'package:ovimap/ui/desktop/left_panel.dart';
 import 'package:provider/provider.dart';
@@ -21,10 +22,32 @@ import '_fs_cleanup.dart';
 
 final store = LabelStore.instance;
 
+/// 当前挂载面板使用的树控制器（store 变更后重预热点位缓存用）。
+FavTreeController? testCtrl;
+
 Future<void> mountPanel(WidgetTester tester, AppState st,
     {void Function(MapLabel)? onLocate}) async {
+  // ⚠️ testWidgets body 是假时钟区：控制器构造里的真实 IO（_init/_loadVisibility）
+  // 若直接 await 会永久挂起，必须在 runAsync 里做；同时预热点位缓存——
+  // FavTree 的 FutureBuilder 在假时钟区里读盘也会挂起，缓存命中则走 microtask
+  // 可正常完成（countOf/childrenOf/search 全走 _labelsOf 缓存）。
+  testCtrl = (await tester.runAsync(() async {
+    final c = FavTreeController(st);
+    await c.ready;
+    for (final p in c.projects) {
+      await c.labelsOf(p.id);
+    }
+    return c;
+  }))!;
+  final c = testCtrl!;
   await tester.pumpWidget(MultiProvider(
-    providers: [Provider<SyncController?>.value(value: null)],
+    providers: [
+      Provider<SyncController?>.value(value: null),
+      // 共享收藏组件经 Provider 取 AppState（显隐联动等）；
+      // AppState 是 ChangeNotifier，必须用 ChangeNotifierProvider。
+      ChangeNotifierProvider<AppState>.value(value: st),
+      ChangeNotifierProvider<FavTreeController>.value(value: c),
+    ],
     child: MaterialApp(
       home: Scaffold(
         body: SizedBox(
@@ -80,9 +103,14 @@ void main() {
     expect(find.text('P2'), findsOneWidget);
 
     // store 层移动（拖拽 drop 回调最终走的就是 moveCollection + refreshCollections）。
+    // ⚠️ refreshCollections 会触发 _onAppState → _labelCache.clear()；
+    // 假时钟区里重读磁盘会挂起，必须在真时钟区里重预热。
     await tester.runAsync(() async {
       await store.moveCollection(pid, fid);
       await st.refreshCollections();
+      for (final p in testCtrl!.projects) {
+        await testCtrl!.labelsOf(p.id);
+      }
     });
     await tester.pumpAndSettle();
 
@@ -103,6 +131,10 @@ void main() {
 
     await tester.runAsync(() async {
       await st.moveMarkToFolder(cid, st.overlayLabels[cid]!.first, fid);
+      // 同上：refreshCollections 清了点位缓存，重预热防假时钟区挂起。
+      for (final p in testCtrl!.projects) {
+        await testCtrl!.labelsOf(p.id);
+      }
     });
     await tester.pumpAndSettle();
 
@@ -119,11 +151,16 @@ void main() {
 
   testWidgets('③ 批量删除链路：全选 → 删除所选 → 确认框带统计并弹窗', (tester) async {
     await mountPanel(tester, st);
-    await tester.tap(find.byTooltip('全选（Ctrl+A）'));
+    // Ctrl+A 调出底部多选操作条（共享 FavSelectBar）再点全选。
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('全选'));
     await tester.pumpAndSettle();
     expect(find.textContaining('已选'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('删除所选（Delete）'));
+    await tester.tap(find.byTooltip('删除（进回收站）'));
     await tester.pumpAndSettle();
     expect(find.textContaining('删除所选'), findsWidgets, reason: '确认框弹出');
     // 确认框必须把统计说清（用例②已把标记移到 A 层 → 本用例全选时
@@ -140,7 +177,12 @@ void main() {
   testWidgets('④ Delete 键删除所选（CallbackShortcuts 需焦点，autofocus 修复）',
       (tester) async {
     await mountPanel(tester, st);
-    await tester.tap(find.byTooltip('全选（Ctrl+A）'));
+    // Ctrl+A 调出底部多选操作条（共享 FavSelectBar）再点全选。
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('全选'));
     await tester.pumpAndSettle();
 
     await tester.sendKeyEvent(LogicalKeyboardKey.delete);
