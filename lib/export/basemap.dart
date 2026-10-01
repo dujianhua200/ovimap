@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:meta/meta.dart';
+
 import '../models/map_label.dart';
 import '../services/amap.dart';
 import '../services/store.dart';
 import '../services/tianditu.dart';
+import 'building_fallback.dart';
 import 'overpass.dart';
 
 // ===================== 数据模型 =====================
@@ -693,9 +696,14 @@ class BasemapFetcher {
           ));
 
     final roads = await roadsF;
-    final buildings = await bldF;
+    var buildings = await bldF;
     var places = await plcF;
     final extras = await extrasF;
+
+    // 建筑兜底（中国区）：OSM building 覆盖稀疏时，用本地兜底包按 bbox 补。
+    // 策略：OSM 为空 → 整包兜底；OSM 有但少 → 合并去重（OSM 优先，兜底只补缺）。
+    // 兜底包是离线预处理数据（见 building_fallback.dart），无网络也能用。
+    buildings = await _applyBuildingFallback(buildings, bbox);
 
     var placesReport = places.report;
     // 地名兜底：OSM 地名过少时按关键词枚举补名（仅补点/地名，不参与几何）。
@@ -943,5 +951,88 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
             math.sin(dLon / 2) *
             math.sin(dLon / 2);
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  /// 建筑兜底：OSM 为空或过少时，用本地兜底包按 [bbox] 补建筑。
+  ///
+  /// - OSM 为空 → 兜底包全量作为结果，`source='兜底包（<包名>）'`；
+  /// - OSM 非空 → 合并去重后 `source='OSM+兜底包'`；
+  /// - 无兜底包 → 原样返回。
+  static Future<_LoadResult<BuildingPoly>> _applyBuildingFallback(
+      _LoadResult<BuildingPoly> buildings, List<double> bbox) async {
+    // 单测/无 path_provider 环境直接跳过（兜底是增强功能，不得破坏主链路）。
+    late final FallbackStore store;
+    try {
+      store = await FallbackStore.open();
+    } catch (_) {
+      return buildings;
+    }
+    if (!store.hasPackage) return buildings;
+    final meta = store.meta();
+    final pkgName = meta?['name']?.toString() ?? '本地';
+    late final List<BuildingPoly> fbItems;
+    try {
+      fbItems = await store.query(bbox);
+    } catch (_) {
+      return buildings;
+    }
+    if (fbItems.isEmpty) return buildings;
+    if (buildings.items.isEmpty) {
+      return _LoadResult(
+        DatasetReport(
+          FetchState.ok,
+          source: '兜底包（$pkgName）',
+          count: fbItems.length,
+        ),
+        fbItems,
+      );
+    }
+    final merged = mergeBuildings(buildings.items, fbItems);
+    if (merged.length == buildings.items.length) return buildings;
+    return _LoadResult(
+      DatasetReport(
+        buildings.report.state,
+        source: '${buildings.report.source}+兜底包（$pkgName）',
+        error: buildings.report.error,
+        count: merged.length,
+        emptyAnswer: buildings.report.emptyAnswer,
+      ),
+      merged,
+    );
+  }
+
+  /// 合并 OSM 建筑与兜底包建筑：OSM 优先，兜底只补 OSM 没有的。
+  ///
+  /// 去重：兜底建筑质心落在任一 OSM 建筑质心 15m 内 → 视为同一栋，丢弃。
+  /// 质心量化到约 15m 网格，用 Set 做 O(n+m) 查找。
+  @visibleForTesting
+  static List<BuildingPoly> mergeBuildings(
+      List<BuildingPoly> osm, List<BuildingPoly> fallback) {
+    String key(double lat, double lon) =>
+        '${(lat * 7400).round()}:${(lon * 7400).round()}';
+    final seen = <String>{};
+    for (final b in osm) {
+      final c = _centroid(b.outer);
+      seen.add(key(c[0], c[1]));
+    }
+    final out = List<BuildingPoly>.from(osm);
+    for (final b in fallback) {
+      if (b.outer.isEmpty) continue;
+      final c = _centroid(b.outer);
+      if (!seen.contains(key(c[0], c[1]))) {
+        seen.add(key(c[0], c[1]));
+        out.add(b);
+      }
+    }
+    return out;
+  }
+
+  static List<double> _centroid(List<List<double>> ring) {
+    var la = 0.0, lo = 0.0;
+    for (final p in ring) {
+      la += p[0];
+      lo += p[1];
+    }
+    return [la / ring.length, lo / ring.length];
   }
 }

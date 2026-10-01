@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../export/basemap.dart';
 import '../export/basemap_file_import.dart';
+import '../export/building_fallback.dart';
 import '../export/csv.dart';
 import '../geo/geo_convert.dart';
 import '../export/dxf.dart';
@@ -1010,6 +1011,11 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   if (localBm == null) hasLocal = false;
   final localMeta = localStore.meta();
   var useLocal = hasLocal && opt('dxfUseLocal', true);
+  // 建筑兜底包（离线）：OSM 建筑为空/过少时自动按范围补建筑轮廓。
+  final fallbackStore = await FallbackStore.open();
+  var fallbackMeta = fallbackStore.meta();
+  var fallbackDownloading = false;
+  var fallbackProgress = '';
   // 底图外扩范围：预设档位 + 自定义。
   // 自定义值直接恢复（不再强制回落到默认档）；不在预设档位里时
   // UI 显示为「自定义(xxx)」并选中。
@@ -1391,6 +1397,92 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                         setSt(() {});
                       },
                       child: const Text('清除本地底图',
+                          style: TextStyle(color: kTextSub, fontSize: 12.5)),
+                    ),
+                ]),
+              ),
+            ),
+            // —— 建筑兜底包（中国区 OSM 建筑稀疏时自动补）——
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 16, bottom: 2, top: 4),
+                child: Text(
+                    () {
+                      final m = fallbackMeta;
+                      return m != null
+                          ? '建筑兜底包：${m['name']} ${m['buildings']} 栋（${m['source']}）'
+                          : '建筑兜底包：未安装（OSM 在中国区建筑稀疏，建议安装）';
+                    }(),
+                    style: TextStyle(
+                        color: fallbackMeta != null ? kGreen : kTextSub,
+                        fontSize: 11)),
+              ),
+            ),
+            if (fallbackDownloading)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16, bottom: 2),
+                  child: Text('正在下载：$fallbackProgress',
+                      style: const TextStyle(color: kAccent, fontSize: 11)),
+                ),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Row(children: [
+                  if (fallbackMeta == null)
+                    TextButton(
+                      onPressed: fallbackDownloading
+                          ? null
+                          : () async {
+                              final pkg = fallbackRegistry.first;
+                              setSt(() {
+                                fallbackDownloading = true;
+                                fallbackProgress = '0%';
+                              });
+                              try {
+                                await fallbackStore.install(pkg,
+                                    onProgress: (rx, total) {
+                                  if (dialogOpen && total > 0) {
+                                    setSt(() {
+                                      fallbackProgress =
+                                          '${(rx / total * 100).toStringAsFixed(0)}%';
+                                    });
+                                  }
+                                });
+                                fallbackMeta = fallbackStore.meta();
+                              } catch (e) {
+                                fallbackProgress = '下载失败：$e';
+                                await Future.delayed(
+                                    const Duration(seconds: 3));
+                              }
+                              if (dialogOpen) {
+                                setSt(() {
+                                  fallbackDownloading = false;
+                                  if (fallbackMeta != null) {
+                                    fallbackProgress = '';
+                                  }
+                                });
+                              }
+                            },
+                      child: Text(
+                          '下载建筑兜底包（${fallbackRegistry.first.name}）…',
+                          style: const TextStyle(
+                              color: kAccent, fontSize: 12.5)),
+                    ),
+                  if (fallbackMeta != null)
+                    TextButton(
+                      onPressed: fallbackDownloading
+                          ? null
+                          : () async {
+                              await fallbackStore.uninstall();
+                              fallbackMeta = null;
+                              setSt(() {});
+                            },
+                      child: const Text('删除兜底包',
                           style: TextStyle(color: kTextSub, fontSize: 12.5)),
                     ),
                 ]),
