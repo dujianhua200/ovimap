@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// 跨平台「权威数据目录」单点收口。
@@ -55,10 +56,24 @@ class AppPaths {
   ///   （与旧版一致，不得变）
   /// - Windows：`%APPDATA%\ovimap`
   /// - 其它：`getApplicationSupportDirectory()/ovimap`
+  ///
+  /// 测试环境（`flutter test` 置 FLUTTER_TEST=true）在 Windows 下不走 %APPDATA%
+  /// 真实目录，改走 path_provider，让各用例的 FakePathProvider 生效、互不串扰
+  ///（见 [useRealAppDataDir]）。
+
+  /// Windows 下是否使用 %APPDATA% 真实目录（否则走 path_provider）。
+  /// 抽出来只为可单测。
+  @visibleForTesting
+  static bool useRealAppDataDir(
+      {required bool isWindows, required Map<String, String> env}) {
+    return isWindows && env['FLUTTER_TEST'] != 'true';
+  }
+
   static Future<Directory> baseDir() async {
     if (_force != null) return _ensure(_force!);
 
-    if (Platform.isWindows) {
+    if (useRealAppDataDir(
+        isWindows: Platform.isWindows, env: Platform.environment)) {
       final appData = Platform.environment['APPDATA'];
       if (appData != null && appData.isNotEmpty) {
         final d = await _ensure(Directory('$appData\\ovimap'));
