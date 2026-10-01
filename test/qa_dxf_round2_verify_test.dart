@@ -418,7 +418,7 @@ void main() {
         reason: '南北向比例不应退化到最小档（旧公式会取 1:100）');
 
     // 南北向：竖直路 → 描边偏移在 X；半宽=纸面mm×比例
-    const halfMm = 0.90; // v3.9.5 路宽加倍
+    const halfMm = 1.80; // v4.0.3 在 v3.9.5 基础上路宽再加倍
     final expNS = halfMm / 1000 * scaleNS;
     final nsRoad = BasemapData(
       roads: [

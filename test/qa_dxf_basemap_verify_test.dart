@@ -154,15 +154,15 @@ void main() {
     expect(scale, 1000, reason: '该线路跨度应估为 1:1000');
 
     // 设计表：等级 → 半宽（纸面毫米）
-    // v3.9.5 起路宽整体加倍（用户反馈"路有点窄"）。
+    // v4.0.3 起路宽在 v3.9.5 基础上再加倍（用户反馈"路有点窄，要增宽一倍"）。
     const halfMm = <RoadGrade, double>{
-      RoadGrade.trunk: 0.90,
-      RoadGrade.primary: 0.76,
-      RoadGrade.secondary: 0.60,
-      RoadGrade.tertiary: 0.50,
-      RoadGrade.residential: 0.36,
-      RoadGrade.service: 0.24,
-      RoadGrade.other: 0.20,
+      RoadGrade.trunk: 1.80,
+      RoadGrade.primary: 1.52,
+      RoadGrade.secondary: 1.20,
+      RoadGrade.tertiary: 1.00,
+      RoadGrade.residential: 0.72,
+      RoadGrade.service: 0.48,
+      RoadGrade.other: 0.40,
     };
 
     final observed = <RoadGrade, double>{};
@@ -205,7 +205,9 @@ void main() {
     }
 
     // 反向红线：绝不是"真实路宽 12m → 半宽 6m"
-    expect(observed[RoadGrade.trunk]!, lessThan(1.0),
+    // v4.0.3 起纸面半宽 1.80mm（用户要求再加倍），1:1000 下半宽 1.8m，
+    // 仍远小于真实半宽 6m；红线放宽但保持防 1:1 回归。
+    expect(observed[RoadGrade.trunk]!, lessThan(2.5),
         reason: '主干半宽必须远小于真实路宽（否则"路太粗"复发）');
 
     dir.deleteSync(recursive: true);

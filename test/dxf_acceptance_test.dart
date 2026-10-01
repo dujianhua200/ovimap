@@ -201,8 +201,8 @@ void main() {
     final maxX = (baseLon + 0.002 - baseLon) * scaleX;
     final scale = _pickScale(minX, 0, maxX, 0);
 
-    // trunk 半宽 0.90mm（v3.9.5 加倍）→ 图纸米 = 0.90/1000*scale
-    final expectHalf = 0.90 / 1000.0 * scale;
+    // trunk 半宽 1.80mm（v4.0.3 再加倍）→ 图纸米 = 1.80/1000*scale
+    final expectHalf = 1.80 / 1000.0 * scale;
 
     final casing = _lwPolylines(text, 'DaoLuBian');
     expect(casing, isNotEmpty, reason: '应生成双线描边');
@@ -278,7 +278,7 @@ void main() {
     // O4：必须按较长边（Y）估到 1:1000，而非按 X≈0 拖到 1:100（线宽会缩到 1/10）
     expect(scale, 1000, reason: '南北向线路应按 Y 跨度估为 1:1000');
 
-    final expectHalf = 0.90 / 1000.0 * scale;
+    final expectHalf = 1.80 / 1000.0 * scale;
     final casing = _lwPolylines(text, 'DaoLuBian');
     expect(casing, isNotEmpty, reason: '应生成南北向双线描边');
     // 南北向：垂直偏移发生在 X 方向
