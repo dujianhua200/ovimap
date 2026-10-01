@@ -281,8 +281,8 @@ void main() {
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('路名宋体：STYLE 表含 SongTi + simsun.ttc；DaoLu 层 TEXT 引用 SongTi，其他文字样式不变',
-      () async {
+  test('全图文字统一宋体：STYLE 表含 SongTi + simsun.ttc 与 SimSun；'
+      'DaoLu 层 TEXT 引用 SongTi，其余 TEXT 一律 SimSun', () async {
     final dir = Directory.systemTemp.createTempSync('tune_songti');
     final bm = _bm([_hRoad(RoadGrade.trunk, '宋体大道', kLon, kLon + 0.003)],
         buildings: [_building()]);
@@ -304,9 +304,9 @@ void main() {
       for (final t in juliTexts) {
         expect(t.first('7'), 'SimSun', reason: '${v.name}: 业务文字样式不应改变');
       }
-      // 建筑名文字无 7 组码（既有样式不动，不应引用 SongTi）
+      // 建筑名文字亦统一宋体（SimSun），不再无样式
       for (final t in _on(_entities(text), 'TEXT', 'JianZhu')) {
-        expect(t.first('7'), isNull, reason: '${v.name}: 建筑名样式不应改变');
+        expect(t.first('7'), 'SimSun', reason: '${v.name}: 建筑名应为宋体');
       }
     }
     dir.deleteSync(recursive: true);

@@ -12,6 +12,7 @@ import 'dxf_layers.dart';
 import 'dxf_validate.dart';
 import 'dxf_version.dart';
 import 'local_basemap.dart';
+import 'road_junction.dart';
 import 'topo.dart';
 
 /// DXF 导出结果：文件 + 非致命警告 + 底图抓取三态报告。
@@ -202,10 +203,11 @@ class DxfExporter {
     final routeScale = _pickScale(extMinX, extMinY, extMaxX, extMaxY);
     // 字高按**纸面毫米**换算（v3.9.5）：此前直接写 2.5/3 被当作 2.5 米，
     // 图上极其巨大。用户要求：距离 2.5mm（宋体），其余与它和谐匹配。
+    // v4.0.2 字高规范：常规注记 2.5mm，次要注记 2.0mm。
     final segFontM = _mmOf(2.5, routeScale);
-    final subFontM = _mmOf(1.6, routeScale);
-    final labelFontM = _mmOf(2.0, routeScale);
-    final noteFontM = _mmOf(1.5, routeScale);
+    final subFontM = _mmOf(2.0, routeScale);
+    final labelFontM = _mmOf(2.5, routeScale);
+    final noteFontM = _mmOf(2.0, routeScale);
 
     // 周边矢量（底图）：**必须先于业务实体写出**。
     // DXF 中「后画者在上层」（见 _appendBasemap 内注释），故底图（含建筑填充 HATCH/SOLID）
@@ -414,7 +416,7 @@ class DxfExporter {
         // 由地理式配线统一输出标签牌，这里只画符号，避免文字重叠
         final topoBox = hasTopo && (lt.role >= 1 && lt.role <= 4 || lt.role == 7);
         if (topoBox) {
-          _appendHoleDots(c, x, y + 5.5, l); // 芯线/管孔占用可视化
+          _appendHoleDots(c, x, y + holeDotsUpM, l); // 芯线/管孔占用可视化
           continue;
         }
         // 箱体/人孔文字已在框内（上方入框画法）；杆/引上文字在符号上方。
@@ -534,15 +536,18 @@ class DxfExporter {
   // ---- 实体输出辅助 ----
 
   /// 通用单行文字。R12/R2000 共用。
-  /// - [style] 时写 `7 SimSun`（既有业务文字，保持不变）；
-  /// - [styleName] 指定具体文字样式名（如路名的 `SongTi`），优先于 [style]；
+  ///
+  /// **全图统一宋体**：默认样式 `SimSun`（simsun.ttc），不再输出无样式
+  /// （Standard/txt.shx）的文字。
+  /// - [styleName] 指定具体文字样式名（如路名的 `SongTi`），优先于默认；
+  /// - [style] 为历史参数，保留兼容（等价于默认）；
   /// - [angle] 非空时写旋转 `50`。
   static void _text(_Ctx c, String layer, double x, double y, double h,
       String text, {double? angle, bool style = false, String? styleName}) {
     final t = text.replaceAll('\r', ' ').replaceAll('\n', ' ');
-    final sn = styleName ?? (style ? 'SimSun' : null);
+    final sn = styleName ?? 'SimSun';
     c.ent('TEXT', layer, 'AcDbText');
-    if (sn != null) c.sb.write('7\n$sn\n');
+    c.sb.write('7\n$sn\n');
     c.sb.write('10\n${_fmt(x)}\n20\n${_fmt(y)}\n30\n0\n40\n${_fmt(h)}\n');
     if (angle != null) c.sb.write('50\n${angle.toStringAsFixed(1)}\n');
     c.sb.write('1\n$t\n');
@@ -728,12 +733,12 @@ class DxfExporter {
     }
   }
 
-  /// 桩号文字：K0+000 格式（千米 + 米，米保留 1 位小数）。
+  /// 桩号文字：K0+000 格式（千米 + 米，米保留 1 位小数）。字高 2.5mm。
   static void _appendStake(_Ctx c, double x, double y, double cum) {
     final km = cum ~/ 1000;
     final m = cum - km * 1000;
     final mStr = m.toStringAsFixed(1).padLeft(5, '0');
-    _text(c, 'ZhuangHao', x + 1.5, y + 3, 2, 'K$km+$mStr');
+    _text(c, 'ZhuangHao', x + 1.5, y + 3, 2.5, 'K$km+$mStr');
   }
 
   /// 盘留数字格式：整数或 1 位小数。
@@ -819,35 +824,42 @@ class DxfExporter {
     }
   }
 
-  /// 图签：右下角矩形分格（约 120m × 30m），设计院图纸角标习惯。
-  /// 内容：工程名 / 滑洲云图导出 / 导出日期 / 总点数·总长度 / A3 自动比例。
+  /// 图签（标题栏）：图框内右下角，正规通信工程标题栏。
+  /// 尺寸按**纸面恒定**（宽 120mm × 高 36mm，经出图比例换算为图纸米），
+  /// 6 行分格：工程名称 / 图名 / 比例 / 设计·审核 / 日期 / 图号。
+  /// 文字统一宋体 2.5mm（字高规范）。
   static void _appendTitleBlock(
       _Ctx c, double minX, double minY, double maxX, double maxY,
       {required String name,
       required int totalPoints,
       required double totalLength,
       required int scale}) {
-    const w = 120.0, h = 30.0;
+    final w = _mmOf(120, scale), h = _mmOf(36, scale);
     final x0 = maxX - w, y0 = minY;
     final x1 = maxX, y1 = minY + h;
-    const rowH = h / 5; // 5 行分格
+    const rows = 6;
+    final rowH = h / rows;
     _appendRect(c, 'TuQian', x0, y0, x1, y1);
-    for (var i = 1; i < 5; i++) {
+    for (var i = 1; i < rows; i++) {
       _appendLine(c, 'TuQian', x0, y0 + rowH * i, x1, y0 + rowH * i);
     }
     final date = DateTime.now();
     final dateStr =
         '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-    final rows = <String>[
-      (name.isEmpty ? '未命名项目' : name),
-      '滑洲云图导出',
-      dateStr,
-      '总点数 $totalPoints · 总长度 ${_formatDistNoUnit(totalLength)}m',
-      '比例 1:$scale（A3 幅面）',
+    final tx = x0 + _mmOf(3, scale);
+    final th = _mmOf(2.5, scale);
+    final rowTexts = <String>[
+      '工程名称  ${(name.isEmpty ? '未命名项目' : name)}',
+      '图名  通信线路平面图',
+      '比例  1:$scale',
+      '设计单位  滑洲云图        审核',
+      '日期  $dateStr',
+      '图号  TX-PM-01',
     ];
-    for (var i = 0; i < rows.length; i++) {
-      _text(c, 'TuQian', x0 + 2, y0 + rowH * (i + 1) - rowH / 2 - 1.2,
-          3.2, rows[i]);
+    for (var i = 0; i < rows; i++) {
+      // 行内垂直居中（基线近似：行底 + (行高 - 字高)/2）
+      final ty = y0 + rowH * (rows - 1 - i) + (rowH - th) / 2;
+      _text(c, 'TuQian', tx, ty, th, rowTexts[i]);
     }
   }
 
@@ -1413,18 +1425,60 @@ class DxfExporter {
             }
             cx /= o.length;
             cy /= o.length;
-            final h = _mmOf(1.6, scale); // 建筑名 1.6mm
+            final h = _mmOf(2.5, scale); // 建筑名 2.5mm（字高规范）
             _appendTextCentered(lc, 'JianZhu', cx, cy, h, b.name);
           }
         }
       }
     }
 
-    // —— 道路（双线描边，按等级分级；路名居中标注可按等级过滤）——
+    // —— 道路（双线描边，按等级分级；交叉口开口+倒角；路名居中标注可按等级过滤）——
     if (layerRoads) {
+      // 两阶段：先收集全部道路中心线 → 统一交叉口处理 → 再绘制。
+      // （交叉口需要全局视野：主路贯通、次路开口退让、倒角连接。）
+      final jroads = <JunctionRoad>[];
+      final rpList = <RoadPoly>[];
       for (final r in bm.roads) {
-        _appendRoadDualAndCenter(c, lc, r, baseLon, baseLat, scaleX,
-            scaleY, scale, version, acc, showMinorRoadNames);
+        final cart = <List<double>>[
+          for (final p in r.pts)
+            [(p[1] - baseLon) * scaleX, (p[0] - baseLat) * scaleY]
+        ];
+        final simp = _simplifyPath(cart, _roadTolM(r.grade));
+        if (simp.length < 2) continue;
+        jroads.add(JunctionRoad(simp, r.grade, _roadHalfWidthM(r.grade, scale)));
+        rpList.add(r);
+      }
+      final jres = RoadJunction.process(jroads, _mmOf(0.3, scale));
+      for (var i = 0; i < jroads.length; i++) {
+        final rp = rpList[i];
+        final halfW = jroads[i].halfW;
+        for (final piece in jres.pieces[i]) {
+          if (piece.length < 2) continue;
+          _appendRoadPieceDual(c, piece, halfW, version);
+          for (final p in piece) {
+            acc.add(p[0], p[1]);
+          }
+          // 路名等级过滤：只过滤注记，**几何（DaoLuBian）一律保留**。
+          final isMajor = switch (rp.grade) {
+            RoadGrade.trunk ||
+            RoadGrade.primary ||
+            RoadGrade.secondary ||
+            RoadGrade.tertiary ||
+            RoadGrade.residential =>
+              true,
+            RoadGrade.service || RoadGrade.other => false,
+          };
+          // 路名按截断后的 piece 独立排布（不穿过交叉口）；过短的桩间不注记。
+          if (rp.name.isNotEmpty &&
+              (isMajor || showMinorRoadNames) &&
+              _polyLen(piece) >= 60) {
+            _appendRoadName(lc, rp.name, piece, rp.grade, scale, halfW);
+          }
+        }
+      }
+      // 交叉口倒角线
+      for (final ch in jres.chamfers) {
+        _appendLine(c, 'DaoLuBian', ch[0][0], ch[0][1], ch[1][0], ch[1][1]);
       }
     }
 
@@ -1464,34 +1518,16 @@ class DxfExporter {
     return [acc.minX, acc.minY, acc.maxX, acc.maxY];
   }
 
-  /// 道路双线描边分级画法（**不再 1:1 用真实路宽**；中心线已按新规格删除）。
-  /// 路名默认只标 trunk/primary/secondary/tertiary/residential；
-  /// [showMinorRoadNames] 为 true 时 service/other 也标。
-  static void _appendRoadDualAndCenter(
+  /// 单段道路中心线的双线描边（已做交叉口截断，直接绘制）。
+  static void _appendRoadPieceDual(
     _Ctx c,
-    _Ctx lc,
-    RoadPoly rp,
-    double baseLon,
-    double baseLat,
-    double scaleX,
-    double scaleY,
-    int scale,
+    List<List<double>> piece,
+    double halfW,
     DxfVersion version,
-    _Ext acc,
-    bool showMinorRoadNames,
   ) {
-    final cart = <List<double>>[
-      for (final p in rp.pts) [(p[1] - baseLon) * scaleX, (p[0] - baseLat) * scaleY]
-    ];
-    // 按等级分档简化（主干细容差保留形态，小路大容差瘦身，N4）
-    final simp = _simplifyPath(cart, _roadTolM(rp.grade));
-    if (simp.length < 2) return;
-
-    // 双线描边（casing）：半宽 = 纸面半宽 ÷ 1000 × 比例
-    final halfW = _roadHalfWidthM(rp.grade, scale);
     if (halfW > 1e-6) {
-      final left = _offsetPolyline(simp, halfW);
-      final right = _offsetPolyline(simp, -halfW);
+      final left = _offsetPolyline(piece, halfW);
+      final right = _offsetPolyline(piece, -halfW);
       if (left.length >= 2) {
         _appendPolyline(c, 'DaoLuBian', left, version: version);
       }
@@ -1499,23 +1535,16 @@ class DxfExporter {
         _appendPolyline(c, 'DaoLuBian', right, version: version);
       }
     }
+  }
 
-    for (final p in simp) {
-      acc.add(p[0], p[1]);
+  /// 折线总长（米）。
+  static double _polyLen(List<List<double>> pts) {
+    var t = 0.0;
+    for (var i = 1; i < pts.length; i++) {
+      final dx = pts[i][0] - pts[i - 1][0], dy = pts[i][1] - pts[i - 1][1];
+      t += math.sqrt(dx * dx + dy * dy);
     }
-
-    // 路名等级过滤：只过滤注记，**几何（DaoLuBian）一律保留**。
-    final isMajor = switch (rp.grade) {
-      RoadGrade.trunk ||
-      RoadGrade.primary ||
-      RoadGrade.secondary ||
-      RoadGrade.tertiary ||
-      RoadGrade.residential => true,
-      RoadGrade.service || RoadGrade.other => false,
-    };
-    if (rp.name.isNotEmpty && (isMajor || showMinorRoadNames)) {
-      _appendRoadName(lc, rp.name, simp, rp.grade, scale, halfW);
-    }
+    return t;
   }
 
   /// 路名注记：**置于道路中心线上（即双线描边之间）**，字号 clamp 进双线间隙，
@@ -1741,14 +1770,7 @@ class DxfExporter {
         RoadGrade.other => 2.0,
       };
 
-  /// 地名级别 → 字号（纸面毫米）。
-  static double _placeFontMm(PlaceLevel l) => switch (l) {
-        PlaceLevel.city => 2.8,
-        PlaceLevel.suburb => 2.5,
-        PlaceLevel.neighbourhood => 2.2,
-        PlaceLevel.residential => 2.2,
-        PlaceLevel.town => 2.2,
-        PlaceLevel.village => 2.2,
-        PlaceLevel.hamlet => 1.8,
-      };
+  /// 地名级别 → 字号（纸面毫米）。v4.0.2 起统一 2.5mm（用户要求），
+  /// 不再分级——图面字高一致、干净。
+  static double _placeFontMm(PlaceLevel _) => 2.5;
 }

@@ -358,7 +358,7 @@ void main() {
 
   group('B+. 宋体样式表与既有文字样式', () {
     test('R12 与 R2000：STYLE 表含 SongTi/simsun.ttc 且 SimSun/SimSun.ttf 仍在；'
-        'DaoLu→SongTi、DiMing/JianZhu 不受波及', () async {
+        'DaoLu→SongTi、其余 TEXT（含 DiMing/JianZhu）一律 SimSun', () async {
       final dir = Directory.systemTemp.createTempSync('qa_style');
       final bm = _bm(
         [_hRoad('HWYA', RoadGrade.trunk, 800)],
@@ -380,11 +380,11 @@ void main() {
         for (final t in doc.on('TEXT', 'DaoLu')) {
           expect(t.first('7'), 'SongTi', reason: '${v.name}: 路名一律 SongTi');
         }
-        // 其他底图文字不得被波及：DiMing / JianZhu 不写 7 组码（走默认 STANDARD）
+        // 全图统一宋体：DiMing / JianZhu 亦引用 SimSun（7 组码）
         for (final layer in ['DiMing', 'JianZhu']) {
           for (final t in doc.on('TEXT', layer)) {
-            expect(t.first('7'), isNull,
-                reason: '${v.name}: $layer 文字样式不应被改动');
+            expect(t.first('7'), 'SimSun',
+                reason: '${v.name}: $layer 文字应为宋体 SimSun');
           }
         }
         // 全文件层面：出现 7 组码的 TEXT 只允许 SongTi / SimSun 两种

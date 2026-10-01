@@ -87,7 +87,7 @@ void main() {
     // 图签 + 指北针图层
     expect(text, contains('TuQian'));
     expect(text, contains('BeiFangZhen'));
-    expect(text, contains('滑洲云图导出'));
+    expect(text, contains('滑洲云图'));
     // 杆路段标注前缀文字
     expect(text, contains('埋42.5'));
     // GBK 字节验证：'李' = 0xC0 0xEE
