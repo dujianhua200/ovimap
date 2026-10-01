@@ -68,7 +68,7 @@ void main() {
 
     final dir = await labelsDir();
     final before =
-        dir.listSync().map((e) => e.path.split('/').last).toSet();
+        dir.listSync().map((e) => e.path.split(Platform.pathSeparator).last).toSet();
 
     await trash.trashNode(c, node);
 
@@ -81,7 +81,7 @@ void main() {
 
     // trash.json 是唯一新增文件（磁盘格式零改动）。
     final after =
-        dir.listSync().map((e) => e.path.split('/').last).toSet();
+        dir.listSync().map((e) => e.path.split(Platform.pathSeparator).last).toSet();
     expect(after.difference(before), {'trash.json'});
 
     // payload 里有 meta + labels。
