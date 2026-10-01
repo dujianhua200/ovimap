@@ -440,7 +440,7 @@ Widget _photoStripSection(BuildContext context, AppState st, MapLabel label,
         Expanded(
           child: photos.isEmpty
               ? const Text('尚无照片，可拍照或从相册挂接',
-                  style: TextStyle(color: Color(0xFF78828E), fontSize: 12))
+                  style: TextStyle(color: TokC.textHint, fontSize: 12))
               : SizedBox(
                   height: 68,
                   child: ListView.separated(

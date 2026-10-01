@@ -197,7 +197,7 @@ Future<(int, double)?> pickProjectStyle(BuildContext context,
     0xFF039BE5, // 蓝
     0xFF5E35B1, // 紫
     0xFF546E7A, // 灰
-    0xFF1C242C, // 黑
+    0xFF000000, // 黑
   ];
   var color = initialColor;
   var width = initialWidth.clamp(1.0, 12.0);
