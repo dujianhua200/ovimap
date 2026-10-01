@@ -103,6 +103,8 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
       },
       child: Builder(
         builder: (ctx) => Drawer(
+          // 用户要求：收藏夹点开后铺满整个屏幕（全宽抽屉，盖住地图）。
+          width: MediaQuery.of(ctx).size.width,
           backgroundColor: TokC.panelSolid,
           child: SafeArea(
             // 整抽屉跟随控制器刷新：多选计数等保持最新（树体内部另有监听）。

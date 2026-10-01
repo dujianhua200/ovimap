@@ -508,7 +508,14 @@ class _HomePageState extends State<HomePage> {
                         st.setMode(st.mode == AppMode.edit
                             ? AppMode.view
                             : AppMode.edit);
-                      }, active: st.mode == AppMode.edit, label: '标记'),
+                      }, active: st.mode == AppMode.edit, label: '打点'),
+                      // 独立标记（奥维式）：点地图落点→输名称/备注→自动存根目录「标记」
+                      _railBtn('◉', () {
+                        st.toggleMarkMode();
+                        if (st.markMode) {
+                          toast(context, '独立标记：点地图落点');
+                        }
+                      }, active: st.markMode, label: '标记'),
                       _railBtn('⌖', () => _measureMenu(st), label: '测量'),
                       _railBtn('∿', () => _trackMenu(st), label: '轨迹'),
                       _railBtn('◎', _locateMe,

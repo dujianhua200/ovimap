@@ -248,6 +248,7 @@ class AppState extends ChangeNotifier {
 
     await refreshCollections();
     await _loadVisibleOverlays();
+    await _initMarkCount(); // 标记编号续接已有最大值，防重启重名
 
     _inited = true;
     notifyListeners();
@@ -524,9 +525,15 @@ class AppState extends ChangeNotifier {
 
   /// 标记模式下的落点：用当前符号（若为连线型则按独立点落），
   /// 自动编号「标记N」，追加进根目录「标记」收藏。
-  Future<void> addMarkAtWgs(double lat, double lon) async {
+  ///
+  /// 返回落点 label 与所在收藏 cid，供调用方弹名称/备注输入框后更新。
+  Future<({MapLabel label, String cid})> addMarkAtWgs(
+      double lat, double lon) async {
+    // 轨迹/无标签没有可显示的符号，回退为管道口符号，保证落点可见。
+    final typeId =
+        (curType.id == 'track' || curType.id == 'none') ? 'pipe' : curType.id;
     final l = MapLabel(
-      typeId: curType.id,
+      typeId: typeId,
       seq: 1,
       lat: lat,
       lon: lon,
@@ -534,10 +541,11 @@ class AppState extends ChangeNotifier {
     );
     l.lineGroupId = ''; // 只标记不连线
     _markCount++;
-    await _appendToMarkBook(l);
+    final cid = await _appendToMarkBook(l);
     // 用户指定：标记一次即自动退出标记模式，随后点击回到正常打点。
     markMode = false;
     notifyListeners();
+    return (label: l, cid: cid);
   }
 
   /// 把某个标记点从原收藏移到目标文件夹（落到该层的「标记」收藏里；
@@ -632,7 +640,8 @@ class AppState extends ChangeNotifier {
   int _markCount = 0;
 
   /// 把点追加进根目录「标记」收藏（没有则创建），并在地图上显示。
-  Future<void> _appendToMarkBook(MapLabel l) async {
+  /// 返回所在收藏 cid。
+  Future<String> _appendToMarkBook(MapLabel l) async {
     CollectionMeta? meta;
     for (final m in collections) {
       final isMark = m.kind == 'mark' || (m.name == kMarkBook && m.folder.isEmpty);
@@ -665,6 +674,28 @@ class AppState extends ChangeNotifier {
     if (!visibleCids.contains(cid)) visibleCids.add(cid);
     prefs.setString(prefVisible, visibleCids.join(','));
     overlayLabels[cid] = await store.loadCollection(cid);
+    return cid;
+  }
+
+  /// 启动时扫描已有「标记」收藏，把 _markCount 对齐到最大编号，
+  /// 避免重启后「标记N」重名。
+  Future<void> _initMarkCount() async {
+    var maxN = 0;
+    for (final m in collections) {
+      final isMark = m.kind == 'mark' || (m.name == kMarkBook && m.folder.isEmpty);
+      if (!isMark) continue;
+      try {
+        final ls = await store.loadCollection(m.id);
+        for (final l in ls) {
+          final mt = RegExp(r'^标记(\d+)$').firstMatch(l.name.trim());
+          if (mt != null) {
+            final n = int.tryParse(mt.group(1)!) ?? 0;
+            if (n > maxN) maxN = n;
+          }
+        }
+      } catch (_) {}
+    }
+    _markCount = maxN;
   }
 
   /// 本点在所属线组上的上一个连线点（竣工段距确认的基准）。

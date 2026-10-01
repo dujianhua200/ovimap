@@ -384,9 +384,8 @@ class DxfExporter {
         } else {
           block = 'HZ_POLE';
         }
-        // 箱体/人孔（box/oval）：**矩形框随文字自适应、文字在框内**——
-        // 对照真实通信图纸（分纤盒/接头盒画法）：框宽=文字宽+2mm 边距，
-        // 框高=字高+1.6mm 边距；交接箱额外画对角线 X（行业符号）。
+        // pin 类 = 杆/管等（非 oval/box/tri）：圆圈 + 符号字在圆内。
+        final isPin = !lt.isOval && !lt.isBox && !lt.isTri;
         if (lt.isBox || lt.isOval) {
           if (disp.isNotEmpty) {
             var wChars = 0.0;
@@ -409,6 +408,14 @@ class DxfExporter {
           } else {
             _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
           }
+        } else if (isPin) {
+          // pin 类（杆/管等）：圆圈 + 符号字在圆内（对齐地图样式；
+          // 用户要求：圆内除字之外别无其他）。
+          final rM = _mmOf(2.5, routeScale);
+          _appendCircle(c, 'BiaoQian', x, y, rM);
+          if (lt.symbol.isNotEmpty) {
+            _appendTextCentered(c, 'BiaoQian', x, y, labelFontM, lt.symbol);
+          }
         } else {
           _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
         }
@@ -419,8 +426,15 @@ class DxfExporter {
           _appendHoleDots(c, x, y + holeDotsUpM, l); // 芯线/管孔占用可视化
           continue;
         }
-        // 箱体/人孔文字已在框内（上方入框画法）；杆/引上文字在符号上方。
-        if (!lt.isBox && !lt.isOval && disp.isNotEmpty) {
+        // 箱体/人孔文字已在框内（上方入框画法）；pin 类符号字已在圆内，
+        // 上方只注记点名（有名称才注）；引上（tri）保持符号/名称在上方。
+        final pointName = l.name.trim();
+        if (isPin) {
+          if (pointName.isNotEmpty) {
+            _text(c, 'BiaoQian', x, y + offUpM, labelFontM, pointName,
+                style: true);
+          }
+        } else if (!lt.isBox && !lt.isOval && disp.isNotEmpty) {
           _text(c, 'BiaoQian', x, y + offUpM, labelFontM, disp, style: true);
         }
         if (l.holes > 0) {
@@ -539,6 +553,8 @@ class DxfExporter {
   ///
   /// **全图统一宋体**：默认样式 `SimSun`（simsun.ttc），不再输出无样式
   /// （Standard/txt.shx）的文字。
+  /// **全图文字纯白**（用户要求）：实体级白色覆盖图层色——路名层深灰
+  /// 在 CAD 黑底上几乎看不见，统一纯白最保险。
   /// - [styleName] 指定具体文字样式名（如路名的 `SongTi`），优先于默认；
   /// - [style] 为历史参数，保留兼容（等价于默认）；
   /// - [angle] 非空时写旋转 `50`。
@@ -547,6 +563,8 @@ class DxfExporter {
     final t = text.replaceAll('\r', ' ').replaceAll('\n', ' ');
     final sn = styleName ?? 'SimSun';
     c.ent('TEXT', layer, 'AcDbText');
+    c.sb.write('62\n7\n'); // ACI 白（实体级，覆盖图层色）
+    if (c.r2000) c.sb.write('420\n16777215\n'); // 真彩纯白
     c.sb.write('7\n$sn\n');
     c.sb.write('10\n${_fmt(x)}\n20\n${_fmt(y)}\n30\n0\n40\n${_fmt(h)}\n');
     if (angle != null) c.sb.write('50\n${angle.toStringAsFixed(1)}\n');
@@ -876,6 +894,11 @@ class DxfExporter {
       px = qx;
       py = qy;
     }
+  }
+
+  static void _appendCircle(_Ctx c, String layer, double cx, double cy, double r) {
+    c.ent('CIRCLE', layer, 'AcDbCircle');
+    c.sb.write('10\n${_fmt(cx)}\n20\n${_fmt(cy)}\n30\n0\n40\n${_fmt(r)}\n');
   }
 
   static void _appendRect(_Ctx c, String layer,
@@ -1448,7 +1471,8 @@ class DxfExporter {
         jroads.add(JunctionRoad(simp, r.grade, _roadHalfWidthM(r.grade, scale)));
         rpList.add(r);
       }
-      final jres = RoadJunction.process(jroads, _mmOf(0.3, scale));
+      // 交叉口倒角腿长：纸面 1.5mm（45° 真倒角，视觉上明确可辨）。
+      final jres = RoadJunction.process(jroads, _mmOf(1.5, scale));
       for (var i = 0; i < jroads.length; i++) {
         final rp = rpList[i];
         final halfW = jroads[i].halfW;
@@ -1554,8 +1578,8 @@ class DxfExporter {
     // 字号 clamp：必须放得进双线之间（0.6 系数留上下空隙）
     final h = math.min(_roadLabelM(grade, scale), 2 * halfW * 0.6);
     // clamp 后纸面高度下限：低于最小可读高度则该路不标注（塞不下，硬塞会糊）。
-    // 注：现行分级半宽表下双线间隙最大 0.9mm（trunk），clamp 后字高最大 0.54mm，
-    // 若按字面 1mm 阈值会把全部路名吞掉（与"尽量多保留路名"冲突），
+    // 注：现行分级半宽表下双线间隙最大 1.8mm（trunk），clamp 后字高最大 1.08mm，
+    // 若按字面 1mm 阈值会把小路路名吞掉（与"尽量多保留路名"冲突），
     // 故取可读下限 0.10mm 纸面高度——仅病态窄路/未来表变更时兜底。
     if (h < _mmOf(0.10, scale)) return;
     var totalLen = 0.0;
@@ -1737,15 +1761,16 @@ class DxfExporter {
       _mmOf(_roadLabelMm(g), scale);
 
   /// 等级 → 半宽（纸面毫米）。
-  /// 路宽（纸面毫米，v3.9.5 起整体**放大一倍**——用户反馈"路有点窄"）。
+  /// 路宽（纸面毫米）：v3.9.5 放大一倍后用户仍反馈"有点窄"，
+  /// 2026-10-01 起再整体放大一倍。
   static double _roadHalfWidthMm(RoadGrade g) => switch (g) {
-        RoadGrade.trunk => 0.90,
-        RoadGrade.primary => 0.76,
-        RoadGrade.secondary => 0.60,
-        RoadGrade.tertiary => 0.50,
-        RoadGrade.residential => 0.36,
-        RoadGrade.service => 0.24,
-        RoadGrade.other => 0.20,
+        RoadGrade.trunk => 1.80,
+        RoadGrade.primary => 1.52,
+        RoadGrade.secondary => 1.20,
+        RoadGrade.tertiary => 1.00,
+        RoadGrade.residential => 0.72,
+        RoadGrade.service => 0.48,
+        RoadGrade.other => 0.40,
       };
 
   /// 等级 → 路名字号（纸面毫米）。

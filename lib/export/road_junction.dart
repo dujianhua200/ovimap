@@ -127,7 +127,7 @@ class RoadJunction {
             .add(_subPolyline(pts, cums[i], math.max(cur, 0.0), total));
       }
 
-      // ---- 3. 倒角：次路开口端点 → 主路边线 ----
+      // ---- 3. 倒角：次路开口端点 → 主路边线（45° 真倒角）----
       for (final t in trims) {
         final major = roads[t.majorIdx];
         final mt = _pointAt(major.pts, cums[t.majorIdx], t.majorS);
@@ -146,9 +146,13 @@ class RoadJunction {
           if (mSide.abs() < 1e-9) continue;
           final sSign = mSide > 0 ? 1.0 : -1.0;
           final along = relX * v[0] + relY * v[1];
+          if (along.abs() < 1e-9) continue; // 退化情形跳过
+          // 45° 倒角：从次路边线端点起，落到主路边线上沿主路方向
+          // 向外再张 chamferM 的点（两条腿等长 = 标准 45° 倒角）。
+          final flare = along + along.sign * chamferM;
           final q = [
-            t.junctionP[0] + m[0] * sSign * ohw + v[0] * along,
-            t.junctionP[1] + m[1] * sSign * ohw + v[1] * along,
+            t.junctionP[0] + m[0] * sSign * ohw + v[0] * flare,
+            t.junctionP[1] + m[1] * sSign * ohw + v[1] * flare,
           ];
           final d = _dist(c0, q);
           if (d > 4 * ohw + chamferM * 2) continue; // 斜交过缓，跳过防怪线

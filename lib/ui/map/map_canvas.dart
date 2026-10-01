@@ -157,9 +157,12 @@ class _MapCanvasState extends State<MapCanvas> {
     // 标记模式最高优先（任何模式下点地图都只落独立标记，自动存根目录「标记」）。
     if (st.markMode) {
       final w = st.toWgs(point.latitude, point.longitude);
-      unawaited(st.addMarkAtWgs(w[0], w[1]).then((_) {
-        if (context.mounted) toast(context, '已标记并自动保存到收藏夹根目录');
-      }));
+      () async {
+        final res = await st.addMarkAtWgs(w[0], w[1]);
+        if (!mounted) return;
+        // 落点后就地输入名称/备注（三端共用：桌面/安卓/iOS 都走这里）。
+        await showMarkPrompt(context, st, res.label, res.cid);
+      }();
       return;
     }
     switch (st.mode) {

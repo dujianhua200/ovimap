@@ -67,6 +67,11 @@ void main() {
         final d = dx * dx + dy * dy;
         expect(d, lessThan(4.0));
         expect(d, greaterThan(1e-12));
+        // 45° 真倒角：落点 q 在主路边线上（|y| = trunkHW），且两条腿等长
+        expect(ch[1][1].abs(), closeTo(trunkHW, 1e-6),
+            reason: '倒角落点应在主路边线上，实测 ${ch[1]}');
+        expect(dx.abs(), closeTo(dy.abs(), 1e-6),
+            reason: '45° 倒角两条腿应等长，实测 $ch');
       }
     });
 

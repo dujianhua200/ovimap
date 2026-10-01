@@ -739,6 +739,49 @@ Future<void> showTextPrompt(
   );
 }
 
+/// 独立标记落点后输入名称/备注（三端共用：桌面/安卓/iOS 都走 map_canvas 落点）。
+Future<void> showMarkPrompt(
+    BuildContext context, AppState st, MapLabel label, String cid) async {
+  final nameCtl = TextEditingController(text: label.name);
+  final noteCtl = TextEditingController(text: label.note);
+  await showDarkDialog(
+    context,
+    title: '独立标记',
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+            controller: nameCtl,
+            autofocus: true,
+            style: const TextStyle(color: kTextMain, fontSize: 14),
+            decoration: dec('名称（如：光交箱位置、预留管孔）')),
+        const SizedBox(height: 8),
+        TextField(
+            controller: noteCtl,
+            style: const TextStyle(color: kTextMain, fontSize: 14),
+            decoration: dec('备注（可选）')),
+      ],
+    ),
+    actions: [
+      darkTextBtn('删除', () {
+        st.removeOverlayLabel(cid, label);
+        Navigator.pop(context);
+      }, color: TokC.danger),
+      darkTextBtn('确定', () {
+        label.name = nameCtl.text.trim();
+        label.note = noteCtl.text.trim();
+        if (label.name.isEmpty && label.note.isEmpty) {
+          st.removeOverlayLabel(cid, label);
+        } else {
+          st.updateOverlayLabel(cid, label);
+        }
+        Navigator.pop(context);
+        toast(context, '已保存到收藏夹「标记」');
+      }),
+    ],
+  );
+}
+
 // ================= 保存收藏 =================
 
 Future<void> showFinishDialog(BuildContext context, AppState st) async {
