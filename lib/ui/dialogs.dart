@@ -1012,6 +1012,8 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   final localMeta = localStore.meta();
   var useLocal = hasLocal && opt('dxfUseLocal', true);
   // 建筑兜底包（离线）：OSM 建筑为空/过少时自动按范围补建筑轮廓。
+  // 后台更新：App 启动后自动检查 manifest，有新版悄悄下载替换；
+  // 这里只负责展示版本与手动"检查更新"。
   final fallbackStore = await FallbackStore.open();
   var fallbackMeta = fallbackStore.meta();
   var fallbackDownloading = false;
@@ -1410,9 +1412,13 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                 child: Text(
                     () {
                       final m = fallbackMeta;
-                      return m != null
-                          ? '建筑兜底包：${m['name']} ${m['buildings']} 栋（${m['source']}）'
-                          : '建筑兜底包：未安装（OSM 在中国区建筑稀疏，建议安装）';
+                      if (m == null) {
+                        return '建筑兜底包：未安装（OSM 在中国区建筑稀疏，建议安装）';
+                      }
+                      final upd = '${m['updated'] ?? m['date'] ?? ''}';
+                      return '建筑兜底包：${m['name']} v${m['version']} · '
+                          '${m['buildings']} 栋'
+                          '${upd.isNotEmpty ? '（$upd 更新）' : ''}';
                     }(),
                     style: TextStyle(
                         color: fallbackMeta != null ? kGreen : kTextSub,
@@ -1473,7 +1479,46 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                           style: const TextStyle(
                               color: kAccent, fontSize: 12.5)),
                     ),
-                  if (fallbackMeta != null)
+                  if (fallbackMeta != null) ...[
+                    TextButton(
+                      onPressed: fallbackDownloading
+                          ? null
+                          : () async {
+                              setSt(() {
+                                fallbackDownloading = true;
+                                fallbackProgress = '正在检查更新…';
+                              });
+                              try {
+                                final n =
+                                    await fallbackStore.ensureLatest(
+                                        onProgress: (id, rx, total) {
+                                  if (dialogOpen && total > 0) {
+                                    setSt(() {
+                                      fallbackProgress =
+                                          '正在更新：${(rx / total * 100).toStringAsFixed(0)}%';
+                                    });
+                                  }
+                                });
+                                fallbackMeta = fallbackStore.meta();
+                                fallbackProgress =
+                                    n > 0 ? '已更新到最新版本' : '已是最新版本';
+                                await Future.delayed(
+                                    const Duration(seconds: 2));
+                              } catch (e) {
+                                fallbackProgress = '检查更新失败：$e';
+                                await Future.delayed(
+                                    const Duration(seconds: 3));
+                              }
+                              if (dialogOpen) {
+                                setSt(() {
+                                  fallbackDownloading = false;
+                                  fallbackProgress = '';
+                                });
+                              }
+                            },
+                      child: const Text('检查更新',
+                          style: TextStyle(color: kAccent, fontSize: 12.5)),
+                    ),
                     TextButton(
                       onPressed: fallbackDownloading
                           ? null
@@ -1485,6 +1530,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                       child: const Text('删除兜底包',
                           style: TextStyle(color: kTextSub, fontSize: 12.5)),
                     ),
+                  ],
                 ]),
               ),
             ),

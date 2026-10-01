@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'services/platform_caps.dart';
+import 'export/building_fallback.dart';
 import 'state/app_state.dart';
 import 'state/fav_tree_controller.dart';
 import 'sync/sync_controller.dart';
@@ -27,6 +28,13 @@ void main(List<String> args) {
     ]);
   }
   runApp(OviMapApp(startupProjectPath: startupProjectFromArgs(args)));
+  // 建筑兜底包后台更新：启动几秒后悄悄检查 manifest，有新版自动下载替换。
+  // 全链路吞异常——后台任务绝不能影响启动与主流程。
+  unawaited(Future.delayed(const Duration(seconds: 8), () async {
+    try {
+      await checkFallbackUpdatesInBackground();
+    } catch (_) {}
+  }));
 }
 
 /// 从启动参数里解析 `.ovimap` 工程文件路径（T22 文件关联：`ovimap.exe "xxx.ovimap"`）。
