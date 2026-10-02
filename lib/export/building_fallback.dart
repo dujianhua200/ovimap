@@ -200,21 +200,50 @@ class FallbackStore {
   }
 
   /// 拉取远端 manifest（按镜像顺序尝试，全部失败返回 null，不抛异常）。
+  ///
+  /// 后台更新用；前台手动下载请用 [fetchReleaseOrThrow] 以便展示失败原因。
   Future<FallbackRelease?> fetchRelease(FallbackPackage pkg) async {
+    try {
+      return await fetchReleaseOrThrow(pkg);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 拉取远端 manifest；全部镜像失败时抛带各镜像错误详情的异常。
+  Future<FallbackRelease> fetchReleaseOrThrow(FallbackPackage pkg) async {
+    final errors = <String>[];
     for (final murl in pkg.manifestUrls) {
+      final host = Uri.parse(murl).host;
       try {
         final r = await _get(Uri.parse(murl))
             .timeout(const Duration(seconds: 20));
-        if (r.statusCode != 200) continue;
+        if (r.statusCode != 200) {
+          errors.add('$host: HTTP ${r.statusCode}');
+          continue;
+        }
         final decoded = jsonDecode(utf8.decode(r.body));
-        if (decoded is! Map) continue;
+        if (decoded is! Map) {
+          errors.add('$host: manifest 格式错误');
+          continue;
+        }
         final rel = FallbackRelease.parse(Map<String, dynamic>.from(decoded));
         if (rel != null) return rel;
-      } catch (_) {
-        // 换下一个镜像
+        errors.add('$host: manifest 版本无效');
+      } catch (e) {
+        errors.add('$host: ${_shortErr(e)}');
       }
     }
-    return null;
+    throw HttpException('获取版本信息失败（${errors.join('；')}），请检查网络后重试');
+  }
+
+  /// 把异常压成一行，避免堆栈刷屏。
+  static String _shortErr(Object e) {
+    final s = '$e';
+    final i = s.indexOf('\n');
+    final first = (i < 0 ? s : s.substring(0, i)).trim();
+    // 去掉 "HttpException: " 等前缀噪音，保留关键信息
+    return first.length > 160 ? '${first.substring(0, 160)}…' : first;
   }
 
   /// 检查已安装包的可用更新（未安装/无更新/网络失败 → 空列表，不抛异常）。
@@ -302,10 +331,7 @@ class FallbackStore {
     void Function(String stage)? onStage,
   }) async {
     onStage?.call('正在获取版本信息…');
-    final rel = await fetchRelease(pkg);
-    if (rel == null) {
-      throw const HttpException('无法获取建筑包版本信息，请检查网络后重试');
-    }
+    final rel = await fetchReleaseOrThrow(pkg);
     await _installRelease(pkg, rel,
         onProgress: onProgress, onStage: onStage);
   }
@@ -325,7 +351,7 @@ class FallbackStore {
     void Function(int received, int total)? onProgress,
     void Function(String stage)? onStage,
   }) async {
-    Object? lastError;
+    final errors = <String>[];
     for (var i = 0; i < rel.urls.length; i++) {
       final url = Uri.parse(rel.urls[i]);
       if (i > 0) onStage?.call('主线路不通，切换备用线路…');
@@ -333,11 +359,11 @@ class FallbackStore {
         await _downloadOne(pkg, rel, url, onProgress: onProgress);
         return;
       } catch (e) {
-        lastError = e;
+        errors.add('${url.host}: ${_shortErr(e)}');
         // 换下一个镜像
       }
     }
-    throw lastError ?? const HttpException('所有下载线路均失败');
+    throw HttpException('下载失败（${errors.join('；')}）');
   }
 
   Future<void> _downloadOne(

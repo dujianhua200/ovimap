@@ -1018,6 +1018,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   var fallbackMeta = fallbackStore.meta();
   var fallbackDownloading = false;
   var fallbackProgress = '';
+  var fallbackError = '';
   // 底图外扩范围：预设档位 + 自定义。
   // 自定义值直接恢复（不再强制回落到默认档）；不在预设档位里时
   // UI 显示为「自定义(xxx)」并选中。
@@ -1434,6 +1435,16 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                       style: const TextStyle(color: kAccent, fontSize: 11)),
                 ),
               ),
+            if (fallbackError.isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16, bottom: 2),
+                  child: Text(fallbackError,
+                      style:
+                          const TextStyle(color: Colors.redAccent, fontSize: 11)),
+                ),
+              ),
             Align(
               alignment: Alignment.centerLeft,
               child: Padding(
@@ -1447,6 +1458,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                               final pkg = fallbackRegistry.first;
                               setSt(() {
                                 fallbackDownloading = true;
+                                fallbackError = '';
                                 fallbackProgress = '正在获取版本信息…';
                               });
                               try {
@@ -1466,18 +1478,21 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                                   }
                                 });
                                 fallbackMeta = fallbackStore.meta();
-                              } catch (e) {
-                                fallbackProgress = '下载失败：$e';
-                                await Future.delayed(
-                                    const Duration(seconds: 3));
-                              }
-                              if (dialogOpen) {
-                                setSt(() {
-                                  fallbackDownloading = false;
-                                  if (fallbackMeta != null) {
+                                if (dialogOpen) {
+                                  setSt(() {
+                                    fallbackDownloading = false;
+                                    fallbackError = '';
                                     fallbackProgress = '';
-                                  }
-                                });
+                                  });
+                                }
+                              } catch (e) {
+                                // 失败原因持久显示（不自动隐藏），直到下次重试或关闭
+                                if (dialogOpen) {
+                                  setSt(() {
+                                    fallbackDownloading = false;
+                                    fallbackError = '下载失败：$e';
+                                  });
+                                }
                               }
                             },
                       child: Text(

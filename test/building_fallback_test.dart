@@ -194,8 +194,8 @@ void mockHttp({required int manifestVersion, bool fail = false}) {
     };
     final s = await _storeWithPkg();
     final rel = await s.fetchRelease(testPkg);
-    await expectLater(
-        s.update(testPkg, rel!), throwsA(isA<FormatException>()));
+    // 坏包：各镜像都失败，抛带详情的 HttpException（而非静默成功）
+    await expectLater(s.update(testPkg, rel!), throwsA(isA<HttpException>()));
     // 旧包仍在、版本未动
     expect(s.meta()?['version'], 1);
     expect(await s.query([32.0, 113.9, 32.2, 114.1]), hasLength(2));
@@ -286,6 +286,38 @@ void mockHttp({required int manifestVersion, bool fail = false}) {
     final s = FallbackStore(dir);
     // manifest 全失败 → install 抛版本信息异常
     await expectLater(s.install(testPkg), throwsA(isA<HttpException>()));
+    FallbackStore.httpGetOverride = null;
+  });
+
+  test('fetchReleaseOrThrow：全部失败时带各镜像错误详情', () async {
+    FallbackStore.httpGetOverride = (Uri url) async {
+      if (url.host == 'bad.invalid') {
+        return (statusCode: 403, body: <int>[]);
+      }
+      throw const SocketException('Connection reset');
+    };
+    const multi = FallbackPackage(
+      id: 'xinyang',
+      name: '信阳市',
+      manifestUrls: [
+        'https://bad.invalid/manifest.json',
+        'https://down.invalid/manifest.json',
+      ],
+      source: 'CMAB v7',
+    );
+    final dir = await Directory.systemTemp.createTemp('ovimap_fb_err');
+    final s = FallbackStore(dir);
+    try {
+      await s.fetchReleaseOrThrow(multi);
+      fail('应抛异常');
+    } catch (e) {
+      final msg = '$e';
+      expect(msg, contains('bad.invalid'));
+      expect(msg, contains('HTTP 403'));
+      expect(msg, contains('down.invalid'));
+    }
+    // 非抛版本仍返回 null（后台更新用）
+    expect(await s.fetchRelease(multi), isNull);
     FallbackStore.httpGetOverride = null;
   });
 }
