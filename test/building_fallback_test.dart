@@ -296,28 +296,31 @@ void mockHttp({required int manifestVersion, bool fail = false}) {
       }
       throw const SocketException('Connection reset');
     };
-    const multi = FallbackPackage(
-      id: 'xinyang',
-      name: '信阳市',
-      manifestUrls: [
-        'https://bad.invalid/manifest.json',
-        'https://down.invalid/manifest.json',
-      ],
-      source: 'CMAB v7',
-    );
-    final dir = await Directory.systemTemp.createTemp('ovimap_fb_err');
-    final s = FallbackStore(dir);
     try {
-      await s.fetchReleaseOrThrow(multi);
-      fail('应抛异常');
-    } catch (e) {
-      final msg = '$e';
-      expect(msg, contains('bad.invalid'));
-      expect(msg, contains('HTTP 403'));
-      expect(msg, contains('down.invalid'));
+      const multi = FallbackPackage(
+        id: 'xinyang',
+        name: '信阳市',
+        manifestUrls: [
+          'https://bad.invalid/manifest.json',
+          'https://down.invalid/manifest.json',
+        ],
+        source: 'CMAB v7',
+      );
+      final dir = await Directory.systemTemp.createTemp('ovimap_fb_err');
+      final s = FallbackStore(dir);
+      try {
+        await s.fetchReleaseOrThrow(multi);
+        fail('应抛异常');
+      } catch (e) {
+        final msg = '$e';
+        expect(msg, contains('bad.invalid'));
+        expect(msg, contains('HTTP 403'));
+        expect(msg, contains('down.invalid'));
+      }
+      // 非抛版本仍返回 null（后台更新用）
+      expect(await s.fetchRelease(multi), isNull);
+    } finally {
+      FallbackStore.httpGetOverride = null;
     }
-    // 非抛版本仍返回 null（后台更新用）
-    expect(await s.fetchRelease(multi), isNull);
-    FallbackStore.httpGetOverride = null;
   });
 }
