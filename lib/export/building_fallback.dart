@@ -26,17 +26,19 @@ import 'dart:io';
 import '../services/store.dart';
 import 'basemap.dart';
 
-/// 可下载的兜底包注册表项：只记 manifest 地址，具体版本/下载地址
-/// 以 manifest 为准（后台更新的比对依据）。
+/// 可下载的兜底包注册表项：只记 manifest 地址（多个镜像按顺序尝试），
+/// 具体版本/下载地址以 manifest 为准（后台更新的比对依据）。
 class FallbackPackage {
   final String id;
   final String name;
-  final String manifestUrl;
+
+  /// manifest 镜像地址（按顺序尝试；国内优先 jsDelivr CDN）。
+  final List<String> manifestUrls;
   final String source;
   const FallbackPackage({
     required this.id,
     required this.name,
-    required this.manifestUrl,
+    required this.manifestUrls,
     required this.source,
   });
 }
@@ -46,7 +48,9 @@ class FallbackRelease {
   final String id;
   final String name;
   final int version;
-  final String url;
+
+  /// 数据文件镜像地址（按顺序尝试；`url` 为主，`mirrors` 为备）。
+  final List<String> urls;
   final int bytes;
   final int buildings;
   final String source;
@@ -55,7 +59,7 @@ class FallbackRelease {
     required this.id,
     required this.name,
     required this.version,
-    required this.url,
+    required this.urls,
     required this.bytes,
     required this.buildings,
     required this.source,
@@ -66,13 +70,23 @@ class FallbackRelease {
     try {
       final v = json['version'];
       final version = v is int ? v : int.tryParse('$v') ?? 0;
-      final url = '${json['url']}';
-      if (version <= 0 || url.isEmpty) return null;
+      final urls = <String>[];
+      final rawPrimary = json['url'];
+      if (rawPrimary is String && rawPrimary.isNotEmpty) {
+        urls.add(rawPrimary);
+      }
+      final mirrors = json['mirrors'];
+      if (mirrors is List) {
+        for (final m in mirrors) {
+          if (m is String && m.isNotEmpty && !urls.contains(m)) urls.add(m);
+        }
+      }
+      if (version <= 0 || urls.isEmpty) return null;
       return FallbackRelease(
         id: '${json['id']}',
         name: '${json['name']}',
         version: version,
-        url: url,
+        urls: urls,
         bytes: (json['bytes'] as num?)?.toInt() ?? -1,
         buildings: (json['buildings'] as num?)?.toInt() ?? 0,
         source: '${json['source'] ?? ''}',
@@ -97,12 +111,18 @@ typedef FallbackHttpGet = Future<({int statusCode, List<int> body})>
     Function(Uri url);
 
 /// 当前已发布的兜底包（v1：信阳市，CMAB v7 预处理）。
+///
+/// manifest 走多镜像：jsDelivr（国内 CDN）优先，raw.githubusercontent 备用。
 List<FallbackPackage> get fallbackRegistry => const [
       FallbackPackage(
         id: 'xinyang',
         name: '信阳市',
-        manifestUrl: 'https://raw.githubusercontent.com/dujianhua200/ovimap/'
-            'data/buildings-xinyang-v1/manifest.json',
+        manifestUrls: [
+          'https://cdn.jsdelivr.net/gh/dujianhua200/ovimap'
+              '@data/buildings-xinyang-v1/manifest.json',
+          'https://raw.githubusercontent.com/dujianhua200/ovimap/'
+              'data/buildings-xinyang-v1/manifest.json',
+        ],
         source: 'CMAB v7（2025-04-20，清华大学）预处理',
       ),
     ];
@@ -179,18 +199,22 @@ class FallbackStore {
     return (statusCode: resp.statusCode, body: buf);
   }
 
-  /// 拉取远端 manifest（失败返回 null，不抛异常）。
+  /// 拉取远端 manifest（按镜像顺序尝试，全部失败返回 null，不抛异常）。
   Future<FallbackRelease?> fetchRelease(FallbackPackage pkg) async {
-    try {
-      final r = await _get(Uri.parse(pkg.manifestUrl))
-          .timeout(const Duration(seconds: 20));
-      if (r.statusCode != 200) return null;
-      final decoded = jsonDecode(utf8.decode(r.body));
-      if (decoded is! Map) return null;
-      return FallbackRelease.parse(Map<String, dynamic>.from(decoded));
-    } catch (_) {
-      return null;
+    for (final murl in pkg.manifestUrls) {
+      try {
+        final r = await _get(Uri.parse(murl))
+            .timeout(const Duration(seconds: 20));
+        if (r.statusCode != 200) continue;
+        final decoded = jsonDecode(utf8.decode(r.body));
+        if (decoded is! Map) continue;
+        final rel = FallbackRelease.parse(Map<String, dynamic>.from(decoded));
+        if (rel != null) return rel;
+      } catch (_) {
+        // 换下一个镜像
+      }
     }
+    return null;
   }
 
   /// 检查已安装包的可用更新（未安装/无更新/网络失败 → 空列表，不抛异常）。
@@ -271,15 +295,19 @@ class FallbackStore {
   /// 下载并安装兜底包；[onProgress] 收 `(received, total)`（total 可能为 -1）。
   ///
   /// 先拉 manifest 拿真实下载地址与版本号；URL 以 `.gz` 结尾时自动解压。
+  /// 数据文件按 manifest 镜像顺序尝试（国内优先走 CDN）。
   Future<void> install(
     FallbackPackage pkg, {
     void Function(int received, int total)? onProgress,
+    void Function(String stage)? onStage,
   }) async {
+    onStage?.call('正在获取版本信息…');
     final rel = await fetchRelease(pkg);
     if (rel == null) {
       throw const HttpException('无法获取建筑包版本信息，请检查网络后重试');
     }
-    await _installRelease(pkg, rel, onProgress: onProgress);
+    await _installRelease(pkg, rel,
+        onProgress: onProgress, onStage: onStage);
   }
 
   /// 安装指定版本（后台更新用）；原子替换，失败不破坏旧包。
@@ -287,15 +315,37 @@ class FallbackStore {
     FallbackPackage pkg,
     FallbackRelease rel, {
     void Function(int received, int total)? onProgress,
+    void Function(String stage)? onStage,
   }) =>
-      _installRelease(pkg, rel, onProgress: onProgress);
+      _installRelease(pkg, rel, onProgress: onProgress, onStage: onStage);
 
   Future<void> _installRelease(
     FallbackPackage pkg,
     FallbackRelease rel, {
     void Function(int received, int total)? onProgress,
+    void Function(String stage)? onStage,
   }) async {
-    final url = Uri.parse(rel.url);
+    Object? lastError;
+    for (var i = 0; i < rel.urls.length; i++) {
+      final url = Uri.parse(rel.urls[i]);
+      if (i > 0) onStage?.call('主线路不通，切换备用线路…');
+      try {
+        await _downloadOne(pkg, rel, url, onProgress: onProgress);
+        return;
+      } catch (e) {
+        lastError = e;
+        // 换下一个镜像
+      }
+    }
+    throw lastError ?? const HttpException('所有下载线路均失败');
+  }
+
+  Future<void> _downloadOne(
+    FallbackPackage pkg,
+    FallbackRelease rel,
+    Uri url, {
+    void Function(int received, int total)? onProgress,
+  }) async {
     final tmp = File('${root.path}/${pkg.id}.geojson.tmp');
     final sink = tmp.openWrite();
     var sinkOpen = true;
@@ -313,7 +363,7 @@ class FallbackStore {
           sink.add(chunk);
           onProgress?.call(rx, t);
         },
-      ).timeout(const Duration(minutes: 10));
+      ).timeout(const Duration(minutes: 5));
       await closeSink();
       if (r.statusCode != 200) {
         throw HttpException('下载失败：HTTP ${r.statusCode}', uri: url);
@@ -325,9 +375,10 @@ class FallbackStore {
     }
     // gzip 解压（发布包为 .gz 以省流量）。
     String text;
+    final isGz = url.path.endsWith('.gz');
     try {
       final raw = await tmp.readAsBytes();
-      text = rel.url.endsWith('.gz') ? utf8.decode(gzip.decode(raw)) : utf8.decode(raw);
+      text = isGz ? utf8.decode(gzip.decode(raw)) : utf8.decode(raw);
     } catch (e) {
       await tmp.delete();
       throw FormatException('建筑包解压失败：$e');

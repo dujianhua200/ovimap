@@ -90,7 +90,7 @@ void main() {
 const testPkg = FallbackPackage(
   id: 'xinyang',
   name: '信阳市',
-  manifestUrl: 'https://example.invalid/manifest.json',
+  manifestUrls: ['https://example.invalid/manifest.json'],
   source: 'CMAB v7',
 );
 
@@ -99,6 +99,7 @@ Map<String, dynamic> manifestOf(int version) => {
       'name': '信阳市',
       'version': version,
       'url': 'https://example.invalid/xinyang_buildings.geojson.gz',
+      'mirrors': ['https://mirror.invalid/xinyang_buildings.geojson.gz'],
       'bytes': 12345,
       'buildings': 98006,
       'source': 'CMAB v7',
@@ -126,13 +127,16 @@ void mockHttp({required int manifestVersion, bool fail = false}) {
     final r = FallbackRelease.parse(manifestOf(2));
     expect(r, isNotNull);
     expect(r!.version, 2);
-    expect(r.url, contains('.gz'));
+    expect(r.urls.length, 2);
+    expect(r.urls[0], contains('example.invalid'));
+    expect(r.urls[1], contains('mirror.invalid'));
     expect(r.buildings, 98006);
   });
 
   test('FallbackRelease.parse：非法 manifest 返回 null', () {
     expect(FallbackRelease.parse({}), isNull);
     expect(FallbackRelease.parse({'version': 0, 'url': ''}), isNull);
+    expect(FallbackRelease.parse({'version': 2}), isNull);
   });
 
   test('meta：旧版字符串版本 v1 兼容为 int 1', () async {
@@ -190,7 +194,8 @@ void mockHttp({required int manifestVersion, bool fail = false}) {
     };
     final s = await _storeWithPkg();
     final rel = await s.fetchRelease(testPkg);
-    expect(() => s.update(testPkg, rel!), throwsA(isA<FormatException>()));
+    await expectLater(
+        s.update(testPkg, rel!), throwsA(isA<FormatException>()));
     // 旧包仍在、版本未动
     expect(s.meta()?['version'], 1);
     expect(await s.query([32.0, 113.9, 32.2, 114.1]), hasLength(2));
@@ -218,6 +223,69 @@ void mockHttp({required int manifestVersion, bool fail = false}) {
     await s.install(testPkg);
     expect(s.meta()?['version'], 2);
     expect(s.meta()?['buildings'], 3);
+    FallbackStore.httpGetOverride = null;
+  });
+
+  test('fetchRelease：主镜像失败自动切备用', () async {
+    const multi = FallbackPackage(
+      id: 'xinyang',
+      name: '信阳市',
+      manifestUrls: [
+        'https://bad.invalid/manifest.json',
+        'https://example.invalid/manifest.json',
+      ],
+      source: 'CMAB v7',
+    );
+    FallbackStore.httpGetOverride = (Uri url) async {
+      if (url.host == 'bad.invalid') {
+        return (statusCode: 500, body: <int>[]);
+      }
+      return (
+        statusCode: 200,
+        body: utf8.encode(jsonEncode(manifestOf(2))),
+      );
+    };
+    final dir = await Directory.systemTemp.createTemp('ovimap_fb_mir');
+    final s = FallbackStore(dir);
+    final rel = await s.fetchRelease(multi);
+    expect(rel?.version, 2);
+    FallbackStore.httpGetOverride = null;
+  });
+
+  test('install：数据主线路失败切备用线路', () async {
+    FallbackStore.httpGetOverride = (Uri url) async {
+      if (url.path.endsWith('manifest.json')) {
+        return (
+          statusCode: 200,
+          body: utf8.encode(jsonEncode(manifestOf(2))),
+        );
+      }
+      // 主线路 example.invalid 失败，备用 mirror.invalid 成功
+      if (url.host == 'example.invalid') {
+        return (statusCode: 500, body: <int>[]);
+      }
+      return (
+        statusCode: 200,
+        body: gzip.encode(utf8.encode(_geojson)),
+      );
+    };
+    final dir = await Directory.systemTemp.createTemp('ovimap_fb_mir2');
+    final s = FallbackStore(dir);
+    final stages = <String>[];
+    await s.install(testPkg, onStage: stages.add);
+    expect(s.meta()?['version'], 2);
+    expect(stages, contains('主线路不通，切换备用线路…'));
+    expect(await s.query([32.0, 113.9, 32.2, 114.1]), hasLength(2));
+    FallbackStore.httpGetOverride = null;
+  });
+
+  test('install：全部线路失败抛异常', () async {
+    FallbackStore.httpGetOverride = (Uri url) async =>
+        (statusCode: 500, body: <int>[]);
+    final dir = await Directory.systemTemp.createTemp('ovimap_fb_mir3');
+    final s = FallbackStore(dir);
+    // manifest 全失败 → install 抛版本信息异常
+    await expectLater(s.install(testPkg), throwsA(isA<HttpException>()));
     FallbackStore.httpGetOverride = null;
   });
 }

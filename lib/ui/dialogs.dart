@@ -1447,15 +1447,21 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                               final pkg = fallbackRegistry.first;
                               setSt(() {
                                 fallbackDownloading = true;
-                                fallbackProgress = '0%';
+                                fallbackProgress = '正在获取版本信息…';
                               });
                               try {
                                 await fallbackStore.install(pkg,
-                                    onProgress: (rx, total) {
+                                    onStage: (stage) {
+                                  if (dialogOpen) {
+                                    setSt(() => fallbackProgress = stage);
+                                  }
+                                }, onProgress: (rx, total) {
                                   if (dialogOpen && total > 0) {
                                     setSt(() {
                                       fallbackProgress =
-                                          '${(rx / total * 100).toStringAsFixed(0)}%';
+                                          '正在下载：${(rx / 1048576).toStringAsFixed(1)}MB / '
+                                          '${(total / 1048576).toStringAsFixed(1)}MB '
+                                          '(${(rx / total * 100).toStringAsFixed(0)}%)';
                                     });
                                   }
                                 });
@@ -1495,7 +1501,8 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                                   if (dialogOpen && total > 0) {
                                     setSt(() {
                                       fallbackProgress =
-                                          '正在更新：${(rx / total * 100).toStringAsFixed(0)}%';
+                                          '正在更新：${(rx / 1048576).toStringAsFixed(1)}MB / '
+                                          '${(total / 1048576).toStringAsFixed(1)}MB';
                                     });
                                   }
                                 });

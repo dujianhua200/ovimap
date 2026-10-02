@@ -24,6 +24,17 @@ gzip -9 xinyang_buildings.geojson
 
 ## 分发
 
-经 GitHub git-database API 推送到 `data/buildings-xinyang-v1` 分支，
-App 内注册表 URL 为 `https://raw.githubusercontent.com/dujianhua200/ovimap/data/buildings-xinyang-v1/xinyang_buildings.geojson.gz`。
+经 GitHub git-database API 推送到 `data/buildings-xinyang-v1` 分支。
+App 通过分支根目录的 `manifest.json` 发现版本（后台自动更新）。
+
+**国内可访问性（2026-10-02 起）**：数据文件与 manifest 的主线路为 jsDelivr CDN
+（`https://cdn.jsdelivr.net/gh/dujianhua200/ovimap@data/buildings-xinyang-v1/…`，
+国内有节点），`raw.githubusercontent.com` 仅作备用——App 按 manifest 的
+`url` → `mirrors` 顺序自动切换。
+
+⚠️ 发新版后必须清 jsDelivr 缓存（否则国内用户拿到旧 manifest）：
+```bash
+curl "https://purge.jsdelivr.net/gh/dujianhua200/ovimap@data/buildings-xinyang-v1/manifest.json"
+curl "https://purge.jsdelivr.net/gh/dujianhua200/ovimap@data/buildings-xinyang-v1/xinyang_buildings.geojson.gz"
+```
 （release asset 需走 uploads.github.com，当前网络 surrogate 不放行，故用数据分支。）
