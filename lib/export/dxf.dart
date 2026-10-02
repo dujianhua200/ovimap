@@ -1650,7 +1650,7 @@ class DxfExporter {
     ];
     if (paths.isEmpty) return;
     c.ent('HATCH', layer, 'AcDbHatch');
-    c.sb.write('62\n252\n2\nSOLID\n'
+    c.sb.write('62\n7\n2\nSOLID\n'
         '70\n1\n71\n0\n91\n${paths.length}\n');
     for (final path in paths) {
       // 92=7（External|Polyline|Derived），72=无凸度，73=闭合，93=顶点数

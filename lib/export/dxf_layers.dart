@@ -55,14 +55,14 @@ class DxfLayers {
   static const int cBiaoQian = 0xFFFF00; // 黄
   static const int cJuLi = 0x000000; // 黑
   static const int cFrame = 0x000000; // 黑
-  static const int cDaoLuBian = 0xC8C8C8; // 浅灰（道路双线描边）
-  static const int cDaoLuZhong = 0x7F8C8D; // 灰（道路中心线，实体色另覆盖）
-  static const int cDaoLu = 0x595959; // 深灰（道路名注记）
-  static const int cJianZhu = 0xB0B0B0; // 浅灰（建筑轮廓）
+  static const int cDaoLuBian = 0xFFFFFF; // 纯白（道路双线描边）
+  static const int cDaoLuZhong = 0xFFFFFF; // 纯白（道路中心线）
+  static const int cDaoLu = 0xFFFFFF; // 纯白（道路注记层）
+  static const int cJianZhu = 0xFFFFFF; // 纯白（建筑轮廓）
   static const int cDianLi = 0x2A62E8; // 蓝偏紫（电力线：醒目、不与杆路混淆）
   static const int cShuiXi = 0xC4823B; // 土黄蓝（水系沟渠）
-  static const int cJianZhuFill = 0xEFEFEF; // 更浅灰（建筑填充）
-  static const int cDiMing = 0x2E7D32; // 绿（地名）
+  static const int cJianZhuFill = 0xFFFFFF; // 纯白（建筑填充）
+  static const int cDiMing = 0xFFFFFF; // 纯白（地名）
 
   /// 图层规范表（顺序即写出顺序）。
   static const List<DxfLayerSpec> all = <DxfLayerSpec>[
@@ -118,23 +118,17 @@ class DxfLayers {
         business: true),
     // —— 底图层（本次新增 / 调整）——
     DxfLayerSpec(
-        name: 'DaoLuBian',
-        aci: 250,
-        trueColor: cDaoLuBian,
-        lineWeight: 20),
+      name: 'DaoLuBian',
+      aci: 7,
+      trueColor: cDaoLuBian,
+      lineWeight: 20),
     DxfLayerSpec(
-        name: 'DaoLuZhong',
-        aci: 8,
-        trueColor: cDaoLuZhong,
-        lineWeight: 15),
+        name: 'DaoLuZhong', aci: 7, trueColor: cDaoLuZhong, lineWeight: 15),
     DxfLayerSpec(name: 'DaoLu', aci: 7, trueColor: cDaoLu, lineWeight: 18),
-    DxfLayerSpec(name: 'JianZhu', aci: 8, trueColor: cJianZhu, lineWeight: 13),
+    DxfLayerSpec(name: 'JianZhu', aci: 7, trueColor: cJianZhu, lineWeight: 13),
     DxfLayerSpec(
-        name: 'JianZhuFill',
-        aci: 252,
-        trueColor: cJianZhuFill,
-        lineWeight: -3),
-    DxfLayerSpec(name: 'DiMing', aci: 3, trueColor: cDiMing, lineWeight: 18),
+        name: 'JianZhuFill', aci: 7, trueColor: cJianZhuFill, lineWeight: -3),
+    DxfLayerSpec(name: 'DiMing', aci: 7, trueColor: cDiMing, lineWeight: 18),
   ];
 
   /// 底图参照层集合（供图层细分开关与渲染分流）。
