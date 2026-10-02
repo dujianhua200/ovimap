@@ -2,7 +2,10 @@
   "id": "xinyang",
   "name": "信阳市",
   "version": 1,
-  "url": "https://raw.githubusercontent.com/dujianhua200/ovimap/data/buildings-xinyang-v1/xinyang_buildings.geojson.gz",
+  "url": "https://cdn.jsdelivr.net/gh/dujianhua200/ovimap@data/buildings-xinyang-v1/xinyang_buildings.geojson.gz",
+  "mirrors": [
+    "https://raw.githubusercontent.com/dujianhua200/ovimap/data/buildings-xinyang-v1/xinyang_buildings.geojson.gz"
+  ],
   "bytes": 18739301,
   "buildings": 98006,
   "source": "CMAB v7（2025-04-20，清华大学）预处理",
