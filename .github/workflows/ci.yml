@@ -1,7 +1,10 @@
 # ============================================================================
 #  滑洲云图 ovimap —— 日常构建 / 测试门禁（最便宜）
 #
-#  为什么门禁跑在 ubuntu-latest 上：
+#  为什么门禁跑在 ubuntu-24.04（固定版本）上：
+#    · 2026-10-01 GitHub 公告：ubuntu-latest 将在 10-19～11-19 逐批从 24.04 切到 26.04。
+#      为避免迁移窗口内构建意外变卦（工具链/依赖差异），先锁死 24.04；
+#      等 26.04 验证通过后再放开。
 #    · 计费倍率：Linux 1x，Windows 2x，macOS 桌面 runner 是 ×10。
 #      门禁是「每次 push / 每次 PR」都会触发的东西，绝不能用 macOS 跑（一跑烧 10 倍）。
 #    · flutter test 是纯 Dart 单测，不依赖 Android SDK / JDK，也不需要桌面工具链，
@@ -37,7 +40,7 @@ permissions:
 jobs:
   gate:
     name: 静态分析 + 单元测试
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: 检出代码

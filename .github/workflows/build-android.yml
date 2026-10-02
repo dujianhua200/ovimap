@@ -1,7 +1,9 @@
 # ============================================================================
 #  滑洲云图 ovimap —— Android 出包（universal APK，侧载即用）
 #
-#  为什么 Android 也走 ubuntu-latest（1x）：
+#  为什么 Android 也走 ubuntu-24.04（固定版本，1x 计费）：
+#    · 2026-10-01 GitHub 公告：ubuntu-latest 将在 10-19～11-19 逐批从 24.04 切到 26.04。
+#      出包流水线最怕环境漂移，先锁死 24.04；等 26.04 验证通过后再放开。
 #    · 出包只在打 v* 标签或手动时触发，频次低，但仍应尽量省额度；
 #      Android 构建不需要 Xcode / MSVC，纯 Linux 即可，没必要上更贵的 runner。
 #
@@ -50,7 +52,7 @@ env:
 jobs:
   build-android:
     name: Android universal APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     # GitHub 不允许在 if 里直接读 secrets，只能用 env 中转。
     # 这条 KS_B64 只为驱动下面的「还原签名」守卫步骤（无密钥 / fork 场景仍可出包）。
