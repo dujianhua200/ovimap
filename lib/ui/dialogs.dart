@@ -22,6 +22,7 @@ import '../export/overpass.dart';
 import '../export/topo.dart';
 import '../export/topo_png.dart';
 import '../geo/geo_util.dart';
+import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 import '../services/export_saver.dart';
 import '../services/photos.dart';
@@ -876,7 +877,8 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
 
 Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
     String name,
-    {String segPrefix = ''}) async {
+    {String segPrefix = '',
+    List<FiberLink> fiberLinks = const []}) async {
   if (labels.isEmpty) {
     toast(context, '没有可导出的数据');
     return;
@@ -893,7 +895,8 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
           children: [
             _exportTile('📐 DXF 路由图（CAD 可直接打开）', () async {
               Navigator.pop(context);
-              await showDxfOptions(context, labels, name, segPrefix: segPrefix);
+              await showDxfOptions(context, labels, name,
+                  segPrefix: segPrefix, fiberLinks: fiberLinks);
             }),
             _exportTile('🌍 KML（谷歌地球 / 奥维）', () async {
               Navigator.pop(context);
@@ -982,7 +985,8 @@ Widget _exportTile(String title, VoidCallback onTap) => InkWell(
 
 Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
     String name,
-    {String segPrefix = ''}) async {
+    {String segPrefix = '',
+    List<FiberLink> fiberLinks = const []}) async {
   // 选项记忆：下次导出默认沿用上次勾选
   final prefs = await SharedPreferences.getInstance();
   bool opt(String k, bool def) => prefs.getBool(k) ?? def;
@@ -1618,6 +1622,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             refreshBasemap: refreshBasemap,
             // 本地开源矢量底图（离线优先）；未勾选则走缓存/联网抓取。
             localBasemap: (surroundings && useLocal) ? localBm : null,
+            fiberLinks: fiberLinks,
           );
           if (context.mounted) {
             // 非致命警告 / 底图三态结构化说明（文件仍正常分享）

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../export/archive_book.dart';
 import '../export/csv.dart';
 import '../models/diff_report.dart';
+import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
 import '../state/app_state.dart';
@@ -33,7 +34,8 @@ Future<void> openExportCenter(BuildContext context, AppState st) async {
     return;
   }
   if (!context.mounted) return;
-  await showExportDialog(context, labels, name, segPrefix: st.segPrefix);
+  await showExportDialog(context, labels, name,
+      segPrefix: st.segPrefix, fiberLinks: st.fiberLinks);
 }
 
 /// 成册对象：当前草稿（[draft]=true）或某个收藏工程。
