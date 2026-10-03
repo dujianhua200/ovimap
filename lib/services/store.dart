@@ -127,7 +127,10 @@ class LabelStore {
   // ---- 草稿 ----
 
   Future<void> saveDraft(List<MapLabel> labels,
-      [String projectName = '', String folderId = '', String editMode = 'design']) async {
+      [String projectName = '',
+      String folderId = '',
+      String editMode = 'design',
+      List<Map<String, dynamic>> fiberLinks = const []]) async {
     try {
       final dir = await labelsDir();
       final o = <String, dynamic>{
@@ -135,6 +138,7 @@ class LabelStore {
         'projectName': projectName,
         'folderId': folderId,
         'editMode': editMode,
+        if (fiberLinks.isNotEmpty) 'fiberLinks': fiberLinks,
       };
       await robustWriteAsString(File('${dir.path}/draft.json'), jsonEncode(o));
     } catch (_) {}
@@ -163,6 +167,21 @@ class LabelStore {
       return (o['labels'] as List)
           .map((e) => MapLabel.fromJson(e as Map<String, dynamic>))
           .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// 加载草稿中的光缆拓扑连线（无则返回空列表，兼容老数据）。
+  Future<List<Map<String, dynamic>>> loadFiberLinks() async {
+    try {
+      final dir = await labelsDir();
+      final f = File('${dir.path}/draft.json');
+      if (!f.existsSync()) return [];
+      final o = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      final list = o['fiberLinks'] as List?;
+      if (list == null) return [];
+      return [for (final e in list) (e as Map).cast<String, dynamic>()];
     } catch (_) {
       return [];
     }

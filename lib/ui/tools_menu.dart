@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../models/fiber_link.dart';
+import '../models/map_label.dart';
 import '../state/app_state.dart';
 import 'dialogs.dart';
 import 'export_center.dart';
 import 'route_tools.dart';
+import 'topo_editor.dart';
 
 /// ⋯工具 面板：低频业务，分「成果与资料 / 专业工具」两组。
 ///
@@ -39,6 +42,16 @@ Future<void> showToolsMenu(
           sheetTile(context, '杆路轨迹核查（查漏杆/错位）', onTrackCheck),
           sheetTile(context, '拓扑连线指引', () => showTopoGuide(context)),
           sheetTile(context, 'ODN 拓扑图', onOdnTopo),
+          sheetTile(context, '光缆拓扑编辑器（人工）', () {
+            final devices = topoLinkableDevices(st.labels);
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => TopoEditorPage(
+                devices: devices,
+                initialLinks: st.fiberLinks,
+                onChanged: (links) => st.updateFiberLinks(links),
+              ),
+            ));
+          }),
         ],
       ),
     ),

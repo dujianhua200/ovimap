@@ -12,6 +12,7 @@ import '../geo/route_segments.dart';
 import '../export/basemap_file_import.dart';
 import '../export/kml_import.dart';
 import '../models/diff_report.dart';
+import '../models/fiber_link.dart';
 import '../models/label_type.dart';
 import '../models/map_label.dart';
 import '../models/map_source.dart';
@@ -105,6 +106,9 @@ class AppState extends ChangeNotifier {
   String folderId = '';
   String editModeName = 'design'; // design | completion
   String activeCollectionId = '';
+
+  /// 人工光缆拓扑连线（FiberLink），随草稿持久化。
+  List<FiberLink> fiberLinks = [];
 
   // ---- 模式 ----
   AppMode mode = AppMode.view;
@@ -241,6 +245,9 @@ class AppState extends ChangeNotifier {
     folderId = meta.folderId;
     editModeName = meta.editMode;
     labels = await store.loadDraft();
+    fiberLinks = [
+      for (final j in await store.loadFiberLinks()) FiberLink.fromJson(j)
+    ];
 
     // 工程模板默认值恢复（持久化，下次进入沿用）
     final tpl = ProjectTemplate.byId(prefs.getString(prefTplId));
@@ -882,10 +889,18 @@ class AppState extends ChangeNotifier {
   ///
   /// [topoCid] 非空时由拓扑编辑流程自己落盘（见 [updateLabel] 的历史口径），不在这里抢。
   void _saveDraft() {
-    store.saveDraft(labels, projectName, folderId, editModeName);
+    store.saveDraft(labels, projectName, folderId, editModeName,
+        [for (final l in fiberLinks) l.toJson()]);
     if (activeCollectionId.isNotEmpty && topoCid.isEmpty) {
       store.saveCollectionLabels(activeCollectionId, labels);
     }
+  }
+
+  /// 更新拓扑连线并持久化。
+  void updateFiberLinks(List<FiberLink> links) {
+    fiberLinks = List<FiberLink>.from(links);
+    _saveDraft();
+    notifyListeners();
   }
 
   /// 新建空白工程：先脱离已打开的收藏，**再**清草稿。

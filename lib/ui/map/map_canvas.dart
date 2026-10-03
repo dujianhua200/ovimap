@@ -15,6 +15,7 @@ import '../../state/app_state.dart';
 import '../dialogs.dart';
 import '../label_marker.dart';
 import '../../ui/design_tokens.dart';
+import '../device_library.dart';
 
 /// 共享地图核心（从 `home_page` 抽出，供移动壳 / 桌面壳复用）。
 ///
@@ -160,7 +161,20 @@ class _MapCanvasState extends State<MapCanvas> {
       () async {
         final res = await st.addMarkAtWgs(w[0], w[1]);
         if (!mounted) return;
-        // 落点后就地输入名称/备注（三端共用：桌面/安卓/iOS 都走这里）。
+        // 先选设备模板（可跳过），再输名称/备注（三端共用）。
+        final cat = await showDeviceTemplatePicker(context);
+        if (!mounted) return;
+        if (cat != null) {
+          final templated = createDeviceFromTemplate(
+            category: cat,
+            lat: res.label.lat,
+            lon: res.label.lon,
+            existing: st.labels,
+          );
+          res.label.typeId = templated.typeId;
+          res.label.name = templated.name;
+          res.label.extra = templated.extra;
+        }
         await showMarkPrompt(context, st, res.label, res.cid);
       }();
       return;
