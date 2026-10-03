@@ -194,6 +194,9 @@ class DxfExporter {
       if (y < extMinY) extMinY = y;
       if (y > extMaxY) extMaxY = y;
     }
+    // 线路-only 包络（标题栏定位用，不被底图外扩污染）
+    final routeMinX = extMinX, routeMinY = extMinY;
+    final routeMaxX = extMaxX, routeMaxY = extMaxY;
 
     // 沿线总长度（图签用）
     var routeTotalLen = 0.0;
@@ -528,13 +531,18 @@ class DxfExporter {
       }
     }
 
+    // 标题栏高度预留：图框下扩以包含标题栏（按线路范围，不被底图污染）
+    final titleH = _mmOf(36, routeScale) + _mmOf(10, routeScale);
+    if (routeMinY - titleH < extMinY) extMinY = routeMinY - titleH;
+
     // 图框（A3 幅面自动比例）+ 图例栏 + 指北针 + 图签（对齐设计院图纸习惯）
     _appendFrame(c, extMinX, extMinY, extMaxX, extMaxY);
     if (showLegend) {
       _appendLegend(c, labels, extMinX, extMinY);
     }
     _appendNorthArrow(c, extMaxX, extMaxY);
-    _appendTitleBlock(c, extMinX, extMinY, extMaxX, extMaxY,
+    // 标题栏按线路范围定位（不被底图污染），放在线路下方
+    _appendTitleBlock(c, routeMinX, routeMinY, routeMaxX, routeMaxY,
         name: name,
         totalPoints: labels.length,
         totalLength: routeTotalLen,
@@ -894,8 +902,10 @@ class DxfExporter {
       required double totalLength,
       required int scale}) {
     final w = _mmOf(120, scale), h = _mmOf(36, scale);
-    final x0 = maxX - w, y0 = minY;
-    final x1 = maxX, y1 = minY + h;
+    // 标题栏放在内容下方（不压图），右对齐，留 10m 间距
+    final gap = _mmOf(10, scale);
+    final x0 = maxX - w, y0 = minY - h - gap;
+    final x1 = maxX, y1 = minY - gap;
     const rows = 6;
     final rowH = h / rows;
     _appendRect(c, 'TuQian', x0, y0, x1, y1);
