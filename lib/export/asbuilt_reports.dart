@@ -150,4 +150,84 @@ class AsbuiltReports {
     }
     return files;
   }
+
+  /// 从纤芯台账 CSV 批量导入光缆连线。
+  ///
+  /// 按设备名称匹配起止点（找不到则跳过该行）。返回成功导入的连线列表。
+  static List<FiberLink> importFiberLinksCsv(
+      String csv, List<MapLabel> devices) {
+    final byName = <String, MapLabel>{};
+    for (final d in devices) {
+      if (d.name.isNotEmpty) byName[d.name] = d;
+    }
+    final links = <FiberLink>[];
+    final lines = csv.split('\n');
+    // 跳过表头（第1行），兼容 BOM
+    for (var i = 1; i < lines.length; i++) {
+      final line = lines[i].replaceFirst('\uFEFF', '').trim();
+      if (line.isEmpty) continue;
+      final cols = _parseCsvLine(line);
+      if (cols.length < 9) continue;
+      final from = byName[cols[1].trim()];
+      final to = byName[cols[2].trim()];
+      if (from == null || to == null) continue;
+      links.add(FiberLink(
+        fromDeviceId: from.id,
+        toDeviceId: to.id,
+        cores: int.tryParse(cols[3].trim()) ?? 0,
+        cableModel: cols[4].trim(),
+        manufacturer: cols[5].trim(),
+        layMethod: _layMethodFromName(cols[6].trim()),
+        lengthM: double.tryParse(cols[7].trim()) ?? 0,
+        spliceMethod: cols[8].trim(),
+        note: cols.length > 9 ? cols[9].trim() : '',
+      ));
+    }
+    return links;
+  }
+
+  static List<String> _parseCsvLine(String line) {
+    final cols = <String>[];
+    final sb = StringBuffer();
+    var inQuote = false;
+    for (var i = 0; i < line.length; i++) {
+      final ch = line[i];
+      if (inQuote) {
+        if (ch == '"') {
+          if (i + 1 < line.length && line[i + 1] == '"') {
+            sb.write('"');
+            i++;
+          } else {
+            inQuote = false;
+          }
+        } else {
+          sb.write(ch);
+        }
+      } else if (ch == '"') {
+        inQuote = true;
+      } else if (ch == ',') {
+        cols.add(sb.toString());
+        sb.clear();
+      } else {
+        sb.write(ch);
+      }
+    }
+    cols.add(sb.toString());
+    return cols;
+  }
+
+  static int _layMethodFromName(String name) {
+    switch (name) {
+      case '架空':
+        return 1;
+      case '管道':
+        return 2;
+      case '直埋':
+        return 3;
+      case '引上':
+        return 4;
+      default:
+        return 0;
+    }
+  }
 }

@@ -54,5 +54,22 @@ void main() {
       expect(AsbuiltReports.fiberLedgerCsv([], []), contains('序号'));
       expect(AsbuiltReports.quantitiesCsv([], []), contains('电杆,0,根'));
     });
+
+    test('importFiberLinksCsv 往返', () {
+      final csv = AsbuiltReports.fiberLedgerCsv(devices, links);
+      final imported = AsbuiltReports.importFiberLinksCsv(csv, devices);
+      expect(imported.length, 1);
+      expect(imported[0].cores, 48);
+      expect(imported[0].cableModel, 'GYTS');
+      expect(imported[0].layMethod, 1);
+      expect(imported[0].lengthM, 100.5);
+    });
+
+    test('importFiberLinksCsv 跳过未知设备', () {
+      const csv = '序号,起点,终点,芯数,光缆型号,厂家,敷设方式,长度(米),熔接方式,备注\r\n'
+          '1,不存在A,不存在B,24,GYTA,,管道,50.0,,\r\n';
+      final imported = AsbuiltReports.importFiberLinksCsv(csv, devices);
+      expect(imported, isEmpty);
+    });
   });
 }
