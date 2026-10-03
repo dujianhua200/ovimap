@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 import '../state/app_state.dart';
+import '../export/asbuilt_reports.dart';
 import 'dialogs.dart';
 import 'export_center.dart';
 import 'route_tools.dart';
@@ -34,6 +35,16 @@ Future<void> showToolsMenu(
           sheetTile(context, '杆路点表（定位/属性/查长度）', onPoleTable),
           sheetTile(context, '竣工资料一键成册（ZIP 交结算）',
               () => showArchiveBookDialog(context, st)),
+          sheetTile(context, '竣工报表（纤芯台账/设备/工程量/材料）', () async {
+            final name = st.projectName.isEmpty ? '当前草稿' : st.projectName;
+            final files = await AsbuiltReports.exportAll(
+                name, st.labels, st.labels, st.fiberLinks);
+            if (context.mounted) {
+              toast(context, '已导出 ${files.length} 张表');
+              // 分享第一张，其他在导出目录
+              shareFile(context, files.first);
+            }
+          }),
           sheetGroupTitle('专业工具'),
           sheetTile(context, '采集设置（杆路自动编号）',
               () => showCollectionSettings(context, st)),
