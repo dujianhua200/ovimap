@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../export/archive_book.dart';
 import '../export/csv.dart';
 import '../models/diff_report.dart';
-import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
 import '../state/app_state.dart';

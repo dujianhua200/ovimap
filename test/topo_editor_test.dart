@@ -1,7 +1,6 @@
 /// Phase 2 拓扑图编辑器测试：布局纯函数 + 页面交互。
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ovimap/models/device_category.dart';
 import 'package:ovimap/models/fiber_link.dart';
 import 'package:ovimap/models/map_label.dart';
 import 'package:ovimap/ui/topo_editor.dart';

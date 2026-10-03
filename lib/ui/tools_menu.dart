@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/fiber_link.dart';
-import '../models/map_label.dart';
 import '../state/app_state.dart';
 import '../export/asbuilt_reports.dart';
 import 'dialogs.dart';
