@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:gbk_codec/gbk_codec.dart';
 
 import '../geo/geo_util.dart';
+import '../models/fiber_link.dart';
 import '../models/label_type.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
@@ -14,6 +15,7 @@ import 'dxf_version.dart';
 import 'local_basemap.dart';
 import 'road_junction.dart';
 import 'topo.dart';
+import 'wiring_diagram.dart';
 
 /// DXF 导出结果：文件 + 非致命警告 + 底图抓取三态报告。
 class DxfExportResult {
@@ -133,6 +135,7 @@ class DxfExporter {
     int localBasemapFeatureCap =
         GeoJsonImporter.defaultFeatureCap, // 本地底图要素数上限（防御性兜底）
     String segPrefix = '', // 段标前缀（如 埋／架）：空串=仅数字；透传自 AppState.segPrefix
+    List<FiberLink> fiberLinks = const [], // 人工光缆拓扑连线（配线图用）
   }) async {
     final warnings = <String>[];
     final dir = await LabelStore.instance.exportDir();
@@ -484,6 +487,44 @@ class DxfExporter {
         if (wiringExtent[2] > extMaxY) extMaxY = wiringExtent[2];
       } catch (e) {
         // 拉直配线异常不阻塞主图导出
+      }
+    }
+
+    // 人工光缆配线图（Phase 3）：基于 FiberLink，路由图居左、配线图居右。
+    if (fiberLinks.isNotEmpty) {
+      try {
+        final layout = layoutWiringDiagram(labels, fiberLinks);
+        if (layout.nodes.isNotEmpty) {
+          // 配线图原点：路由图右侧 + 60m 间距，顶部对齐
+          final ox = extMaxX + 60;
+          final oyTop = extMaxY;
+          final fontM = _mmOf(2.5, routeScale);
+          // 画节点（矩形框 + 名称）
+          for (final n in layout.nodes) {
+            final cx = ox + n.x;
+            final cy = oyTop - n.y;
+            final hw = 15.0, hh = 8.0; // 半宽/半高（图纸米）
+            _appendRect(c, 'PeiXianTu', cx - hw, cy - hh, cx + hw, cy + hh);
+            _text(c, 'PeiXianTu', cx - hw + 2, cy - fontM / 2, fontM, n.label);
+            if (cx + hw > extMaxX) extMaxX = cx + hw;
+            if (cy - hh < extMinY) extMinY = cy - hh;
+          }
+          // 画连线（直线 + 芯数标注）
+          for (final e in layout.edges) {
+            final x1 = ox + e.from.x + 15.0;
+            final y1 = oyTop - e.from.y;
+            final x2 = ox + e.to.x - 15.0;
+            final y2 = oyTop - e.to.y;
+            _appendLine(c, 'PeiXianTu', x1, y1, x2, y2);
+            final spec = e.link.fullSpec;
+            if (spec.isNotEmpty) {
+              _text(c, 'PeiXianTu', (x1 + x2) / 2, (y1 + y2) / 2 + 2,
+                  _mmOf(2.0, routeScale), spec);
+            }
+          }
+        }
+      } catch (e) {
+        // 配线图异常不阻塞主图导出
       }
     }
 
