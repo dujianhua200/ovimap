@@ -326,6 +326,8 @@ class DxfExporter {
       if (corridorWidth > 0) _appendCorridor(c, cart, corridorWidth, version);
 
       var chainCum = globalCum;
+      // pin 类标签的圆半径（米）：线只连接到圆边，不穿过圆心
+      final pinR = _mmOf(2.5, routeScale);
       for (var i = 1; i < chain.length; i++) {
         final a = chain[i - 1];
         final b = chain[i];
@@ -335,8 +337,19 @@ class DxfExporter {
             : b.reno == RenoState.removed
                 ? 'GanLuRemove'
                 : 'GanLu';
-        _appendLine(c, ganLayer, cart[i - 1][0], cart[i - 1][1],
-            cart[i][0], cart[i][1]);
+        // 线段两端缩进 pin 圆半径，避免穿过圆形标签
+        final x1 = cart[i - 1][0], y1 = cart[i - 1][1];
+        final x2 = cart[i][0], y2 = cart[i][1];
+        final dx = x2 - x1, dy = y2 - y1;
+        final len = math.sqrt(dx * dx + dy * dy);
+        if (len > pinR * 2) {
+          final ux = dx / len, uy = dy / len;
+          _appendLine(c, ganLayer, x1 + ux * pinR, y1 + uy * pinR,
+              x2 - ux * pinR, y2 - uy * pinR);
+        } else {
+          // 线段太短，直接画（避免负长度）
+          _appendLine(c, ganLayer, x1, y1, x2, y2);
+        }
 
         final mx = (cart[i - 1][0] + cart[i][0]) / 2;
         final my = (cart[i - 1][1] + cart[i][1]) / 2;
