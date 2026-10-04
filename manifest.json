@@ -1,12 +1,12 @@
 {
   "id": "xinyang",
   "name": "信阳市",
-  "version": 6,
-  "url": "https://cdn.jsdelivr.net/gh/dujianhua200/ovimap@data/buildings-xinyang-v1/xinyang_buildings_v4.geojson.gz",
+  "version": 7,
+  "url": "https://cdn.jsdelivr.net/gh/dujianhua200/ovimap@data/buildings-xinyang-v1/xinyang_buildings_v7.geojson.gz",
   "mirrors": [
-    "https://raw.githubusercontent.com/dujianhua200/ovimap/data/buildings-xinyang-v1/xinyang_buildings_v4.geojson.gz"
+    "https://raw.githubusercontent.com/dujianhua200/ovimap/data/buildings-xinyang-v1/xinyang_buildings_v7.geojson.gz"
   ],
-  "bytes": 22815497,
+  "bytes": 17301504,
   "buildings": 733255,
   "source": "中山大学东亚建筑数据集（Zenodo 8174931，AI 高分影像提取）信阳市",
   "updated": "2026-10-04"
