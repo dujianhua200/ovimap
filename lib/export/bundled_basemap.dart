@@ -27,6 +27,11 @@ const double kXinyangLatMax = 32.6;
 /// 内置底图数据（单例，延迟加载）。
 class BundledBasemap {
   static BundledBasemap? _instance;
+
+  /// 测试用开关：设为 false 时禁用内置数据（避免干扰断言）。
+  /// 默认 false，生产环境在 main.dart 中设为 true。
+  static bool enabled = false;
+
   static Future<BundledBasemap> get instance async {
     final v = _instance;
     if (v != null) return v;
@@ -34,6 +39,11 @@ class BundledBasemap {
     await b._load();
     _instance = b;
     return b;
+  }
+
+  /// 测试用：重置单例。
+  static void resetForTest() {
+    _instance = null;
   }
 
   BundledBasemap._();

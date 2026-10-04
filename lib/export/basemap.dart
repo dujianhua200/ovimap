@@ -1021,11 +1021,13 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
   ///
   /// 仅当 bbox 在信阳市范围内时生效；内置道路按到线路距离裁剪（与 OSM 同口径）。
   /// 任何异常都返回原数据（内置是增强功能，不得破坏主链路）。
+  /// 测试环境（[BundledBasemap.enabled] 为 false）直接跳过。
   static Future<_LoadResult<RoadPoly>> _applyBundledRoads(
       _LoadResult<RoadPoly> roads,
       List<double> bbox,
       List<MapLabel> labels,
       double rangeM) async {
+    if (!BundledBasemap.enabled) return roads;
     try {
       // bbox: [lonMin, latMin, lonMax, latMax]
       if (!BundledBasemap.inXinyang(bbox[0], bbox[1], bbox[2], bbox[3])) {
@@ -1060,11 +1062,13 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
 
   /// 内置地名（信阳市）：OSM 实时抓取为主，内置包交叉互补、去重不重叠。
   /// 任何异常都返回原数据（内置是增强功能，不得破坏主链路）。
+  /// 测试环境（[BundledBasemap.enabled] 为 false）直接跳过。
   static Future<_LoadResult<PlaceFeature>> _applyBundledPlaces(
       _LoadResult<PlaceFeature> places,
       List<double> bbox,
       List<MapLabel> labels,
       double rangeM) async {
+    if (!BundledBasemap.enabled) return places;
     try {
       if (!BundledBasemap.inXinyang(bbox[0], bbox[1], bbox[2], bbox[3])) {
         return places;
