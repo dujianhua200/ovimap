@@ -1020,77 +1020,77 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
   /// 内置道路（信阳市）：OSM 实时抓取为主，内置包交叉互补、去重不重叠。
   ///
   /// 仅当 bbox 在信阳市范围内时生效；内置道路按到线路距离裁剪（与 OSM 同口径）。
+  /// 任何异常都返回原数据（内置是增强功能，不得破坏主链路）。
   static Future<_LoadResult<RoadPoly>> _applyBundledRoads(
       _LoadResult<RoadPoly> roads,
       List<double> bbox,
       List<MapLabel> labels,
       double rangeM) async {
-    // bbox: [lonMin, latMin, lonMax, latMax]
-    if (!BundledBasemap.inXinyang(bbox[0], bbox[1], bbox[2], bbox[3])) {
-      return roads;
-    }
-    late final BundledBasemap bundled;
     try {
-      bundled = await BundledBasemap.instance;
+      // bbox: [lonMin, latMin, lonMax, latMax]
+      if (!BundledBasemap.inXinyang(bbox[0], bbox[1], bbox[2], bbox[3])) {
+        return roads;
+      }
+      final bundled = await BundledBasemap.instance;
+      if (!bundled.loaded) return roads;
+      // 内置道路按 bbox 查询，再按到线路距离裁剪
+      final bundledRoads = bundled
+          .roadsIn(bbox[0], bbox[1], bbox[2], bbox[3])
+          .where((r) => r.pts
+              .any((p) => distToRouteM(labels, p[0], p[1]) <= rangeM))
+          .toList();
+      if (bundledRoads.isEmpty) return roads;
+      // 合并去重：OSM 优先，内置只补缺
+      final merged = BundledBasemap.mergeRoads(bundledRoads, roads.items);
+      if (merged.length == roads.items.length) return roads;
+      return _LoadResult(
+        DatasetReport(
+          roads.report.state,
+          source: '${roads.report.source}+内置',
+          error: roads.report.error,
+          count: merged.length,
+          emptyAnswer: roads.report.emptyAnswer,
+        ),
+        merged,
+      );
     } catch (_) {
       return roads;
     }
-    if (!bundled.loaded) return roads;
-    // 内置道路按 bbox 查询，再按到线路距离裁剪
-    final bundledRoads = bundled
-        .roadsIn(bbox[0], bbox[1], bbox[2], bbox[3])
-        .where((r) => r.pts
-            .any((p) => distToRouteM(labels, p[0], p[1]) <= rangeM))
-        .toList();
-    if (bundledRoads.isEmpty) return roads;
-    // 合并去重：OSM 优先，内置只补缺
-    final merged = BundledBasemap.mergeRoads(bundledRoads, roads.items);
-    if (merged.length == roads.items.length) return roads;
-    return _LoadResult(
-      DatasetReport(
-        roads.report.state,
-        source: '${roads.report.source}+内置',
-        error: roads.report.error,
-        count: merged.length,
-        emptyAnswer: roads.report.emptyAnswer,
-      ),
-      merged,
-    );
   }
 
   /// 内置地名（信阳市）：OSM 实时抓取为主，内置包交叉互补、去重不重叠。
+  /// 任何异常都返回原数据（内置是增强功能，不得破坏主链路）。
   static Future<_LoadResult<PlaceFeature>> _applyBundledPlaces(
       _LoadResult<PlaceFeature> places,
       List<double> bbox,
       List<MapLabel> labels,
       double rangeM) async {
-    if (!BundledBasemap.inXinyang(bbox[0], bbox[1], bbox[2], bbox[3])) {
-      return places;
-    }
-    late final BundledBasemap bundled;
     try {
-      bundled = await BundledBasemap.instance;
+      if (!BundledBasemap.inXinyang(bbox[0], bbox[1], bbox[2], bbox[3])) {
+        return places;
+      }
+      final bundled = await BundledBasemap.instance;
+      if (!bundled.loaded) return places;
+      final bundledPlaces = bundled
+          .placesIn(bbox[0], bbox[1], bbox[2], bbox[3])
+          .where((p) => distToRouteM(labels, p.lat, p.lon) <= rangeM)
+          .toList();
+      if (bundledPlaces.isEmpty) return places;
+      final merged = BundledBasemap.mergePlaces(bundledPlaces, places.items);
+      if (merged.length == places.items.length) return places;
+      return _LoadResult(
+        DatasetReport(
+          places.report.state,
+          source: '${places.report.source}+内置',
+          error: places.report.error,
+          count: merged.length,
+          emptyAnswer: places.report.emptyAnswer,
+        ),
+        merged,
+      );
     } catch (_) {
       return places;
     }
-    if (!bundled.loaded) return places;
-    final bundledPlaces = bundled
-        .placesIn(bbox[0], bbox[1], bbox[2], bbox[3])
-        .where((p) => distToRouteM(labels, p.lat, p.lon) <= rangeM)
-        .toList();
-    if (bundledPlaces.isEmpty) return places;
-    final merged = BundledBasemap.mergePlaces(bundledPlaces, places.items);
-    if (merged.length == places.items.length) return places;
-    return _LoadResult(
-      DatasetReport(
-        places.report.state,
-        source: '${places.report.source}+内置',
-        error: places.report.error,
-        count: merged.length,
-        emptyAnswer: places.report.emptyAnswer,
-      ),
-      merged,
-    );
   }
 
   /// 合并 OSM 建筑与兜底包建筑：OSM 优先，兜底只补 OSM 没有的。
