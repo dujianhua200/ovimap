@@ -571,20 +571,21 @@ class _FavTreeState extends State<FavTree> {
     final kb = HardwareKeyboard.instance;
     final ctrl = kb.isControlPressed || kb.isMetaPressed;
     if (ctrl) {
+      // Cmd/Ctrl+点击：多选切换
       c.toggleSelect(node.id);
       _anchor = node.id;
       return;
     }
     if (kb.isShiftPressed && _anchor.isNotEmpty) {
+      // Shift+点击：范围多选
       _rangeSelect(node.id);
       return;
     }
-    // 多选模式下点选 = 切换选中（toggle），不执行打开/定位/展开；
-    // 选空后回到普通模式，下一次点选恢复默认动作。
-    if (c.selected.isNotEmpty) {
+    // 普通单击：只选这一个（替换选择），然后执行默认动作
+    // （打开工程 / 定位标记 / 展开文件夹）
+    if (c.selected.length != 1 || !c.selected.contains(node.id)) {
+      c.clearSelection();
       c.toggleSelect(node.id);
-      _anchor = node.id;
-      return;
     }
     _anchor = node.id;
     if (node.isFolder) {
