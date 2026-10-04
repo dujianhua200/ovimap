@@ -138,6 +138,7 @@ class DxfExporter {
     bool showMinorRoadNames = false, // service/other 也标路名（默认只标主干道以上）
     bool layerPlaces = true,
     bool placesTdtFallback = true, // 地名兜底（高德优先，回落天地图）
+    bool useOnlineBuildings = true, // 在线建筑抓取：关则只用离线兜底包（避免重复）
     String tdtKey = '',
     String amapKey = '', // 高德 Web 服务 key（有则优先用于地名兜底）
     String overpassEndpoints = '', // 自定义 Overpass 端点（优先于内置；空=用内置）
@@ -284,6 +285,7 @@ class DxfExporter {
           useTdt: placesTdtFallback,
           convertGcj: convertGcj,
           refresh: refreshBasemap,
+          useOnlineBuildings: useOnlineBuildings,
         );
       }
       report = bm.report;

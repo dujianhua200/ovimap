@@ -145,6 +145,7 @@ Future<BatchExportSummary> runBatchExport({
         layerPlaces: opts.layerPlaces,
         segPrefix: segPrefix,
         placesTdtFallback: opts.tdtFallback,
+        useOnlineBuildings: true, // 批量导出默认开在线建筑
         tdtKey: opts.tdtKey,
         amapKey: opts.amapKey,
         overpassEndpoints: opts.overpassEndpoints,

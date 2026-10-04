@@ -632,6 +632,7 @@ class BasemapFetcher {
     bool convertGcj = true, // 高德/天地图检索 POI 为 GCJ-02，默认纠偏为 WGS84
     bool refresh = false,
     bool includeExtras = true, // 电力线 / 水系（导出面板可关）
+    bool useOnlineBuildings = true, // 在线建筑抓取开关：关则只用离线兜底包
     BasemapCache? cache,
   }) async {
     if (labels.isEmpty) return BasemapData.empty();
@@ -654,19 +655,24 @@ class BasemapFetcher {
       // 沿线路缓冲裁剪（不是矩形包围盒）：只留轨迹附近 rangeM 米内的路。
       crop: (items) => cropRoadsToRoute(items, labels, rangeM),
     );
-    final bldF = _load<BuildingPoly>(
-      kind: 'buildings',
-      query: OverpassClient.buildBuildingsQuery(bboxStr),
-      bbox: bbox,
-      cache: c,
-      refresh: refresh,
-      endpoints: overpassEps,
-      parse: OverpassClient.parseBuildings,
-      crop: (items) => items
-          .where((b) => b.outer.any(
-              (p) => distToRouteM(labels, p[0], p[1]) <= rangeM))
-          .toList(),
-    );
+    final bldF = useOnlineBuildings
+        ? _load<BuildingPoly>(
+            kind: 'buildings',
+            query: OverpassClient.buildBuildingsQuery(bboxStr),
+            bbox: bbox,
+            cache: c,
+            refresh: refresh,
+            endpoints: overpassEps,
+            parse: OverpassClient.parseBuildings,
+            crop: (items) => items
+                .where((b) => b.outer.any(
+                    (p) => distToRouteM(labels, p[0], p[1]) <= rangeM))
+                .toList(),
+          )
+        : Future.value(_LoadResult<BuildingPoly>(
+            const DatasetReport(FetchState.failed, error: '在线建筑已关闭'),
+            const [],
+          ));
     final plcF = _load<PlaceFeature>(
       kind: 'places',
       query: OverpassClient.buildPlacesQuery(bboxStr),
