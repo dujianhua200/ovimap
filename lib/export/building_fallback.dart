@@ -23,8 +23,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart' show rootBundle;
+
 import '../services/store.dart';
 import 'basemap.dart';
+
+/// 内置建筑包版本（assets/buildings/xinyang.geojson.gz，原精度）。
+/// App 首次启动或已安装版本低于此值时，从内置 asset 安装，无需下载。
+const int kBundledBuildingVersion = 8;
+const String kBundledBuildingAsset = 'assets/buildings/xinyang.geojson.gz';
 
 /// 可下载的兜底包注册表项：只记 manifest 地址（多个镜像按顺序尝试），
 /// 具体版本/下载地址以 manifest 为准（后台更新的比对依据）。
@@ -138,6 +145,47 @@ class FallbackStore {
     final d = Directory('${base.path}/fallback');
     if (!d.existsSync()) d.createSync(recursive: true);
     return FallbackStore(d);
+  }
+
+  /// 从 App 内置 asset 安装建筑包（首次启动或内置版本更新时调用）。
+  ///
+  /// 如果已安装版本 >= [kBundledBuildingVersion] 则跳过。
+  /// 返回 true 表示本次执行了安装。
+  Future<bool> ensureBundled() async {
+    try {
+      final m = meta();
+      final installed = m == null ? 0 : _asVersion(m['version']);
+      if (installed >= kBundledBuildingVersion) return false;
+
+      // 从 asset 读取 gzip 数据
+      final data = await rootBundle.load(kBundledBuildingAsset);
+      final raw = data.buffer.asUint8List();
+      final text = utf8.decode(gzip.decode(raw));
+
+      final decoded = jsonDecode(text);
+      if (decoded is! Map || decoded['type'] != 'FeatureCollection') {
+        return false;
+      }
+      final feats = decoded['features'];
+      final count = feats is List ? feats.length : 0;
+
+      // 原子写入
+      final tmp = File('${root.path}/xinyang.geojson.tmp');
+      await tmp.writeAsString(text);
+      await tmp.rename(_pkgFile('xinyang').path);
+      _indexFile.writeAsStringSync(jsonEncode({
+        'id': 'xinyang',
+        'name': '信阳市',
+        'version': kBundledBuildingVersion,
+        'source': '中山大学东亚建筑数据集（Zenodo 8174931，AI 高分影像提取）信阳市',
+        'date': DateTime.now().toIso8601String().substring(0, 10),
+        'updated': '2026-10-04',
+        'buildings': count,
+      }));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   File get _indexFile => File('${root.path}/index.json');
@@ -466,10 +514,15 @@ class FallbackStore {
   }
 }
 
-/// App 启动后调用的后台更新（延迟几秒、抓获所有异常、不阻塞启动）。
+/// App 启动后调用的后台任务：先从内置 asset 安装建筑包（如果需要），
+///
+/// 再检查 manifest 有新版则自动下载替换。
+/// 延迟几秒、抓获所有异常、不阻塞启动。
 Future<int> checkFallbackUpdatesInBackground() async {
   try {
     final store = await FallbackStore.open();
+    // 内置包优先：首次启动或内置版本更新时，无需下载直接安装。
+    await store.ensureBundled();
     return await store.ensureLatest();
   } catch (_) {
     return 0;
