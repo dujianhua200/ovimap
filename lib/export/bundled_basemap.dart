@@ -145,29 +145,86 @@ class BundledBasemap {
         .toList();
   }
 
-  /// 合并内置与实时数据，去重（同名+位置相近视为重复）。
+  /// 合并内置与实时数据，去重（同名+位置相近视为重复，留最宽的）。
   ///
-  /// 内置优先（离线可靠），实时数据补充内置没有的。
+  /// 内置已离线去重；实时数据补充内置没有的。重复时保留等级高的（更宽的）。
   static List<RoadPoly> mergeRoads(List<RoadPoly> bundled, List<RoadPoly> live) {
     if (bundled.isEmpty) return live;
     if (live.isEmpty) return bundled;
-    final seen = <String>{};
+    // 按名称分组，组内按等级排序
+    final byName = <String, List<RoadPoly>>{};
     for (final r in bundled) {
-      seen.add(_roadKey(r));
+      byName.putIfAbsent(r.name, () => []).add(r);
     }
     final out = List<RoadPoly>.from(bundled);
     for (final r in live) {
-      if (seen.add(_roadKey(r))) out.add(r);
+      final sameName = byName[r.name];
+      if (sameName == null || sameName.isEmpty) {
+        out.add(r);
+        byName.putIfAbsent(r.name, () => []).add(r);
+        continue;
+      }
+      // 同名：检查是否与已有的几何重叠（首尾点或中点相近）
+      bool isDup = false;
+      RoadPoly? toReplace;
+      for (final b in sameName) {
+        if (_roadsOverlap(b, r)) {
+          isDup = true;
+          // 留最宽的：如果 live 的更宽，替换
+          if (_gradeRank(r.grade) > _gradeRank(b.grade)) {
+            toReplace = b;
+          }
+          break;
+        }
+      }
+      if (toReplace != null) {
+        final idx = out.indexOf(toReplace);
+        if (idx >= 0) out[idx] = r;
+        sameName.remove(toReplace);
+        sameName.add(r);
+      } else if (!isDup) {
+        out.add(r);
+        sameName.add(r);
+      }
+      // isDup 且不更宽 → 丢弃 live 的重复
     }
     return out;
   }
 
-  static String _roadKey(RoadPoly r) {
-    if (r.pts.isEmpty) return r.name;
-    final f = r.pts.first, l = r.pts.last;
-    // 名称 + 首尾点（约 100m 网格）作为去重键
-    return '${r.name}|${(f[0] * 1000).round()}|${(f[1] * 1000).round()}|'
-        '${(l[0] * 1000).round()}|${(l[1] * 1000).round()}';
+  /// 道路等级排序（数字越大越宽）。
+  static int _gradeRank(RoadGrade grade) {
+    switch (grade) {
+      case RoadGrade.trunk:
+        return 8;
+      case RoadGrade.primary:
+        return 6;
+      case RoadGrade.secondary:
+        return 4;
+      case RoadGrade.tertiary:
+        return 2;
+      default:
+        return 0;
+    }
+  }
+
+  /// 两条同名道路是否几何重叠（任一端点或中点在 100m 内）。
+  static bool _roadsOverlap(RoadPoly a, RoadPoly b) {
+    if (a.pts.isEmpty || b.pts.isEmpty) return false;
+    // 检查 a 的首/中/尾点是否靠近 b 的任一点
+    final aSamples = <List<double>>[
+      a.pts.first,
+      a.pts[a.pts.length ~/ 2],
+      a.pts.last,
+    ];
+    for (final p in aSamples) {
+      for (final q in b.pts) {
+        // 约 100m = 0.001 度
+        if ((p[0] - q[0]).abs() < 0.001 && (p[1] - q[1]).abs() < 0.001) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /// 合并内置与实时地名，去重（同名+位置相近视为重复）。
