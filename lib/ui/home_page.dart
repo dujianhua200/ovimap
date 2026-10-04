@@ -343,6 +343,7 @@ class _HomePageState extends State<HomePage> {
         st: st,
         // 收藏树点位定位：把相机移到该点位（抽屉已关闭；地图未就绪时 _mc.camera 会抛，用 try 保护）。
         onLocateLabel: _locateLabel,
+        onLocateGroup: _locateLabels,
       ),
       body: Stack(
         children: [
@@ -1056,6 +1057,40 @@ class _HomePageState extends State<HomePage> {
       if (z > zoom) zoom = z;
     } catch (_) {}
     _mc.moveAndRotate(LatLng(d[0], d[1]), zoom, _cam?.rotation ?? 0);
+  }
+
+  /// 组定位：缩放到全部点位的范围。
+  void _locateLabels(List<MapLabel> labels) {
+    if (labels.isEmpty) return;
+    if (labels.length == 1) {
+      _locateLabel(labels.first);
+      return;
+    }
+    final st = context.read<AppState>();
+    var minLat = double.infinity, maxLat = -double.infinity;
+    var minLon = double.infinity, maxLon = -double.infinity;
+    for (final l in labels) {
+      final d = st.toDisplay(l.lat, l.lon);
+      if (d[0] < minLat) minLat = d[0];
+      if (d[0] > maxLat) maxLat = d[0];
+      if (d[1] < minLon) minLon = d[1];
+      if (d[1] > maxLon) maxLon = d[1];
+    }
+    final latSpan = (maxLat - minLat).abs();
+    final lonSpan = (maxLon - minLon).abs();
+    final span = latSpan > lonSpan ? latSpan : lonSpan;
+    var zoom = 17.0;
+    if (span > 0) {
+      // ignore: avoid using math.log without import — using simple heuristic
+      zoom = (17 - (span / 0.002)).clamp(5.0, 17.0);
+    }
+    final d = st.toDisplay((minLat + maxLat) / 2, (minLon + maxLon) / 2);
+    try {
+      _mc.moveAndRotate(
+          LatLng(d[0], d[1]), zoom, _cam?.rotation ?? 0);
+    } catch (_) {
+      _locateLabel(labels.first);
+    }
   }
 
   /// ODN 拓扑图（移动端工具菜单入口）：选工程是异步流程，这里 fire-and-forget；

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -489,17 +490,39 @@ class _WorkspacePageState extends State<WorkspacePage> {
     _st.selectedIds
       ..clear()
       ..addAll(ids);
-    var lat = 0.0, lon = 0.0;
-    for (final l in hits) {
-      lat += l.lat;
-      lon += l.lon;
-    }
-    lat /= hits.length;
-    lon /= hits.length;
-    final d = _st.toDisplay(lat, lon);
-    if (_mapReady) {
-      _mc.move(LatLng(d[0], d[1]),
-          _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom);
+    if (hits.length == 1) {
+      final l = hits.first;
+      final d = _st.toDisplay(l.lat, l.lon);
+      if (_mapReady) {
+        _mc.move(LatLng(d[0], d[1]),
+            _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom);
+      }
+    } else {
+      // 多点（组定位）：缩放到全部点位的范围
+      var minLat = double.infinity, maxLat = -double.infinity;
+      var minLon = double.infinity, maxLon = -double.infinity;
+      for (final l in hits) {
+        final d = _st.toDisplay(l.lat, l.lon);
+        if (d[0] < minLat) minLat = d[0];
+        if (d[0] > maxLat) maxLat = d[0];
+        if (d[1] < minLon) minLon = d[1];
+        if (d[1] > maxLon) maxLon = d[1];
+      }
+      // 根据范围估算 zoom（纬度 1 度约 111km）
+      final latSpan = (maxLat - minLat).abs();
+      final lonSpan = (maxLon - minLon).abs();
+      final span = latSpan > lonSpan ? latSpan : lonSpan;
+      // zoom 18 ≈ 1:500，span 每翻一倍 zoom-1
+      var zoom = 18.0;
+      if (span > 0) {
+        zoom = 18 - math.log((span / 0.002).clamp(1, 100000)) / 0.6931;
+        zoom = zoom.clamp(5.0, 18.0);
+      }
+      final d = _st.toDisplay(
+          (minLat + maxLat) / 2, (minLon + maxLon) / 2);
+      if (_mapReady) {
+        _mc.move(LatLng(d[0], d[1]), zoom);
+      }
     }
     setState(() {
       _selLabel = hits.first;
@@ -918,6 +941,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
         onNewProject: _newProject,
         // 段落/点位行点击 → 与体检「定位」同一条路径（相机归壳）。
         onLocate: (l) => _locateLabels([l.id]),
+        // 组点击 → 定位整个组（全部点位，缩放到范围）。
+        onLocateGroup: (labels) =>
+            _locateLabels(labels.map((l) => l.id).toList()),
         // 悬浮面板标题栏的「收起」按钮。
         onClose: () => setState(() => _favOpen = false),
       );

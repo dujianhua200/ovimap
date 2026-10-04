@@ -184,11 +184,13 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
     case 'locate': {
       final scope = FavTreeScope.of(context);
       final cb = scope?.onLocate;
-      if (cb == null) {
+      final cbGroup = scope?.onLocateGroup;
+      if (cb == null && cbGroup == null) {
         if (context.mounted) toast(context, '当前视图不支持定位');
         return;
       }
       if (node.isMark && node.label != null) {
+        if (cb == null) return;
         await cb(node);
       } else {
         final cid = node.isProject ? node.id : (node.chainCid ?? '');
@@ -198,7 +200,12 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
           if (context.mounted) toast(context, '「${node.name}」内无点位');
           return;
         }
-        await cb(FavNode.markNode(labels.first, pid: cid, cid: cid));
+        // 组定位：传入全部点位，地图缩放到整个组范围
+        if (cbGroup != null) {
+          await cbGroup(labels);
+        } else if (cb != null) {
+          await cb(FavNode.markNode(labels.first, pid: cid, cid: cid));
+        }
       }
       break;
     }

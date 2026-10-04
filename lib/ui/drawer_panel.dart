@@ -41,7 +41,11 @@ class FavoritesDrawer extends StatefulWidget {
   /// 可选：不传时 mark 点选仅关闭抽屉。
   final void Function(MapLabel label)? onLocateLabel;
 
-  const FavoritesDrawer({super.key, required this.st, this.onLocateLabel});
+  /// 组定位回调（全部点位）。
+  final void Function(List<MapLabel>)? onLocateGroup;
+
+  const FavoritesDrawer(
+      {super.key, required this.st, this.onLocateLabel, this.onLocateGroup});
 
   @override
   State<FavoritesDrawer> createState() => _FavoritesDrawerState();
@@ -126,6 +130,7 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
                         compact: true,
                         query: _query,
                         onLocate: _onLocate,
+                        onLocateGroup: _onLocateGroup,
                         onOpenProject: _onOpenProject,
                         // 移动端：工程行同步状态徽标
                         // （T17：SyncController? 可空接入，AOT 安全）。
@@ -314,6 +319,11 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
     final l = node.label;
     Navigator.pop(context); // 关抽屉
     if (l != null) widget.onLocateLabel?.call(l);
+  }
+
+  Future<void> _onLocateGroup(List<MapLabel> labels) async {
+    Navigator.pop(context); // 关抽屉
+    widget.onLocateGroup?.call(labels);
   }
 
   void _onOpenProject(FavNode node) {

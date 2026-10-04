@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/fav_node.dart';
+import '../../models/map_label.dart';
 import '../../services/platform_caps.dart';
 import '../../state/fav_tree_controller.dart';
 import '../design_tokens.dart';
@@ -39,6 +40,7 @@ class FavTree extends StatefulWidget {
     required this.controller,
     this.compact = false,
     this.onLocate,
+    this.onLocateGroup,
     this.onOpenProject,
     this.query = '',
     this.projectTrailing,
@@ -48,6 +50,7 @@ class FavTree extends StatefulWidget {
   final FavTreeController controller;
   final bool compact;
   final Future<void> Function(FavNode)? onLocate;
+  final Future<void> Function(List<MapLabel>)? onLocateGroup;
   final void Function(FavNode)? onOpenProject;
   final String query;
   final Widget Function(BuildContext context, FavNode node)? projectTrailing;
@@ -62,11 +65,13 @@ class FavTreeScope extends InheritedWidget {
   const FavTreeScope({
     super.key,
     required this.onLocate,
+    this.onLocateGroup,
     required this.onOpenProject,
     required super.child,
   });
 
   final Future<void> Function(FavNode)? onLocate;
+  final Future<void> Function(List<MapLabel>)? onLocateGroup;
   final void Function(FavNode)? onOpenProject;
 
   static FavTreeScope? of(BuildContext context) =>
@@ -74,7 +79,9 @@ class FavTreeScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(FavTreeScope old) =>
-      old.onLocate != onLocate || old.onOpenProject != onOpenProject;
+      old.onLocate != onLocate ||
+      old.onLocateGroup != onLocateGroup ||
+      old.onOpenProject != onOpenProject;
 }
 
 /// 搜索命中：节点 + 从根到该节点的路径（含自身）。
@@ -249,6 +256,7 @@ class _FavTreeState extends State<FavTree> {
             _activeQuery.isEmpty ? _buildTree() : _buildSearch();
         return FavTreeScope(
           onLocate: widget.onLocate,
+          onLocateGroup: widget.onLocateGroup,
           onOpenProject: widget.onOpenProject,
           child: FavAutoScroller(
             scrollController: _scroll,

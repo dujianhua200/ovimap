@@ -64,6 +64,7 @@ class LeftPanel extends StatefulWidget {
     this.searchFocus,
     required this.onNewProject,
     this.onLocate,
+    this.onLocateGroup,
     this.onClose,
   });
 
@@ -75,6 +76,9 @@ class LeftPanel extends StatefulWidget {
 
   /// 点击点位行 → 外壳把地图移过去并选中该点（相机归壳，左栏不持 `MapController`）。
   final void Function(MapLabel l)? onLocate;
+
+  /// 点击组 → 定位整个组（全部点位）。
+  final void Function(List<MapLabel>)? onLocateGroup;
 
   /// 面板以叠加方式悬浮在地图上时，标题栏出现「收起」按钮（见 workspace_page）。
   final VoidCallback? onClose;
@@ -181,6 +185,7 @@ class _LeftPanelState extends State<LeftPanel> {
                         compact: false,
                         query: _query,
                         onLocate: _onLocate,
+                        onLocateGroup: _onLocateGroup,
                         onOpenProject: _onOpenProject,
                         // 工程行同步状态徽标（旧 _itemCard 的 SyncBadge 位）。
                         // 形参名必须叫 context：源码级测试断言
@@ -334,6 +339,11 @@ class _LeftPanelState extends State<LeftPanel> {
     final l = node.label;
     if (l == null) return;
     widget.onLocate?.call(l);
+  }
+
+  /// 组定位：传入全部点位，地图缩放到整个组范围。
+  Future<void> _onLocateGroup(List<MapLabel> labels) async {
+    widget.onLocateGroup?.call(labels);
   }
 
   /// 点击工程行：打开工程（旧 `_onItemTap` 的普通点击路径）。
