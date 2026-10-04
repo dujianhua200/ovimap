@@ -45,3 +45,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/buildings/xinyang.geojson.gz
+    - assets/buildings/xinyang_roads.geojson.gz
+    - assets/buildings/xinyang_places.geojson.gz
