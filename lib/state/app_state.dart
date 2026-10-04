@@ -903,6 +903,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 杆路段改造三态等点位原地修改后的持久化（labels 已原地变更）。
+  void persistLabels() {
+    _saveDraft();
+    notifyListeners();
+  }
+
   /// 新建空白工程：先脱离已打开的收藏，**再**清草稿。
   ///
   /// 顺序不能反——[_saveDraft] 现在会把草稿同步回收藏文件；若先清空再脱离，

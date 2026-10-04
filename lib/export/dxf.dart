@@ -5,6 +5,7 @@ import 'package:gbk_codec/gbk_codec.dart';
 
 import '../geo/geo_util.dart';
 import '../models/fiber_link.dart';
+import '../models/reno_state.dart';
 import '../models/label_type.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
@@ -22,7 +23,19 @@ class DxfExportResult {
   final File file;
   final List<String> warnings;
   final BasemapFetchReport? report;
-  DxfExportResult(this.file, this.warnings, [this.report]);
+
+  /// 改造工程量统计（米）：杆路新增/拆除、人工光缆新增/拆除。
+  final double renoNewLenM;
+  final double renoRemoveLenM;
+  final double fiberNewLenM;
+  final double fiberRemoveLenM;
+
+  DxfExportResult(this.file, this.warnings,
+      [this.report,
+      this.renoNewLenM = 0,
+      this.renoRemoveLenM = 0,
+      this.fiberNewLenM = 0,
+      this.fiberRemoveLenM = 0]);
 }
 
 /// 可累加的包围盒（底图渲染时同步扩展图框范围）。
@@ -200,6 +213,12 @@ class DxfExporter {
 
     // 沿线总长度（图签用）
     var routeTotalLen = 0.0;
+    // 改造工程量：新增/拆除长度分别统计（米），原有不计入
+    var renoNewLenM = 0.0;
+    var renoRemoveLenM = 0.0;
+    // 人工光缆改造工程量（配线图连线）
+    var fiberNewLenM = 0.0;
+    var fiberRemoveLenM = 0.0;
     // 桩号跨线组连续累计：续画链/分支链不再从 K0+000 重新归零，
     // 全线桩号沿链输出顺序一杆接一杆递增（与竣工里程口径一致）。
     var globalCum = 0.0;
@@ -308,7 +327,13 @@ class DxfExporter {
       for (var i = 1; i < chain.length; i++) {
         final a = chain[i - 1];
         final b = chain[i];
-        _appendLine(c, 'GanLu', cart[i - 1][0], cart[i - 1][1],
+        // 改造三态分层：原有=GanLu，新增=GanLuNew（红实线），拆除=GanLuRemove（虚线）
+        final ganLayer = b.reno == RenoState.added
+            ? 'GanLuNew'
+            : b.reno == RenoState.removed
+                ? 'GanLuRemove'
+                : 'GanLu';
+        _appendLine(c, ganLayer, cart[i - 1][0], cart[i - 1][1],
             cart[i][0], cart[i][1]);
 
         final mx = (cart[i - 1][0] + cart[i][0]) / 2;
@@ -321,6 +346,12 @@ class DxfExporter {
         final segmentDistance =
             b.distanceM ?? _haversine(a.lat, a.lon, b.lat, b.lon);
         routeTotalLen += segmentDistance;
+        // 改造工程量统计：新增/拆除分别累计，原有不计入
+        if (b.reno == RenoState.added) {
+          renoNewLenM += segmentDistance;
+        } else if (b.reno == RenoState.removed) {
+          renoRemoveLenM += segmentDistance;
+        }
         chainCum += segmentDistance;
         final segText = GeoUtil.segTextFor(b, _formatDistNoUnit(segmentDistance),
             prefix: segPrefix);
@@ -512,13 +543,24 @@ class DxfExporter {
             if (cx + hw > extMaxX) extMaxX = cx + hw;
             if (cy - hh < extMinY) extMinY = cy - hh;
           }
-          // 画连线（直线 + 芯数标注）
+          // 画连线（直线 + 芯数标注）：改造三态分层
           for (final e in layout.edges) {
             final x1 = ox + e.from.x + 15.0;
             final y1 = oyTop - e.from.y;
             final x2 = ox + e.to.x - 15.0;
             final y2 = oyTop - e.to.y;
-            _appendLine(c, 'PeiXianTu', x1, y1, x2, y2);
+            final linkLayer = e.link.reno == RenoState.added
+                ? 'PeiXianTuNew'
+                : e.link.reno == RenoState.removed
+                    ? 'PeiXianTuRemove'
+                    : 'PeiXianTu';
+            _appendLine(c, linkLayer, x1, y1, x2, y2);
+            // 人工光缆改造工程量（按连线填写的长度）
+            if (e.link.reno == RenoState.added) {
+              fiberNewLenM += e.link.lengthM;
+            } else if (e.link.reno == RenoState.removed) {
+              fiberRemoveLenM += e.link.lengthM;
+            }
             final spec = e.link.fullSpec;
             if (spec.isNotEmpty) {
               _text(c, 'PeiXianTu', (x1 + x2) / 2, (y1 + y2) / 2 + 2,
@@ -532,7 +574,13 @@ class DxfExporter {
     }
 
     // 标题栏高度预留：图框下扩以包含标题栏（按线路范围，不被底图污染）
-    final titleH = _mmOf(36, routeScale) + _mmOf(10, routeScale);
+    // 改造工程量注记（如有）：标题栏上方再留 2 行文字高度
+    final hasRenoStat = renoNewLenM > 0 ||
+        renoRemoveLenM > 0 ||
+        fiberNewLenM > 0 ||
+        fiberRemoveLenM > 0;
+    var titleH = _mmOf(36, routeScale) + _mmOf(10, routeScale);
+    if (hasRenoStat) titleH += _mmOf(8 + 6 * 2 + 4, routeScale);
     if (routeMinY - titleH < extMinY) extMinY = routeMinY - titleH;
 
     // 图框（A3 幅面自动比例）+ 图例栏 + 指北针 + 图签（对齐设计院图纸习惯）
@@ -547,6 +595,31 @@ class DxfExporter {
         totalPoints: labels.length,
         totalLength: routeTotalLen,
         scale: routeScale);
+
+    // 改造工程量注记（标题栏上方）：新增/拆除长度，无改造时不画
+    final hasReno = renoNewLenM > 0 ||
+        renoRemoveLenM > 0 ||
+        fiberNewLenM > 0 ||
+        fiberRemoveLenM > 0;
+    if (hasReno) {
+      final statFontM = _mmOf(3.0, routeScale);
+      final sx = routeMaxX - _mmOf(120, routeScale);
+      var sy = routeMinY - _mmOf(10, routeScale) - _mmOf(36, routeScale) -
+          _mmOf(8, routeScale);
+      final stats = <String>[];
+      if (renoNewLenM > 0 || renoRemoveLenM > 0) {
+        stats.add(
+            '杆路改造：新增${_formatDistNoUnit(renoNewLenM)}米 拆除${_formatDistNoUnit(renoRemoveLenM)}米');
+      }
+      if (fiberNewLenM > 0 || fiberRemoveLenM > 0) {
+        stats.add(
+            '光缆改造：新增${_formatDistNoUnit(fiberNewLenM)}米 拆除${_formatDistNoUnit(fiberRemoveLenM)}米');
+      }
+      for (final s in stats) {
+        _text(c, 'TuQian', sx, sy, statFontM, s, style: true);
+        sy -= _mmOf(6, routeScale);
+      }
+    }
 
     sb.write('0\nENDSEC\n');
 
@@ -577,7 +650,8 @@ class DxfExporter {
 
     // 两版本均用 GBK 字节写盘（中文 CAD 默认 ANSI_936 代码页），避免乱码
     await robustWriteBytes(f, _gbkEncode(text));
-    return DxfExportResult(f, warnings, report);
+    return DxfExportResult(f, warnings, report, renoNewLenM, renoRemoveLenM,
+        fiberNewLenM, fiberRemoveLenM);
   }
 
   /// GBK 编码（带一次幂等重试）。
@@ -1395,6 +1469,15 @@ class DxfExporter {
         if (s.trueColor != null) c.sb.write('420\n${s.trueColor}\n');
       }
       c.sb.write('0\nENDTAB\n');
+      // 线型表：DASHED（拆除层用虚线）。
+      final ltypeTableH = c.h.next();
+      c.sb.write('0\nTABLE\n2\nLTYPE\n5\n$ltypeTableH\n330\n0\n'
+          '100\nAcDbSymbolTable\n70\n1\n');
+      c.sb.write('0\nLTYPE\n5\n${c.h.next()}\n330\n$ltypeTableH\n'
+          '100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n'
+          '2\nDASHED\n70\n0\n3\n__ __ \n72\n65\n73\n2\n40\n0.75\n'
+          '49\n0.5\n49\n-0.25\n');
+      c.sb.write('0\nENDTAB\n');
       final styleTableH = c.h.next();
       c.sb.write('0\nTABLE\n2\nSTYLE\n5\n$styleTableH\n330\n0\n'
           '100\nAcDbSymbolTable\n70\n2\n');
@@ -1414,6 +1497,11 @@ class DxfExporter {
       for (final s in specs) {
         c.sb.write('0\nLAYER\n2\n${s.name}\n70\n0\n62\n${s.aci}\n6\n${s.lineType}\n');
       }
+      c.sb.write('0\nENDTAB\n');
+      // 线型表：DASHED（拆除层用虚线）。
+      c.sb.write('0\nTABLE\n2\nLTYPE\n70\n1\n');
+      c.sb.write('0\nLTYPE\n2\nDASHED\n70\n0\n3\n__ __ \n72\n65\n73\n2\n'
+          '40\n0.75\n49\n0.5\n49\n-0.25\n');
       c.sb.write('0\nENDTAB\n');
       c.sb.write('0\nTABLE\n2\nSTYLE\n70\n2\n');
       c.sb.write('0\nSTYLE\n2\nSimSun\n70\n0\n40\n0\n41\n1\n50\n0\n71\n0\n42\n3\n3\nSimSun.ttf\n4\n\n');

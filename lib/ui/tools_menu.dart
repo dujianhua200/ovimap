@@ -58,6 +58,8 @@ Future<void> showToolsMenu(
                 devices: devices,
                 initialLinks: st.fiberLinks,
                 onChanged: (links) => st.updateFiberLinks(links),
+                routeLabels: st.labels,
+                onRouteChanged: () => st.persistLabels(),
               ),
             ));
           }),

@@ -73,6 +73,20 @@ class DxfLayers {
         trueColor: cGanLu,
         lineWeight: 35,
         business: true),
+    // —— 改造三态（新增/拆除独立成层，拆除用虚线）——
+    DxfLayerSpec(
+        name: 'GanLuNew',
+        aci: 1,
+        trueColor: 0xFF0000,
+        lineWeight: 35,
+        business: true),
+    DxfLayerSpec(
+        name: 'GanLuRemove',
+        aci: 7,
+        trueColor: 0xFFFFFF,
+        lineWeight: 25,
+        lineType: 'DASHED',
+        business: true),
     DxfLayerSpec(
         name: 'GuanLang',
         aci: 5,
@@ -84,6 +98,19 @@ class DxfLayers {
         aci: 7,
         trueColor: cPeiXianTu,
         lineWeight: 30,
+        business: true),
+    DxfLayerSpec(
+        name: 'PeiXianTuNew',
+        aci: 1,
+        trueColor: 0xFF0000,
+        lineWeight: 30,
+        business: true),
+    DxfLayerSpec(
+        name: 'PeiXianTuRemove',
+        aci: 7,
+        trueColor: 0xFFFFFF,
+        lineWeight: 25,
+        lineType: 'DASHED',
         business: true),
     DxfLayerSpec(
         name: 'ZhuangHao',

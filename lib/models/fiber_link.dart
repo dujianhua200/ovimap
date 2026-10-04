@@ -25,6 +25,9 @@ class FiberLink {
   /// 熔接方式，如 "熔接"、"冷接"。
   String spliceMethod;
 
+  /// 改造三态：0=原有，1=新增，2=拆除。纯加法，老数据默认为 0。
+  int reno;
+
   /// 备注。
   String note;
 
@@ -38,6 +41,7 @@ class FiberLink {
     this.layMethod = 0,
     this.lengthM = 0,
     this.spliceMethod = '',
+    this.reno = 0,
     this.note = '',
   }) : id = id ?? _uuid();
 
@@ -81,6 +85,7 @@ class FiberLink {
         layMethod: layMethod,
         lengthM: lengthM,
         spliceMethod: spliceMethod,
+        reno: reno,
         note: note,
       );
 
@@ -94,6 +99,7 @@ class FiberLink {
         'lay': layMethod,
         'len': lengthM,
         'splice': spliceMethod,
+        if (reno != 0) 'reno': reno,
         'note': note,
       };
 
@@ -107,6 +113,7 @@ class FiberLink {
         layMethod: (jo['lay'] as num?)?.toInt() ?? 0,
         lengthM: (jo['len'] as num?)?.toDouble() ?? 0,
         spliceMethod: (jo['splice'] as String?) ?? '',
+        reno: (jo['reno'] as num?)?.toInt() ?? 0,
         note: (jo['note'] as String?) ?? '',
       );
 }

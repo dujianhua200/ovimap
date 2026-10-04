@@ -11,6 +11,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ovimap/models/fiber_link.dart';
 import 'package:ovimap/models/map_label.dart';
+import 'package:ovimap/models/reno_state.dart';
 import 'package:ovimap/models/topo_check.dart';
 import 'package:ovimap/ui/design_tokens.dart';
 
@@ -90,11 +91,17 @@ class TopoEditorPage extends StatefulWidget {
   final List<FiberLink> initialLinks;
   final void Function(List<FiberLink> links)? onChanged;
 
+  /// 路由图杆路段（用于改造三态标记）；为空时不显示"杆路段"页签。
+  final List<MapLabel> routeLabels;
+  final void Function()? onRouteChanged;
+
   const TopoEditorPage({
     super.key,
     required this.devices,
     this.initialLinks = const [],
     this.onChanged,
+    this.routeLabels = const [],
+    this.onRouteChanged,
   });
 
   @override
@@ -291,74 +298,153 @@ class _TopoEditorPageState extends State<TopoEditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('拓扑图'),
-        actions: [
-          IconButton(
-            tooltip: '一键校验',
-            icon: const Icon(Icons.fact_check_outlined),
-            onPressed: _runValidate,
-          ),
-          Row(
-            children: [
-              const Text('连线', style: TextStyle(fontSize: TokFs.small)),
-              Switch(
-                value: _linkMode,
-                onChanged: (v) => setState(() {
-                  _linkMode = v;
-                  _fromId = null;
-                  _toId = null;
-                }),
-              ),
-            ],
-          ),
-        ],
+    final showSegTab = widget.routeLabels.isNotEmpty;
+    return DefaultTabController(
+      length: showSegTab ? 2 : 1,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('拓扑图'),
+          actions: [
+            IconButton(
+              tooltip: '一键校验',
+              icon: const Icon(Icons.fact_check_outlined),
+              onPressed: _runValidate,
+            ),
+            Row(
+              children: [
+                const Text('连线', style: TextStyle(fontSize: TokFs.small)),
+                Switch(
+                  value: _linkMode,
+                  onChanged: (v) => setState(() {
+                    _linkMode = v;
+                    _fromId = null;
+                    _toId = null;
+                  }),
+                ),
+              ],
+            ),
+          ],
+          bottom: showSegTab
+              ? const TabBar(
+                  tabs: [
+                    Tab(text: '光缆连线'),
+                    Tab(text: '杆路段'),
+                  ],
+                )
+              : null,
+        ),
+        body: showSegTab
+            ? TabBarView(
+                children: [
+                  _buildLinkTab(),
+                  _buildSegmentTab(),
+                ],
+              )
+            : _buildLinkTab(),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _devices.isEmpty
-                ? const Center(child: Text('暂无可连线设备，请先在路由图添加设备'))
-                : LayoutBuilder(
-                    builder: (ctx, constraints) {
-                      final size =
-                          Size(constraints.maxWidth, constraints.maxHeight);
-                      _pos = layoutTopoNodes(_devices, size);
-                      return GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTapDown: (d) => _onTapDown(d, size),
-                        child: CustomPaint(
-                          key: const ValueKey('topo_canvas'),
-                          size: size,
-                          painter: _TopoPainter(
-                            devices: _devices,
-                            links: _links,
-                            pos: _pos,
-                            fromId: _fromId,
-                            toId: _toId,
-                          ),
+    );
+  }
+
+  /// 光缆连线页签（原有画布 + 提示条）。
+  Widget _buildLinkTab() {
+    return Column(
+      children: [
+        Expanded(
+          child: _devices.isEmpty
+              ? const Center(child: Text('暂无可连线设备，请先在路由图添加设备'))
+              : LayoutBuilder(
+                  builder: (ctx, constraints) {
+                    final size =
+                        Size(constraints.maxWidth, constraints.maxHeight);
+                    _pos = layoutTopoNodes(_devices, size);
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (d) => _onTapDown(d, size),
+                      child: CustomPaint(
+                        key: const ValueKey('topo_canvas'),
+                        size: size,
+                        painter: _TopoPainter(
+                          devices: _devices,
+                          links: _links,
+                          pos: _pos,
+                          fromId: _fromId,
+                          toId: _toId,
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+              horizontal: TokSp.l, vertical: TokSp.s),
+          decoration: const BoxDecoration(
+            color: TokC.toolbar,
+            border: Border(top: BorderSide(color: TokC.divider)),
           ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(
-                horizontal: TokSp.l, vertical: TokSp.s),
-            decoration: const BoxDecoration(
-              color: TokC.toolbar,
-              border: Border(top: BorderSide(color: TokC.divider)),
-            ),
-            child: Text(
-              _hint,
-              style:
-                  const TextStyle(fontSize: TokFs.small, color: TokC.textSub),
-            ),
+          child: Text(
+            _hint,
+            style: const TextStyle(fontSize: TokFs.small, color: TokC.textSub),
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  /// 杆路段页签：逐段标记改造三态（原有/新增/拆除）。
+  /// 三态记在"本段终点"（chain[i].reno），即上一杆→本杆。
+  Widget _buildSegmentTab() {
+    final chains = buildLabelChains(widget.routeLabels);
+    final segs = <MapLabel>[];
+    for (final chain in chains) {
+      for (var i = 1; i < chain.length; i++) {
+        segs.add(chain[i]); // 用终点代表该段
+      }
+    }
+    if (segs.isEmpty) {
+      return const Center(child: Text('暂无杆路段，请先在路由图打点连杆'));
+    }
+    String segName(MapLabel to) {
+      // 找到该段起点名称
+      String from = '';
+      for (final chain in chains) {
+        for (var i = 1; i < chain.length; i++) {
+          if (chain[i].id == to.id) {
+            from = _labelOf(chain[i - 1]);
+            break;
+          }
+        }
+      }
+      return '$from → ${_labelOf(to)}';
+    }
+
+    return ListView.separated(
+      itemCount: segs.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, i) {
+        final to = segs[i];
+        return ListTile(
+          dense: true,
+          title: Text(segName(to), style: const TextStyle(fontSize: TokFs.small)),
+          trailing: DropdownButton<int>(
+            value: to.reno,
+            underline: const SizedBox(),
+            items: const [
+              DropdownMenuItem(
+                  value: RenoState.existing, child: Text('原有')),
+              DropdownMenuItem(value: RenoState.added, child: Text('新增')),
+              DropdownMenuItem(
+                  value: RenoState.removed, child: Text('拆除')),
+            ],
+            onChanged: (v) {
+              if (v == null) return;
+              setState(() => to.reno = v);
+              widget.onRouteChanged?.call();
+            },
+          ),
+        );
+      },
     );
   }
 }
@@ -513,6 +599,7 @@ class _FiberLinkFormDialogState extends State<FiberLinkFormDialog> {
   final _lenCtrl = TextEditingController();
   final _mfrCtrl = TextEditingController();
   String _splice = '熔接';
+  int _reno = RenoState.existing;
 
   @override
   void dispose() {
@@ -544,6 +631,7 @@ class _FiberLinkFormDialogState extends State<FiberLinkFormDialog> {
         layMethod: _layMethod,
         lengthM: len < 0 ? 0 : len,
         spliceMethod: _splice,
+        reno: _reno,
       ),
     );
   }
@@ -614,6 +702,21 @@ class _FiberLinkFormDialogState extends State<FiberLinkFormDialog> {
                     DropdownMenuItem(value: e.key, child: Text(e.value)),
                 ],
                 onChanged: (v) => setState(() => _layMethod = v ?? 1),
+              ),
+              const SizedBox(height: TokSp.s),
+              DropdownButtonFormField<int>(
+                value: _reno,
+                decoration:
+                    const InputDecoration(labelText: '改造状态', isDense: true),
+                items: const [
+                  DropdownMenuItem(
+                      value: RenoState.existing, child: Text('原有')),
+                  DropdownMenuItem(value: RenoState.added, child: Text('新增')),
+                  DropdownMenuItem(
+                      value: RenoState.removed, child: Text('拆除')),
+                ],
+                onChanged: (v) =>
+                    setState(() => _reno = v ?? RenoState.existing),
               ),
               const SizedBox(height: TokSp.s),
               TextField(

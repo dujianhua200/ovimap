@@ -1629,6 +1629,19 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             if (r.warnings.isNotEmpty) {
               toast(context, r.warnings.join('\n'));
             }
+            // 改造工程量统计（有新增/拆除时提示）
+            final renoStats = <String>[];
+            if (r.renoNewLenM > 0 || r.renoRemoveLenM > 0) {
+              renoStats.add(
+                  '杆路改造：新增${r.renoNewLenM.toStringAsFixed(0)}米 / 拆除${r.renoRemoveLenM.toStringAsFixed(0)}米');
+            }
+            if (r.fiberNewLenM > 0 || r.fiberRemoveLenM > 0) {
+              renoStats.add(
+                  '光缆改造：新增${r.fiberNewLenM.toStringAsFixed(0)}米 / 拆除${r.fiberRemoveLenM.toStringAsFixed(0)}米');
+            }
+            if (renoStats.isNotEmpty && context.mounted) {
+              toast(context, renoStats.join('\n'));
+            }
             shareFile(context, r.file);
           }
         } catch (e) {

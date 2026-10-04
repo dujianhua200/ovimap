@@ -59,6 +59,10 @@ class MapLabel {
   /// 上级连接光缆芯数（0=未填），芯线占用表校验用。
   int cableCores;
 
+  /// 改造三态（本点入段：上一杆→本杆）：0=原有，1=新增，2=拆除。
+  /// 纯加法：老数据 fromJson 默认为 0（原有）。
+  int reno;
+
   /// 现场取证照片（相对文件名列表，存于应用文档目录 photos/ 下）。
   /// 竣工结算常用：杆位/箱体/隐患点拍照挂接，随点导出可溯源。
   List<String> photoPaths;
@@ -92,6 +96,7 @@ class MapLabel {
     this.topoParentId = '',
     this.cableSpec = '',
     this.cableCores = 0,
+    this.reno = 0,
     List<String>? photoPaths,
     Map<String, dynamic>? extra,
   })  : id = id ?? _uuid(),
@@ -150,6 +155,7 @@ class MapLabel {
         topoParentId: topoParentId,
         cableSpec: cableSpec,
         cableCores: cableCores,
+        reno: reno,
         photoPaths: List<String>.from(photoPaths),
         extra: _deepCopyExtra(extra),
       );
@@ -178,6 +184,7 @@ class MapLabel {
     };
     if (distanceM != null) m['distanceM'] = distanceM;
     if (slackM > 0) m['slackM'] = slackM;
+    if (reno != 0) m['reno'] = reno;
     if (photoPaths.isNotEmpty) m['photoPaths'] = photoPaths;
     if (extra != null && extra!.isNotEmpty) m['extra'] = extra;
     return m;
@@ -203,6 +210,7 @@ class MapLabel {
       topoParentId: (jo['topoParentId'] as String?) ?? '',
       cableSpec: (jo['cableSpec'] as String?) ?? '',
       cableCores: (jo['cableCores'] as num?)?.toInt() ?? 0,
+      reno: (jo['reno'] as num?)?.toInt() ?? 0,
       distanceM: jo.containsKey('distanceM')
           ? (jo['distanceM'] as num?)?.toDouble()
           : null,
