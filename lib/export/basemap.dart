@@ -703,7 +703,9 @@ class BasemapFetcher {
     // 建筑兜底（中国区）：OSM building 覆盖稀疏时，用本地兜底包按 bbox 补。
     // 策略：OSM 为空 → 整包兜底；OSM 有但少 → 合并去重（OSM 优先，兜底只补缺）。
     // 兜底包是离线预处理数据（见 building_fallback.dart），无网络也能用。
-    buildings = await _applyBuildingFallback(buildings, bbox);
+    // 兜底建筑同样按到线路距离裁剪（与 OSM 建筑同口径），避免矩形包围盒
+    // 把离线路很远的角落建筑也带进来。
+    buildings = await _applyBuildingFallback(buildings, bbox, labels, rangeM);
 
     var placesReport = places.report;
     // 地名兜底：OSM 地名过少时按关键词枚举补名（仅补点/地名，不参与几何）。
@@ -959,7 +961,10 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
   /// - OSM 非空 → 合并去重后 `source='OSM+兜底包'`；
   /// - 无兜底包 → 原样返回。
   static Future<_LoadResult<BuildingPoly>> _applyBuildingFallback(
-      _LoadResult<BuildingPoly> buildings, List<double> bbox) async {
+      _LoadResult<BuildingPoly> buildings,
+      List<double> bbox,
+      List<MapLabel> labels,
+      double rangeM) async {
     // 单测/无 path_provider 环境直接跳过（兜底是增强功能，不得破坏主链路）。
     late final FallbackStore store;
     try {
@@ -976,18 +981,23 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
     } catch (_) {
       return buildings;
     }
-    if (fbItems.isEmpty) return buildings;
+    // 沿线裁剪：只留外环任一点到线路 ≤ rangeM 的建筑（与 OSM 建筑同口径）。
+    final cropped = fbItems
+        .where((b) =>
+            b.outer.any((p) => distToRouteM(labels, p[0], p[1]) <= rangeM))
+        .toList();
+    if (cropped.isEmpty) return buildings;
     if (buildings.items.isEmpty) {
       return _LoadResult(
         DatasetReport(
           FetchState.ok,
           source: '兜底包（$pkgName）',
-          count: fbItems.length,
+          count: cropped.length,
         ),
-        fbItems,
+        cropped,
       );
     }
-    final merged = mergeBuildings(buildings.items, fbItems);
+    final merged = mergeBuildings(buildings.items, cropped);
     if (merged.length == buildings.items.length) return buildings;
     return _LoadResult(
       DatasetReport(
