@@ -1074,6 +1074,10 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
         useTdt: tdtFallback,
         convertGcj: convertGcj,
         refresh: refresh,
+        // 检测必须与导出用同一套开关，否则显示的项数与实际导出不一致
+        // （2026-10-05 bug：未传参导致兜底包开关被忽略，检测显示 74 项、导出 0 项）
+        useOnlineBuildings: useOnlineBuildings,
+        useBuildingFallback: useBuildingFallback,
       );
       probeReport = data.report;
     } catch (e) {
