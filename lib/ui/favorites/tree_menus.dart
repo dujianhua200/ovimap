@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/fav_node.dart';
+import '../../models/map_label.dart';
 import '../../state/app_state.dart';
 import '../../state/fav_tree_controller.dart';
 import '../design_tokens.dart';
@@ -40,7 +41,11 @@ class _Mi {
 /// 菜单项按 kind 取舍；删除一律进回收站（审计问题 8），确认框显示影响数量。
 Future<void> showFavNodeMenu(BuildContext context, FavTreeController c,
     FavNode node,
-    {required bool isDesktop, Offset? position, FavMenuExtra? extra}) async {
+    {required bool isDesktop,
+    Offset? position,
+    FavMenuExtra? extra,
+    Future<void> Function(FavNode)? onLocate,
+    Future<void> Function(List<MapLabel>)? onLocateGroup}) async {
   final st = Provider.of<AppState>(context, listen: false);
 
   final items = <_Mi>[];
@@ -135,7 +140,8 @@ Future<void> showFavNodeMenu(BuildContext context, FavTreeController c,
     await extra.onSelected(context, c, node, sel);
     return;
   }
-  await _handleMenuAction(context, c, st, node, sel);
+  await _handleMenuAction(context, c, st, node, sel,
+      onLocate: onLocate, onLocateGroup: onLocateGroup);
 }
 
 TrashStore _trashOf(BuildContext context, AppState st) {
@@ -148,7 +154,9 @@ TrashStore _trashOf(BuildContext context, AppState st) {
 }
 
 Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
-    AppState st, FavNode node, String action) async {
+    AppState st, FavNode node, String action,
+    {Future<void> Function(FavNode)? onLocate,
+    Future<void> Function(List<MapLabel>)? onLocateGroup}) async {
   switch (action) {
     case 'rename':
       await renameFavNode(context, c, node);
@@ -182,11 +190,16 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
       break;
 
     case 'locate': {
-      final scope = FavTreeScope.of(context);
-      final cb = scope?.onLocate;
-      final cbGroup = scope?.onLocateGroup;
+      // 优先用直接传入的回调（不依赖 context scope，任何情况都可用）
+      final cb = onLocate ?? FavTreeScope.of(context)?.onLocate;
+      final cbGroup =
+          onLocateGroup ?? FavTreeScope.of(context)?.onLocateGroup;
       if (cb == null && cbGroup == null) {
-        if (context.mounted) toast(context, '当前视图不支持定位');
+        // 实在没有回调时，尝试用 AppState 兜底：至少把坐标告诉用户
+        if (node.isMark && node.label != null && context.mounted) {
+          final l = node.label!;
+          toast(context, '坐标：${l.lat.toStringAsFixed(6)}, ${l.lon.toStringAsFixed(6)}');
+        }
         return;
       }
       if (node.isMark && node.label != null) {

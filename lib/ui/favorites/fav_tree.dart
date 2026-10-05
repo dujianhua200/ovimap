@@ -402,7 +402,9 @@ class _FavTreeState extends State<FavTree> {
         showFavNodeMenu(context, c, node,
             isDesktop: PlatformCaps.isDesktop,
             position: d.globalPosition,
-            extra: widget.menuExtra);
+            extra: widget.menuExtra,
+            onLocate: widget.onLocate,
+            onLocateGroup: widget.onLocateGroup);
       },
       onLongPress: () {
         // 移动端：长按进入多选。
@@ -477,7 +479,10 @@ class _FavTreeState extends State<FavTree> {
       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
       tooltip: '更多操作',
       onPressed: () => showFavNodeMenu(context, c, node,
-          isDesktop: false, extra: widget.menuExtra),
+          isDesktop: false,
+          extra: widget.menuExtra,
+          onLocate: widget.onLocate,
+          onLocateGroup: widget.onLocateGroup),
       icon: const Icon(Icons.more_vert, size: 16, color: kTextHint),
     );
   }
@@ -744,7 +749,9 @@ class _FavTreeState extends State<FavTree> {
         showFavNodeMenu(context, c, node,
             isDesktop: PlatformCaps.isDesktop,
             position: d.globalPosition,
-            extra: widget.menuExtra);
+            extra: widget.menuExtra,
+            onLocate: widget.onLocate,
+            onLocateGroup: widget.onLocateGroup);
       },
       child: Container(
         height: _rowH,
