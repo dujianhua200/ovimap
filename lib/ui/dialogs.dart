@@ -1008,6 +1008,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   var layerPlaces = opt('dxfLayerPlaces', true);
   var tdtFallback = opt('dxfTdtFallback', true);
   var useOnlineBuildings = opt('dxfOnlineBuildings', true); // 在线建筑抓取默认开
+  var useBuildingFallback = opt('dxfBuildingFallback', true); // 建筑兜底包默认开
   var refreshBasemap = false;
   // 本地开源矢量底图（离线）：一次导入、项目级长期复用。
   final localStore = await LocalBasemapStore.open();
@@ -1286,6 +1287,8 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                 (v) => setSt(() => tdtFallback = v)),
             subOption('在线建筑抓取（关则只用离线包，避免重复）', useOnlineBuildings,
                 (v) => setSt(() => useOnlineBuildings = v)),
+            subOption('建筑兜底包（离线 70 万栋，关则不用）', useBuildingFallback,
+                (v) => setSt(() => useBuildingFallback = v)),
             subOption('刷新底图（忽略缓存，重新联网抓取）', refreshBasemap,
                 (v) => setSt(() => refreshBasemap = v)),
             Align(
@@ -1592,6 +1595,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
         prefs.setBool('dxfLayerPlaces', layerPlaces);
         prefs.setBool('dxfTdtFallback', tdtFallback);
         prefs.setBool('dxfOnlineBuildings', useOnlineBuildings);
+        prefs.setBool('dxfBuildingFallback', useBuildingFallback);
         prefs.setBool('dxfUseLocal', useLocal);
         prefs.setDouble('dxfRangeM', rangeM);
         toast(context, '正在生成 DXF…');
@@ -1618,6 +1622,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             segPrefix: segPrefix,
             placesTdtFallback: tdtFallback,
             useOnlineBuildings: useOnlineBuildings,
+            useBuildingFallback: useBuildingFallback,
             tdtKey: tdtKey,
             // 高德 key（用户自配）：有则地名兜底优先用高德，无则回落天地图
             amapKey: amapKey,

@@ -139,6 +139,7 @@ class DxfExporter {
     bool layerPlaces = true,
     bool placesTdtFallback = true, // 地名兜底（高德优先，回落天地图）
     bool useOnlineBuildings = true, // 在线建筑抓取：关则只用离线兜底包（避免重复）
+    bool useBuildingFallback = true, // 建筑兜底包：关则不用离线建筑包
     String tdtKey = '',
     String amapKey = '', // 高德 Web 服务 key（有则优先用于地名兜底）
     String overpassEndpoints = '', // 自定义 Overpass 端点（优先于内置；空=用内置）
@@ -230,10 +231,12 @@ class DxfExporter {
     // 字高按**纸面毫米**换算（v3.9.5）：此前直接写 2.5/3 被当作 2.5 米，
     // 图上极其巨大。用户要求：距离 2.5mm（宋体），其余与它和谐匹配。
     // v4.0.2 字高规范：常规注记 2.5mm，次要注记 2.0mm。
-    final segFontM = _mmOf(2.5, routeScale);
     final subFontM = _mmOf(2.0, routeScale);
     final labelFontM = _mmOf(2.5, routeScale);
     final noteFontM = _mmOf(2.0, routeScale);
+    // pin 同步字高：圆内字、距离数字与 pin 圆同比例缩放（字高 = 圆半径）。
+    // 道路名、小区/地名标识不参与同步，保持原纸面毫米尺寸。
+    final pinFontM = _pinRadiusM(routeScale);
 
     // 周边矢量（底图）：**必须先于业务实体写出**。
     // DXF 中「后画者在上层」（见 _appendBasemap 内注释），故底图（含建筑填充 HATCH/SOLID）
@@ -286,6 +289,7 @@ class DxfExporter {
           convertGcj: convertGcj,
           refresh: refreshBasemap,
           useOnlineBuildings: useOnlineBuildings,
+          useBuildingFallback: useBuildingFallback,
         );
       }
       report = bm.report;
@@ -370,8 +374,8 @@ class DxfExporter {
         chainCum += segmentDistance;
         final segText = GeoUtil.segTextFor(b, _formatDistNoUnit(segmentDistance),
             prefix: segPrefix);
-        // 宋体（STYLE 表里注册的是 SimSun）；字高 2.5 —— 用户指定。
-        _text(c, 'JuLi', mx, my + 1.2, segFontM, segText,
+        // 宋体（STYLE 表里注册的是 SimSun）；字高与 pin 圆同步（= 圆半径）。
+        _text(c, 'JuLi', mx, my + 1.2, pinFontM, segText,
             angle: angle, style: true);
         // 盘留标注（段下方第一行）
         var extraY = my - 3.4;
@@ -466,7 +470,8 @@ class DxfExporter {
           final rM = _pinRadiusM(routeScale);
           _appendCircle(c, 'BiaoQian', x, y, rM);
           if (lt.symbol.isNotEmpty) {
-            _appendTextCentered(c, 'BiaoQian', x, y, labelFontM, lt.symbol);
+            // 圆内字与 pin 圆同步缩放（字高 = 圆半径）
+            _appendTextCentered(c, 'BiaoQian', x, y, pinFontM, lt.symbol);
           }
         } else {
           _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
@@ -1909,13 +1914,13 @@ class DxfExporter {
 
   static double _mmOf(double mm, int scale) => mm / 1000.0 * scale;
 
-  /// pin 类标签圆半径（米）：纸面 2.5mm，但设 2.5m 上限。
+  /// pin 类标签圆半径（米）：纸面 2.5mm，但设 1.0m 上限。
   /// 根因（2026-10-05）：_mmOf(2.5, routeScale) 随线路跨度无上限膨胀——
   /// 3km 跨度时 routeScale=10000，半径=25m（直径50m），巨圆互相覆盖、
-  /// 与地图上的小 pin 完全对不上。CAD 里按 1:1 看时 2.5m 半径（5m 直径）
-  /// 已足够醒目；更大跨度不再放大。
+  /// 与地图上的小 pin 完全对不上。2026-10-05 用户要求上限 1m，
+  /// 且圆内字、距离数字与圆同步缩放（字高 = 圆半径，保持 1:1）。
   static double _pinRadiusM(int scale) =>
-      math.min(_mmOf(2.5, scale), 2.5);
+      math.min(_mmOf(2.5, scale), 1.0);
 
   static double _roadHalfWidthM(RoadGrade g, int scale) =>
       _mmOf(_roadHalfWidthMm(g), scale);

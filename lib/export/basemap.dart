@@ -633,6 +633,7 @@ class BasemapFetcher {
     bool refresh = false,
     bool includeExtras = true, // 电力线 / 水系（导出面板可关）
     bool useOnlineBuildings = true, // 在线建筑抓取开关：关则只用离线兜底包
+    bool useBuildingFallback = true, // 建筑兜底包开关：关则不用离线建筑包
     BasemapCache? cache,
   }) async {
     if (labels.isEmpty) return BasemapData.empty();
@@ -712,7 +713,10 @@ class BasemapFetcher {
     // 兜底包是离线预处理数据（见 building_fallback.dart），无网络也能用。
     // 兜底建筑同样按到线路距离裁剪（与 OSM 建筑同口径），避免矩形包围盒
     // 把离线路很远的角落建筑也带进来。
-    buildings = await _applyBuildingFallback(buildings, bbox, labels, rangeM);
+    // 用户可关：useBuildingFallback=false 时跳过兜底包（2026-10-05）。
+    if (useBuildingFallback) {
+      buildings = await _applyBuildingFallback(buildings, bbox, labels, rangeM);
+    }
 
     // 内置道路/地名（信阳市）：OSM 实时抓取为主，内置包交叉互补、去重不重叠。
     // 内置是离线预打包数据（见 bundled_basemap.dart），无网络也能用。
