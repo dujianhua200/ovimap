@@ -14,6 +14,7 @@ import '../../services/export_saver.dart';
 import '../../services/file_drop.dart';
 import '../../services/photos.dart';
 import '../../services/platform_caps.dart';
+import '../../services/search.dart';
 import '../../services/tile_cache.dart';
 import '../../services/track_check.dart';
 import '../../state/app_state.dart';
@@ -52,6 +53,14 @@ class WorkspacePage extends StatefulWidget {
 class _WorkspacePageState extends State<WorkspacePage> {
   final MapController _mc = MapController();
   final FocusNode _searchFocus = FocusNode();
+
+  /// 地图搜索框（桌面端 2026-10-05 新增：此前仅移动端有搜索，Mac/Win 没有）。
+  /// 搜索引擎：高德优先（内置 key 开箱即用），失败回落天地图 → 境外源。
+  final TextEditingController _mapSearchCtl = TextEditingController();
+  bool _mapSearching = false;
+
+  /// 搜索临时标记（WGS84 结果）：醒目定位针，不进草稿、不持久化。
+  SearchResult? _searchMark;
 
   CacheTileProvider? _baseProvider;
   CacheTileProvider? _overlayProvider;
@@ -106,6 +115,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
   @override
   void dispose() {
     _searchFocus.dispose();
+    _mapSearchCtl.dispose();
     _mouseGeo.dispose();
     super.dispose();
   }
@@ -532,6 +542,59 @@ class _WorkspacePageState extends State<WorkspacePage> {
     toast(context, '已定位到选中点（${hits.length} 个），可直接在右栏修改');
   }
 
+  /// 收藏夹定位（单点）：直接用 label 自带坐标，不走草稿 id 查找。
+  ///
+  /// 2026-10-05 bug 修复：此前经 [_locateLabels] 按 id 查当前草稿，
+  /// 收藏点不在草稿里时 hits 为空 → 静默返回，地图不动（用户报"定位不管用"）。
+  /// 收藏的 label 自带 lat/lon，直接用（与移动端 home_page._locateLabel 一致）。
+  void _locateFavLabel(MapLabel l) {
+    final d = _st.toDisplay(l.lat, l.lon);
+    if (!_mapReady) {
+      toast(context, '地图未就绪，稍后再试');
+      return;
+    }
+    _mc.move(LatLng(d[0], d[1]),
+        _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom);
+    toast(context, '已定位到「${l.name.isEmpty ? '标记点' : l.name}」');
+  }
+
+  /// 收藏夹定位（组）：直接用 labels 坐标算范围，不走草稿 id 查找。
+  void _locateFavLabels(List<MapLabel> labels) {
+    if (labels.isEmpty) {
+      toast(context, '该组没有可定位的点位');
+      return;
+    }
+    if (labels.length == 1) {
+      _locateFavLabel(labels.first);
+      return;
+    }
+    if (!_mapReady) {
+      toast(context, '地图未就绪，稍后再试');
+      return;
+    }
+    var minLat = double.infinity, maxLat = -double.infinity;
+    var minLon = double.infinity, maxLon = -double.infinity;
+    for (final l in labels) {
+      final d = _st.toDisplay(l.lat, l.lon);
+      if (d[0] < minLat) minLat = d[0];
+      if (d[0] > maxLat) maxLat = d[0];
+      if (d[1] < minLon) minLon = d[1];
+      if (d[1] > maxLon) maxLon = d[1];
+    }
+    final latSpan = (maxLat - minLat).abs();
+    final lonSpan = (maxLon - minLon).abs();
+    final span = latSpan > lonSpan ? latSpan : lonSpan;
+    var zoom = 18.0;
+    if (span > 0) {
+      zoom = 18 - math.log((span / 0.002).clamp(1, 100000)) / 0.6931;
+      zoom = zoom.clamp(5.0, 18.0);
+    }
+    final d =
+        _st.toDisplay((minLat + maxLat) / 2, (minLon + maxLon) / 2);
+    _mc.move(LatLng(d[0], d[1]), zoom);
+    toast(context, '已定位到该组（${labels.length} 个点）');
+  }
+
   Future<void> _showPoleTable() async {
     final st = _st;
     if (st.labels.isEmpty) {
@@ -939,11 +1002,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
         st: st,
         searchFocus: _searchFocus,
         onNewProject: _newProject,
-        // 段落/点位行点击 → 与体检「定位」同一条路径（相机归壳）。
-        onLocate: (l) => _locateLabels([l.id]),
+        // 收藏夹点位/组定位：直接用 label 坐标（不查草稿，收藏点常不在草稿里）。
+        // 2026-10-05 修复"定位不管用"：此前走 _locateLabels 按 id 查草稿，
+        // 收藏点不在草稿时静默返回、地图不动。
+        onLocate: _locateFavLabel,
         // 组点击 → 定位整个组（全部点位，缩放到范围）。
-        onLocateGroup: (labels) =>
-            _locateLabels(labels.map((l) => l.id).toList()),
+        onLocateGroup: _locateFavLabels,
         // 悬浮面板标题栏的「收起」按钮。
         onClose: () => setState(() => _favOpen = false),
       );
@@ -1003,6 +1067,22 @@ class _WorkspacePageState extends State<WorkspacePage> {
                   ? const <Marker>[]
                   : buildBusinessMarkers(st, _cam!, mapReady: _mapReady),
             ),
+            // 搜索临时标记：醒目定位针，点击弹信息（名称/地址/坐标/加入收藏/清除）。
+            if (_searchMark != null)
+              MarkerLayer(markers: [
+                Marker(
+                  point: LatLng(
+                      st.toDisplay(_searchMark!.lat, _searchMark!.lon)[0],
+                      st.toDisplay(_searchMark!.lat, _searchMark!.lon)[1]),
+                  width: 44,
+                  height: 44,
+                  child: GestureDetector(
+                    onTap: () => _showSearchMarkPanel(st),
+                    child: const Icon(Icons.location_on,
+                        color: Color(0xFFE91E63), size: 40),
+                  ),
+                ),
+              ]),
           ],
         ),
         // 比例尺（左下）
@@ -1013,6 +1093,194 @@ class _WorkspacePageState extends State<WorkspacePage> {
               ? ScaleBar(camera: _mc.camera)
               : const SizedBox.shrink(),
         ),
+        // 地名搜索（左上）：高德优先，2026-10-05 用户要求（Mac 版此前无搜索）。
+        Positioned(
+          left: 12,
+          top: 12,
+          child: _mapSearchBar(st),
+        ),
+      ],
+    );
+  }
+
+  /// 桌面地图搜索栏：输入地名/地址/坐标，回车搜索，高德优先。
+  Widget _mapSearchBar(AppState st) {
+    return Container(
+      width: 320,
+      decoration: BoxDecoration(
+        color: TokC.panelSolid,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: TokC.divider),
+        boxShadow: const [
+          BoxShadow(color: Color(0x40000000), blurRadius: 8, offset: Offset(0, 2))
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _mapSearchCtl,
+              style: const TextStyle(color: kTextMain, fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: '搜索地名 / 地址（高德）或输入坐标',
+                hintStyle: TextStyle(color: kTextHint, fontSize: 12.5),
+                prefixIcon: Icon(Icons.search, color: kTextSub, size: 18),
+                border: InputBorder.none,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                isDense: true,
+              ),
+              onSubmitted: (_) => _doMapSearch(),
+            ),
+          ),
+          if (_mapSearching)
+            const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.search, color: kTextSub, size: 18),
+              tooltip: '搜索',
+              onPressed: _doMapSearch,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 执行地图搜索：先试坐标解析，再走 SearchService（高德优先）。
+  Future<void> _doMapSearch() async {
+    final q = _mapSearchCtl.text.trim();
+    if (q.isEmpty) return;
+    final st = _st;
+    // 坐标直达：支持十进制/度分秒（与移动端同口径）。
+    final coord = GeoUtil.parseCoordInput(q);
+    if (coord != null) {
+      final d = st.toDisplay(coord[0], coord[1]);
+      if (_mapReady) _mc.move(LatLng(d[0], d[1]), 17);
+      setState(() => _searchMark = null);
+      toast(context, '已跳转到输入坐标');
+      return;
+    }
+    setState(() => _mapSearching = true);
+    final cam0 = _mc.camera;
+    final near = st.toWgs(cam0.center.latitude, cam0.center.longitude);
+    List<SearchResult> results;
+    try {
+      results = await SearchService.search(q,
+          amapKey: st.amapKey,
+          tdtKey: st.tiandituKey,
+          nearLat: near[0],
+          nearLon: near[1],
+          convertGcj: st.tdtConvertGcj);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _mapSearching = false);
+      toast(context, '搜索失败：$e');
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _mapSearching = false);
+    if (results.isEmpty) {
+      toast(context, '未找到结果');
+      return;
+    }
+    await showDarkDialog(
+      context,
+      title: '搜索结果（按距离排序）',
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final r in results)
+              InkWell(
+                onTap: () {
+                  Navigator.pop(context);
+                  final d = st.toDisplay(r.lat, r.lon);
+                  if (_mapReady) _mc.move(LatLng(d[0], d[1]), 16.5);
+                  setState(() => _searchMark = r);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.place, color: kAccent, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                r.name.length > 40
+                                    ? '${r.name.substring(0, 40)}…'
+                                    : r.name,
+                                style: const TextStyle(
+                                    color: kTextMain, fontSize: 13.5)),
+                            if (r.address.isNotEmpty)
+                              Text(
+                                  r.address.length > 56
+                                      ? '${r.address.substring(0, 56)}…'
+                                      : r.address,
+                                  style: const TextStyle(
+                                      color: kTextSub, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 搜索标记信息面板：名称/地址/坐标 + 「加入收藏」「清除标记」。
+  void _showSearchMarkPanel(AppState st) {
+    final r = _searchMark;
+    if (r == null) return;
+    final d = st.toDisplay(r.lat, r.lon);
+    showDarkDialog(
+      context,
+      title: '搜索位置',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(r.name,
+              style: const TextStyle(color: kTextMain, fontSize: 14)),
+          if (r.address.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(r.address,
+                style: const TextStyle(color: kTextSub, fontSize: 12)),
+          ],
+          const SizedBox(height: 8),
+          Text('坐标：${GeoUtil.formatCoord(d[0], d[1], st.coordFmt)}',
+              style: const TextStyle(color: kTextSub, fontSize: 12)),
+        ],
+      ),
+      actions: [
+        darkTextBtn('清除标记', () {
+          setState(() => _searchMark = null);
+          Navigator.pop(context);
+        }, color: kTextSub),
+        darkTextBtn('加入收藏', () async {
+          Navigator.pop(context);
+          try {
+            await st.savePointAsCollection(r.name, r.lat, r.lon,
+                note: r.address);
+            if (mounted) toast(context, '已加入收藏');
+          } catch (e) {
+            if (mounted) toast(context, '加入收藏失败：$e');
+          }
+        }),
       ],
     );
   }

@@ -209,12 +209,10 @@ class DxfExporter {
       if (y < extMinY) extMinY = y;
       if (y > extMaxY) extMaxY = y;
     }
-    // 线路-only 包络（标题栏定位用，不被底图外扩污染）
-    final routeMinX = extMinX, routeMinY = extMinY;
-    final routeMaxX = extMaxX, routeMaxY = extMaxY;
+    // 线路-only 包络（改造注记定位用，不被底图外扩污染）
+    final routeMinY = extMinY;
+    final routeMaxX = extMaxX;
 
-    // 沿线总长度（图签用）
-    var routeTotalLen = 0.0;
     // 改造工程量：新增/拆除长度分别统计（米），原有不计入
     var renoNewLenM = 0.0;
     var renoRemoveLenM = 0.0;
@@ -364,7 +362,6 @@ class DxfExporter {
         if (angle > 90 || angle < -90) angle += 180;
         final segmentDistance =
             b.distanceM ?? _haversine(a.lat, a.lon, b.lat, b.lon);
-        routeTotalLen += segmentDistance;
         // 改造工程量统计：新增/拆除分别累计，原有不计入
         if (b.reno == RenoState.added) {
           renoNewLenM += segmentDistance;
@@ -593,30 +590,28 @@ class DxfExporter {
       }
     }
 
-    // 标题栏高度预留：图框下扩以包含标题栏（按线路范围，不被底图污染）
-    // 改造工程量注记（如有）：标题栏上方再留 2 行文字高度
+    // 改造工程量注记（如有）：图框下扩以包含注记（按线路范围，不被底图污染）
+    // 2026-10-05：用户要求删除右下角设计单位/工程名称图框（标题栏），
+    // 不再为其预留高度；仅改造注记需要时下扩。
     final hasRenoStat = renoNewLenM > 0 ||
         renoRemoveLenM > 0 ||
         fiberNewLenM > 0 ||
         fiberRemoveLenM > 0;
-    var titleH = _mmOf(36, routeScale) + _mmOf(10, routeScale);
-    if (hasRenoStat) titleH += _mmOf(8 + 6 * 2 + 4, routeScale);
-    if (routeMinY - titleH < extMinY) extMinY = routeMinY - titleH;
+    if (hasRenoStat) {
+      final renoH = _mmOf(10, routeScale) + _mmOf(6 * 2 + 4, routeScale);
+      if (routeMinY - renoH < extMinY) extMinY = routeMinY - renoH;
+    }
 
-    // 图框（A3 幅面自动比例）+ 图例栏 + 指北针 + 图签（对齐设计院图纸习惯）
+    // 图框（A3 幅面自动比例）+ 图例栏 + 指北针（对齐设计院图纸习惯）
+    // 2026-10-05：删除标题栏（设计单位/工程名称图框），用户要求。
     _appendFrame(c, extMinX, extMinY, extMaxX, extMaxY);
     if (showLegend) {
       _appendLegend(c, labels, extMinX, extMinY);
     }
     _appendNorthArrow(c, extMaxX, extMaxY);
-    // 标题栏按线路范围定位（不被底图污染），放在线路下方
-    _appendTitleBlock(c, routeMinX, routeMinY, routeMaxX, routeMaxY,
-        name: name,
-        totalPoints: labels.length,
-        totalLength: routeTotalLen,
-        scale: routeScale);
 
-    // 改造工程量注记（标题栏上方）：新增/拆除长度，无改造时不画
+    // 改造工程量注记（线路下方）：新增/拆除长度，无改造时不画
+    // 2026-10-05：标题栏已删除，注记直接放在线路下方 10mm 处。
     final hasReno = renoNewLenM > 0 ||
         renoRemoveLenM > 0 ||
         fiberNewLenM > 0 ||
@@ -624,8 +619,7 @@ class DxfExporter {
     if (hasReno) {
       final statFontM = _mmOf(3.0, routeScale);
       final sx = routeMaxX - _mmOf(120, routeScale);
-      var sy = routeMinY - _mmOf(10, routeScale) - _mmOf(36, routeScale) -
-          _mmOf(8, routeScale);
+      var sy = routeMinY - _mmOf(10, routeScale) - _mmOf(6, routeScale);
       final stats = <String>[];
       if (renoNewLenM > 0 || renoRemoveLenM > 0) {
         stats.add(
@@ -982,47 +976,6 @@ class DxfExporter {
       if (note.isNotEmpty) {
         _appendTextCentered(c, 'PeiXianTu', x, y - 6.8, 2.2, note);
       }
-    }
-  }
-
-  /// 图签（标题栏）：图框内右下角，正规通信工程标题栏。
-  /// 尺寸按**纸面恒定**（宽 120mm × 高 36mm，经出图比例换算为图纸米），
-  /// 6 行分格：工程名称 / 图名 / 比例 / 设计·审核 / 日期 / 图号。
-  /// 文字统一宋体 2.5mm（字高规范）。
-  static void _appendTitleBlock(
-      _Ctx c, double minX, double minY, double maxX, double maxY,
-      {required String name,
-      required int totalPoints,
-      required double totalLength,
-      required int scale}) {
-    final w = _mmOf(120, scale), h = _mmOf(36, scale);
-    // 标题栏放在内容下方（不压图），右对齐，留 10m 间距
-    final gap = _mmOf(10, scale);
-    final x0 = maxX - w, y0 = minY - h - gap;
-    final x1 = maxX, y1 = minY - gap;
-    const rows = 6;
-    final rowH = h / rows;
-    _appendRect(c, 'TuQian', x0, y0, x1, y1);
-    for (var i = 1; i < rows; i++) {
-      _appendLine(c, 'TuQian', x0, y0 + rowH * i, x1, y0 + rowH * i);
-    }
-    final date = DateTime.now();
-    final dateStr =
-        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-    final tx = x0 + _mmOf(3, scale);
-    final th = _mmOf(2.5, scale);
-    final rowTexts = <String>[
-      '工程名称  ${(name.isEmpty ? '未命名项目' : name)}',
-      '图名  通信线路平面图',
-      '比例  1:$scale',
-      '设计单位  滑洲云图        审核',
-      '日期  $dateStr',
-      '图号  TX-PM-01',
-    ];
-    for (var i = 0; i < rows; i++) {
-      // 行内垂直居中（基线近似：行底 + (行高 - 字高)/2）
-      final ty = y0 + rowH * (rows - 1 - i) + (rowH - th) / 2;
-      _text(c, 'TuQian', tx, ty, th, rowTexts[i]);
     }
   }
 

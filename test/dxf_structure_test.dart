@@ -136,9 +136,10 @@ void main() {
       expect(layerNames.contains(layer), isTrue, reason: '缺少图层 $layer');
     }
 
-    // 5. GBK 中文：解码后图签/箱体文字完整，且无 U+FFFD 替换符（乱码迹象）
+    // 5. GBK 中文：解码后箱体文字完整，且无 U+FFFD 替换符（乱码迹象）
+    // 2026-10-05：标题栏已按用户要求删除，不再断言其内容
     final decoded = gbk_bytes.decode(bytes);
-    expect(decoded, contains('滑洲云图'));
+    expect(decoded, isNot(contains('滑洲云图')));
     expect(decoded, contains('李庄光交'));
     expect(decoded.contains('\uFFFD'), isFalse,
         reason: 'GBK 解码出现替换符，存在乱码/编码不一致');

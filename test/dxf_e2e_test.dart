@@ -84,10 +84,11 @@ void main() {
     expect(text, contains('0\nPOLYLINE'));
     expect(text, isNot(contains('LWPOLYLINE')));
     expect(text, contains('40\n0.600'));
-    // 图签 + 指北针图层
+    // 图例 + 指北针图层（2026-10-05：标题栏已按用户要求删除，不再断言其内容）
     expect(text, contains('TuQian'));
     expect(text, contains('BeiFangZhen'));
-    expect(text, contains('滑洲云图'));
+    expect(text, isNot(contains('滑洲云图')));
+    expect(text, isNot(contains('设计单位')));
     // 杆路段标注前缀文字
     expect(text, contains('埋42.5'));
     // GBK 字节验证：'李' = 0xC0 0xEE
