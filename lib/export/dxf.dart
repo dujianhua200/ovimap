@@ -327,7 +327,7 @@ class DxfExporter {
 
       var chainCum = globalCum;
       // pin 类标签的圆半径（米）：线只连接到圆边，不穿过圆心
-      final pinR = _mmOf(2.5, routeScale);
+      final pinR = _pinRadiusM(routeScale);
       for (var i = 1; i < chain.length; i++) {
         final a = chain[i - 1];
         final b = chain[i];
@@ -463,7 +463,7 @@ class DxfExporter {
         } else if (isPin) {
           // pin 类（杆/管等）：圆圈 + 符号字在圆内（对齐地图样式；
           // 用户要求：圆内除字之外别无其他）。
-          final rM = _mmOf(2.5, routeScale);
+          final rM = _pinRadiusM(routeScale);
           _appendCircle(c, 'BiaoQian', x, y, rM);
           if (lt.symbol.isNotEmpty) {
             _appendTextCentered(c, 'BiaoQian', x, y, labelFontM, lt.symbol);
@@ -1908,6 +1908,14 @@ class DxfExporter {
   // ---- 纸面毫米 → 图纸米（唯一换算入口）----
 
   static double _mmOf(double mm, int scale) => mm / 1000.0 * scale;
+
+  /// pin 类标签圆半径（米）：纸面 2.5mm，但设 2.5m 上限。
+  /// 根因（2026-10-05）：_mmOf(2.5, routeScale) 随线路跨度无上限膨胀——
+  /// 3km 跨度时 routeScale=10000，半径=25m（直径50m），巨圆互相覆盖、
+  /// 与地图上的小 pin 完全对不上。CAD 里按 1:1 看时 2.5m 半径（5m 直径）
+  /// 已足够醒目；更大跨度不再放大。
+  static double _pinRadiusM(int scale) =>
+      math.min(_mmOf(2.5, scale), 2.5);
 
   static double _roadHalfWidthM(RoadGrade g, int scale) =>
       _mmOf(_roadHalfWidthMm(g), scale);
