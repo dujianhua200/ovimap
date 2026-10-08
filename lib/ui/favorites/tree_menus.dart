@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/fav_node.dart';
+import '../../models/fiber_link.dart';
 import '../../models/map_label.dart';
 import '../../state/app_state.dart';
 import '../../state/fav_tree_controller.dart';
@@ -305,9 +306,14 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
     case 'export': {
       if (!node.isProject || !context.mounted) return;
       final labels = await c.labelsOf(node.id);
+      // 2026-10-08：导出带上纤拓扑，否则无配线图
+      final linkJsons = await c.store.loadCollectionFiberLinks(node.id);
+      final fiberLinks = [
+        for (final j in linkJsons) FiberLink.fromJson(j),
+      ];
       if (!context.mounted) return;
-      await showExportDialog(
-          context, List.of(labels), node.name, segPrefix: st.segPrefix);
+      await showExportDialog(context, List.of(labels), node.name,
+          segPrefix: st.segPrefix, fiberLinks: fiberLinks);
       break;
     }
 

@@ -347,7 +347,8 @@ await robustWriteAsString(
   // ---- 收藏内容 ----
 
   /// 仅更新收藏文件中的 labels（拓扑连接编辑保存用），不动索引元数据。
-  Future<void> saveCollectionLabels(String cid, List<MapLabel> labels) async {
+  Future<void> saveCollectionLabels(String cid, List<MapLabel> labels,
+      {List<Map<String, dynamic>> fiberLinks = const []}) async {
     final dir = await labelsDir();
     final f = File('${dir.path}/collection_$cid.json');
     if (!f.existsSync()) return;
@@ -355,6 +356,8 @@ await robustWriteAsString(
       final o =
           Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map);
       o['labels'] = labels.map((l) => l.toJson()).toList();
+      // 2026-10-08：收藏工程也要存纤拓扑，否则导出无配线图
+      if (fiberLinks.isNotEmpty) o['fiberLinks'] = fiberLinks;
       await robustWriteAsString(f, jsonEncode(o));
     } catch (_) {}
   }
@@ -368,6 +371,22 @@ await robustWriteAsString(
       return (o['labels'] as List)
           .map((e) => MapLabel.fromJson(e as Map<String, dynamic>))
           .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// 2026-10-08：读取收藏工程的纤拓扑连线（导出配线图用）。
+  Future<List<Map<String, dynamic>>> loadCollectionFiberLinks(
+      String cid) async {
+    try {
+      final dir = await labelsDir();
+      final f = File('${dir.path}/collection_$cid.json');
+      if (!f.existsSync()) return [];
+      final o = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      final list = o['fiberLinks'] as List?;
+      if (list == null) return [];
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (_) {
       return [];
     }

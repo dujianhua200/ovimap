@@ -892,7 +892,9 @@ class AppState extends ChangeNotifier {
     store.saveDraft(labels, projectName, folderId, editModeName,
         [for (final l in fiberLinks) l.toJson()]);
     if (activeCollectionId.isNotEmpty && topoCid.isEmpty) {
-      store.saveCollectionLabels(activeCollectionId, labels);
+      // 2026-10-08：收藏工程同步存纤拓扑，导出才有配线图
+      store.saveCollectionLabels(activeCollectionId, labels,
+          fiberLinks: [for (final l in fiberLinks) l.toJson()]);
     }
   }
 
