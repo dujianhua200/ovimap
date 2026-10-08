@@ -546,7 +546,8 @@ class DxfExporter {
     }
 
     // 人工光缆配线图（Phase 3）：基于 FiberLink。
-    // 2026-10-08 用户定版：水平总线式，按路由顺序左右排（非地理2D）；
+    // 2026-10-08 用户定版（看参考 DXF 后）：直角简化式，跟路由走向；
+    // 像地铁图：保留拓扑和大致走向，几何压成直角，距离压缩。
     // 放在路由图下方干净处，不重叠；比例缩小。
     // 配线图 = 地图里的纤拓扑结构：只含 FiberLink 两端的设备
     if (fiberLinks.isNotEmpty) {
@@ -560,72 +561,74 @@ class DxfExporter {
           for (final d in labels)
             if (topoIds.contains(d.id)) d
         ];
-        // 按路由顺序排（labels 为路由链有序）
+        // 直角简化，段长 40m（压缩）
         final layout = layoutWiringDiagram(topoDevices, fiberLinks, labels,
-            nodeGap: 40, dropLen: 25);
-        if (layout.nodes.isNotEmpty) {
-          // 配线图原点：路由图下方，左对齐，留 40m 间距
-          // 缩小比例：配线图用 0.6 缩放
+            segLen: 40);
+        if (layout.nodes.isNotEmpty && layout.path.length >= 2) {
+          // 配线图原点：路由图下方，左对齐，留 40m 间距；0.6 缩小
           const wiringScale = 0.6;
           final ox = extMinX;
-          final oyBus = extMinY - 40; // 总线 Y（路由图下方）
+          final oy = extMinY - 40;
           final fontM = _mmOf(2.5, routeScale);
           final smallFontM = _mmOf(2.0, routeScale);
-          // 画水平总线
-          final busX1 = ox;
-          final busX2 = ox + layout.width * wiringScale;
-          _appendLine(c, 'PeiXianTu', busX1, oyBus, busX2, oyBus);
+          // 画直角简化路径（配线图走向跟路由一致）
+          for (var i = 1; i < layout.path.length; i++) {
+            final p1 = layout.path[i - 1];
+            final p2 = layout.path[i];
+            _appendLine(c, 'PeiXianTu', ox + p1.x * wiringScale,
+                oy + p1.y * wiringScale, ox + p2.x * wiringScale,
+                oy + p2.y * wiringScale);
+          }
           // 找出端点（无出边的节点）：标成端处
           final hasOut = <String>{};
           for (final e in layout.edges) {
             hasOut.add(e.from.device.id);
           }
-          // 画节点：垂直引下 + 箱体符号
-          const wiringSymScale = 0.6; // 缩小
+          // 画节点箱体（在路径点上）
+          const wiringSymScale = 0.6;
           for (final n in layout.nodes) {
             final cx = ox + n.x * wiringScale;
-            final busY = oyBus;
-            final boxY = oyBus - 25 * wiringScale; // 箱体 Y（总线下方）
-            // 垂直引下线
-            _appendLine(c, 'PeiXianTu', cx, busY, cx, boxY + 2.2 * wiringSymScale);
+            final cy = oy + n.y * wiringScale;
             final isFiberBox = n.device.typeId == 'fiberbox';
             if (isFiberBox) {
-              _appendInsert(c, 'PeiXianTu', 'HZ_FIBERBOX', cx, boxY,
+              _appendInsert(c, 'PeiXianTu', 'HZ_FIBERBOX', cx, cy,
                   sx: wiringSymScale, sy: wiringSymScale);
               final slotText = n.device.name.contains('4槽')
                   ? '4槽位箱'
                   : '2槽位箱';
               _text(c, 'PeiXianTu',
-                  cx + 5.0 * wiringSymScale + 2, boxY, fontM, slotText);
+                  cx + 5.0 * wiringSymScale + 2, cy, fontM, slotText);
             } else {
-              final hw = 9.0, hh = 5.0; // 缩小
-              _appendRect(c, 'PeiXianTu', cx - hw, boxY - hh, cx + hw, boxY + hh);
-              _text(c, 'PeiXianTu', cx - hw + 1, boxY - fontM / 2, fontM, n.label);
+              final hw = 9.0, hh = 5.0;
+              _appendRect(c, 'PeiXianTu', cx - hw, cy - hh, cx + hw, cy + hh);
+              _text(c, 'PeiXianTu', cx - hw + 1, cy - fontM / 2, fontM, n.label);
             }
-            // 光缆型号标在总线段上（两节点之间）
             // 成端处：无出边的端点加引线标注
             if (!hasOut.contains(n.device.id)) {
-              _appendLine(c, 'PeiXianTu', cx + 6, boxY - 3, cx + 14, boxY - 8);
-              _text(c, 'PeiXianTu', cx + 15, boxY - 10, fontM, '成端处');
+              _appendLine(c, 'PeiXianTu', cx + 6, cy - 3, cx + 14, cy - 8);
+              _text(c, 'PeiXianTu', cx + 15, cy - 10, fontM, '成端处');
             }
-            // 分光器：分光器箱节点下标分光比
+            // 分光器标注
             if (n.device.typeId == 'splitterbox') {
               final splitterInfo = n.device.note.contains('1:')
                   ? n.device.note
                   : n.device.name;
               if (splitterInfo.isNotEmpty) {
-                _text(c, 'PeiXianTu', cx - 10, boxY - 10,
+                _text(c, 'PeiXianTu', cx - 10, cy - 10,
                     smallFontM, '分光器:$splitterInfo');
               }
             }
-            if (boxY - 12 < extMinY) extMinY = boxY - 12;
+            if (cy - 12 < extMinY) extMinY = cy - 12;
+            if (cx + 10 > extMaxX) extMaxX = cx + 10;
           }
-          // 总线分段标注光缆型号（按连线）
+          // 路径分段标光缆型号+长度（按连线）
           for (final e in layout.edges) {
             final x1 = ox + e.from.x * wiringScale;
+            final y1 = oy + e.from.y * wiringScale;
             final x2 = ox + e.to.x * wiringScale;
+            final y2 = oy + e.to.y * wiringScale;
             final midX = (x1 + x2) / 2;
-            // 人工光缆改造工程量
+            final midY = (y1 + y2) / 2;
             if (e.link.reno == RenoState.added) {
               fiberNewLenM += e.link.lengthM;
             } else if (e.link.reno == RenoState.removed) {
@@ -633,15 +636,13 @@ class DxfExporter {
             }
             final spec = e.link.fullSpec;
             if (spec.isNotEmpty) {
-              _text(c, 'PeiXianTu', midX, oyBus + 3, smallFontM, spec);
+              _text(c, 'PeiXianTu', midX, midY + 3, smallFontM, spec);
             }
-            // 长度标在总线下方
             if (e.link.lengthM > 0) {
-              _text(c, 'PeiXianTu', midX, oyBus - 4, smallFontM,
+              _text(c, 'PeiXianTu', midX, midY - 5, smallFontM,
                   '长${e.link.lengthM.toStringAsFixed(1)}');
             }
           }
-          if (busX2 > extMaxX) extMaxX = busX2;
         }
       } catch (e) {
         // 配线图异常不阻塞主图导出
