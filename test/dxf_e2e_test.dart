@@ -89,6 +89,9 @@ void main() {
     expect(text, contains('BeiFangZhen'));
     expect(text, isNot(contains('滑洲云图')));
     expect(text, isNot(contains('设计单位')));
+    // 正规槽位箱符号（2026-10-08）：分纤盒用 HZ_FIBERBOX（10×4.4），带 2槽位箱文字
+    expect(text, contains('HZ_FIBERBOX'));
+    expect(text, contains('2槽位箱'));
     // 杆路段标注前缀文字
     expect(text, contains('埋42.5'));
     // GBK 字节验证：'李' = 0xC0 0xEE

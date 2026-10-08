@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 
@@ -30,90 +32,89 @@ class WiringLayout {
   WiringLayout(this.nodes, this.edges, this.width, this.height);
 }
 
-/// 配线图自动排布：根据人工拓扑连线生成。
+/// 配线图自动排布：根据设备真实经纬度生成**与路由图同向**的压缩示意。
+///
+/// 2026-10-08 用户纠正：配线图走向必须跟路由图一致，只是缩短距离；
+/// 此前 BFS 分层左右排布是抽象示意，不符合联通竣工图规范，已废弃。
 ///
 /// 布局规则：
-/// - 按连接关系分层：无入边的为第0层，BFS 向外展开
-/// - 同层节点垂直排列，层间水平排列（从左到右）
-/// - 孤立节点单独一列在最右侧
-/// - 节点间距：水平 60m，垂直 30m（图纸米，可按比例缩放）
+/// - 节点按真实经纬度定位，经等距投影换算为米后**统一压缩**到目标尺寸
+/// - 保持方向与相对位置不变（与路由图同向），距离按比例缩短
+/// - 相邻节点最小间距 20m，防重叠
 ///
 /// 返回的坐标系原点在左下角，调用方负责平移到 DXF 右侧位置。
 WiringLayout layoutWiringDiagram(
   List<MapLabel> devices,
   List<FiberLink> links, {
-  double colGap = 60,
-  double rowGap = 30,
+  double maxWidth = 400,
+  double maxHeight = 300,
+  double minGap = 20,
 }) {
   if (devices.isEmpty) return WiringLayout([], [], 0, 0);
 
   final byId = {for (final d in devices) d.id: d};
 
-  // 建邻接表（只保留两端都存在的连线）
+  // 只保留两端都存在的连线
   final validLinks = [
     for (final l in links)
       if (byId.containsKey(l.fromDeviceId) && byId.containsKey(l.toDeviceId)) l
   ];
-  final outgoing = <String, List<String>>{};
-  final incoming = <String, List<String>>{};
-  for (final l in validLinks) {
-    outgoing.putIfAbsent(l.fromDeviceId, () => []).add(l.toDeviceId);
-    incoming.putIfAbsent(l.toDeviceId, () => []).add(l.fromDeviceId);
+
+  // 地理范围（度）
+  var minLat = double.infinity, maxLat = -double.infinity;
+  var minLon = double.infinity, maxLon = -double.infinity;
+  for (final d in devices) {
+    if (d.lat < minLat) minLat = d.lat;
+    if (d.lat > maxLat) maxLat = d.lat;
+    if (d.lon < minLon) minLon = d.lon;
+    if (d.lon > maxLon) maxLon = d.lon;
+  }
+  final avgLat = (minLat + maxLat) / 2;
+  final cosLat = math.cos(avgLat * math.pi / 180);
+
+  // 经纬度跨度换算为米（等距近似）
+  double lonM(double lon) => (lon - minLon) * 111000.0 * cosLat;
+  double latM(double lat) => (lat - minLat) * 111000.0;
+  final spanX = lonM(maxLon);
+  final spanY = latM(maxLat);
+
+  // 统一压缩比例：保持宽高比，方向与路由图一致
+  final sx = spanX > 1 ? maxWidth / spanX : 1.0;
+  final sy = spanY > 1 ? maxHeight / spanY : 1.0;
+  final scale = math.min(sx, sy);
+
+  // 初排
+  final nodeMap = <String, WiringNode>{};
+  for (final d in devices) {
+    final x = lonM(d.lon) * scale;
+    final y = latM(d.lat) * scale;
+    final label = d.name.isNotEmpty ? d.name : d.id.substring(0, 8);
+    nodeMap[d.id] = WiringNode(d, x, y, label);
   }
 
-  // 分层：BFS 从无入边节点开始
-  final layerOf = <String, int>{};
-  final queue = <String>[];
-  for (final d in devices) {
-    if (!(incoming[d.id]?.isNotEmpty ?? false)) {
-      layerOf[d.id] = 0;
-      queue.add(d.id);
-    }
-  }
-  // 有环或全连通时，剩余节点按1层处理
-  var qi = 0;
-  while (qi < queue.length) {
-    final id = queue[qi++];
-    final layer = layerOf[id]!;
-    for (final next in outgoing[id] ?? []) {
-      if (!layerOf.containsKey(next)) {
-        layerOf[next] = layer + 1;
-        queue.add(next);
+  // 防重叠：距离过近的节点沿连线方向推开（简单迭代）
+  final nodes = nodeMap.values.toList();
+  for (var iter = 0; iter < 10; iter++) {
+    var moved = false;
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        final a = nodes[i], b = nodes[j];
+        final dx = b.x - a.x, dy = b.y - a.y;
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist < minGap && dist > 0.001) {
+          final push = (minGap - dist) / 2;
+          final ux = dx / dist, uy = dy / dist;
+          final na = WiringNode(a.device, a.x - ux * push, a.y - uy * push, a.label);
+          final nb = WiringNode(b.device, b.x + ux * push, b.y + uy * push, b.label);
+          nodes[i] = na;
+          nodes[j] = nb;
+          nodeMap[a.device.id] = na;
+          nodeMap[b.device.id] = nb;
+          moved = true;
+        }
       }
     }
-  }
-  var maxLayer = 0;
-  for (final d in devices) {
-    layerOf.putIfAbsent(d.id, () {
-      maxLayer++;
-      return maxLayer;
-    });
-  }
-  maxLayer = layerOf.values.fold(0, (a, b) => a > b ? a : b);
-
-  // 同层内按名称排序，分配行号
-  final byLayer = <int, List<MapLabel>>{};
-  for (final d in devices) {
-    byLayer.putIfAbsent(layerOf[d.id]!, () => []).add(d);
-  }
-  for (final list in byLayer.values) {
-    list.sort((a, b) => a.name.compareTo(b.name));
-  }
-
-  // 排布坐标
-  final nodeMap = <String, WiringNode>{};
-  double maxX = 0, maxY = 0;
-  for (var layer = 0; layer <= maxLayer; layer++) {
-    final list = byLayer[layer] ?? [];
-    for (var i = 0; i < list.length; i++) {
-      final d = list[i];
-      final x = layer * colGap;
-      final y = i * rowGap;
-      final label = d.name.isNotEmpty ? d.name : d.id.substring(0, 8);
-      nodeMap[d.id] = WiringNode(d, x, y, label);
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    }
+    if (!moved) break;
   }
 
   final edges = [
@@ -124,10 +125,11 @@ WiringLayout layoutWiringDiagram(
             nodeMap[l.fromDeviceId]!, nodeMap[l.toDeviceId]!, l),
   ];
 
-  return WiringLayout(
-    nodeMap.values.toList(),
-    edges,
-    maxX + colGap,
-    maxY + rowGap,
-  );
+  double maxX = 0, maxY = 0;
+  for (final n in nodes) {
+    if (n.x > maxX) maxX = n.x;
+    if (n.y > maxY) maxY = n.y;
+  }
+
+  return WiringLayout(nodes, edges, maxX + minGap, maxY + minGap);
 }

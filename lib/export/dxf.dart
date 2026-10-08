@@ -431,7 +431,8 @@ class DxfExporter {
         if (lt.isOval) {
           block = 'HZ_OVAL';
         } else if (lt.isBox) {
-          block = 'HZ_BOX';
+          // 分纤盒（纤）：用正规槽位箱符号（10×4.4），2026-10-08 用户要求
+          block = l.typeId == 'fiberbox' ? 'HZ_FIBERBOX' : 'HZ_BOX';
         } else if (lt.isTri) {
           block = 'HZ_TRI';
         } else {
@@ -460,6 +461,7 @@ class DxfExporter {
             _appendTextCentered(c, 'BiaoQian', x, y, labelFontM, disp);
           } else {
             _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
+            _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
           }
         } else if (isPin) {
           // pin 类（杆/管等）：圆圈 + 符号字在圆内（对齐地图样式；
@@ -475,9 +477,11 @@ class DxfExporter {
         }
         // 有拓扑时箱体（光交/分光箱/分纤盒/ONU/机房/基站）的文字
         // 由地理式配线统一输出标签牌，这里只画符号，避免文字重叠
+        // 但分纤盒的正规槽位箱文字（2槽位箱/4槽位箱）必须保留——用户 2026-10-08 要求
         final topoBox = hasTopo && (lt.role >= 1 && lt.role <= 4 || lt.role == 7);
         if (topoBox) {
           _appendHoleDots(c, x, y + holeDotsUpM, l); // 芯线/管孔占用可视化
+          _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
           continue;
         }
         // 箱体/人孔文字已在框内（上方入框画法）；pin 类符号字已在圆内，
@@ -542,23 +546,69 @@ class DxfExporter {
     }
 
     // 人工光缆配线图（Phase 3）：基于 FiberLink，路由图居左、配线图居右。
+    // 2026-10-08：走向与路由图一致（地理压缩），非抽象排布；加光缆型号/成端/分光器标注
+    // 配线图 = 地图里的纤拓扑结构：只含 FiberLink 两端的设备
     if (fiberLinks.isNotEmpty) {
       try {
-        final layout = layoutWiringDiagram(labels, fiberLinks);
+        final topoIds = <String>{};
+        for (final l in fiberLinks) {
+          topoIds.add(l.fromDeviceId);
+          topoIds.add(l.toDeviceId);
+        }
+        final topoDevices = [
+          for (final d in labels)
+            if (topoIds.contains(d.id)) d
+        ];
+        final layout = layoutWiringDiagram(topoDevices, fiberLinks);
         if (layout.nodes.isNotEmpty) {
           // 配线图原点：路由图右侧 + 60m 间距，顶部对齐
           final ox = extMaxX + 60;
           final oyTop = extMaxY;
           final fontM = _mmOf(2.5, routeScale);
-          // 画节点（矩形框 + 名称）
+          // 找出端点（无出边的节点）：标成端处
+          final hasOut = <String>{};
+          for (final e in layout.edges) {
+            hasOut.add(e.from.device.id);
+          }
+          // 画节点：分纤盒用正规槽位箱符号，其他用矩形框 + 名称
+          // 配线图是示意比例，箱体符号用固定 1.0 缩放（10×4.4米）
+          const wiringSymScale = 1.0;
           for (final n in layout.nodes) {
             final cx = ox + n.x;
             final cy = oyTop - n.y;
-            final hw = 15.0, hh = 8.0; // 半宽/半高（图纸米）
-            _appendRect(c, 'PeiXianTu', cx - hw, cy - hh, cx + hw, cy + hh);
-            _text(c, 'PeiXianTu', cx - hw + 2, cy - fontM / 2, fontM, n.label);
-            if (cx + hw > extMaxX) extMaxX = cx + hw;
-            if (cy - hh < extMinY) extMinY = cy - hh;
+            final isFiberBox = n.device.typeId == 'fiberbox';
+            if (isFiberBox) {
+              _appendInsert(c, 'PeiXianTu', 'HZ_FIBERBOX', cx, cy,
+                  sx: wiringSymScale, sy: wiringSymScale);
+              final slotText = n.device.name.contains('4槽')
+                  ? '4槽位箱'
+                  : '2槽位箱';
+              _text(c, 'PeiXianTu',
+                  cx + 5.0 * wiringSymScale + 2, cy, fontM, slotText);
+            } else {
+              final hw = 15.0, hh = 8.0; // 半宽/半高（图纸米）
+              _appendRect(c, 'PeiXianTu', cx - hw, cy - hh, cx + hw, cy + hh);
+              _text(c, 'PeiXianTu', cx - hw + 2, cy - fontM / 2, fontM, n.label);
+            }
+            // 成端处：无出边的端点加引线标注
+            if (!hasOut.contains(n.device.id)) {
+              _appendLine(c, 'PeiXianTu', cx + 8, cy - 4, cx + 18, cy - 10);
+              _text(c, 'PeiXianTu', cx + 19, cy - 12, _mmOf(2.5, routeScale),
+                  '成端处');
+            }
+            // 分光器：分光器箱节点下标分光比（从名称或备注取）
+            if (n.device.typeId == 'splitterbox') {
+              final splitterInfo = n.device.note.contains('1:')
+                  ? n.device.note
+                  : n.device.name;
+              if (splitterInfo.isNotEmpty) {
+                _text(c, 'PeiXianTu', cx - 14, cy - 12,
+                    _mmOf(2.0, routeScale), '分光器:$splitterInfo');
+              }
+            }
+            final bx = isFiberBox ? cx + 8 : cx + 15;
+            if (bx > extMaxX) extMaxX = bx;
+            if (cy - 12 < extMinY) extMinY = cy - 12;
           }
           // 画连线（直线 + 芯数标注）：改造三态分层
           for (final e in layout.edges) {
@@ -902,6 +952,17 @@ class DxfExporter {
 
   /// 芯线/管孔占用可视化：一排小圆，已占用 = 圆内打叉，空闲 = 空心。
   /// 最多画 24 孔，避免一行拉太长。
+  static void _appendFiberBoxLabel(
+      _Ctx c, MapLabel l, double x, double y, double symScale, int routeScale) {
+    // 分纤盒（纤）：正规槽位箱文字标注（2026-10-08 用户要求）
+    // 2槽/4槽同图形，仅文字区分；字高 2.5mm 纸面，矩形右侧
+    if (l.typeId != 'fiberbox') return;
+    final slotText = l.name.contains('4槽') ? '4槽位箱' : '2槽位箱';
+    final boxHalfW = 5.0 * symScale;
+    _text(c, 'BiaoQian', x + boxHalfW + _mmOf(1.5, routeScale), y,
+        _mmOf(2.5, routeScale), slotText);
+  }
+
   static void _appendHoleDots(_Ctx c, double cx, double cy, MapLabel l) {
     final n = l.holes;
     if (n <= 0 || n > 24) return;
@@ -1038,6 +1099,12 @@ class DxfExporter {
     bc = _Ctx(b, version, c.h);
     _appendRect(bc, '0', -2.5, -1.5, 2.5, 1.5);
     _appendBlock(c, version, 'HZ_BOX', b.toString());
+    // 正规槽位箱符号（2026-10-08 用户联通竣工图实测）：10.0×4.4 矩形，
+    // 白色；2槽/4槽同尺寸，仅文字区分。专用于分纤盒（纤）。
+    b = StringBuffer();
+    bc = _Ctx(b, version, c.h);
+    _appendRect(bc, '0', -5.0, -2.2, 5.0, 2.2);
+    _appendBlock(c, version, 'HZ_FIBERBOX', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
     _appendTri(bc, '0', 0, 0, 1.5);
@@ -1210,7 +1277,8 @@ class DxfExporter {
         if (n.y >= 1) {
           _appendDashedVLine(c, 'PeiXianTu', x, mainY + 1, y - 2.2);
         }
-        _appendInsert(c, 'PeiXianTu', 'HZ_BOX', x, y);
+        _appendInsert(c, 'PeiXianTu',
+            n.src.typeId == 'fiberbox' ? 'HZ_FIBERBOX' : 'HZ_BOX', x, y);
         _appendTextCentered(c, 'PeiXianTu', x, y + 2.6, 2.8, n.title);
         if (n.sub.isNotEmpty) {
           _appendTextCentered(c, 'PeiXianTu', x, y - 3.6, 2.4, n.sub);
