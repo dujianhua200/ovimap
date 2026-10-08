@@ -385,7 +385,7 @@ class _TopoEditorPageState extends State<TopoEditorPage> {
           ),
           child: Text(
             _hint,
-            style: const TextStyle(fontSize: TokFs.small, color: TokC.textSub),
+            style: const TextStyle(fontSize: TokFs.small, color: TokC.textSubConst),
           ),
         ),
       ],
@@ -541,13 +541,13 @@ class _TopoPainter extends CustomPainter {
     final tp = TextPainter(
       text: const TextSpan(
         text: '',
-        style: TextStyle(fontSize: TokFs.micro, color: TokC.textMain),
+        style: TextStyle(fontSize: TokFs.micro, color: TokC.textMainConst),
       ),
       textDirection: TextDirection.ltr,
     );
     final span = TextSpan(
       text: text,
-      style: const TextStyle(fontSize: TokFs.micro, color: TokC.textMain),
+      style: const TextStyle(fontSize: TokFs.micro, color: TokC.textMainConst),
     );
     tp.text = span;
     tp.layout();

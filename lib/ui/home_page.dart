@@ -429,7 +429,8 @@ class _HomePageState extends State<HomePage> {
                           decoration: const InputDecoration(
                             hintText: '搜索地点 / 输入经纬度',
                             hintStyle: TextStyle(
-                                color: TokC.textHint, fontSize: 13),
+                                // 2026-10-08：手机版纯白（home_page 仅移动端用）
+                                color: Colors.white, fontSize: 13),
                             border: InputBorder.none,
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(

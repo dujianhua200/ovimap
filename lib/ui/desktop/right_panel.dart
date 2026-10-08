@@ -166,7 +166,7 @@ class _RightPanelState extends State<RightPanel> {
                 const Expanded(
                   child: Text('属性',
                       style: TextStyle(
-                          color: TokC.textMain,
+                          color: TokC.textMainConst,
                           fontSize: TokFs.heading,
                           fontWeight: FontWeight.w600)),
                 ),
@@ -205,7 +205,7 @@ class _RightPanelState extends State<RightPanel> {
             '即可在此编辑名称 / 段距 / 敷设方式等',
             textAlign: TextAlign.center,
             style: TextStyle(
-                color: TokC.textSub, fontSize: TokFs.small, height: 1.6),
+                color: TokC.textSubConst, fontSize: TokFs.small, height: 1.6),
           ),
           if (hasData) ...[
             const SizedBox(height: TokSp.m),
@@ -231,7 +231,7 @@ class _RightPanelState extends State<RightPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('${l.type.name}　#${l.seq}',
-            style: const TextStyle(color: TokC.textSub, fontSize: TokFs.caption)),
+            style: const TextStyle(color: TokC.textSubConst, fontSize: TokFs.caption)),
         const SizedBox(height: TokSp.s),
         _field(_name, '名称'),
         const SizedBox(height: TokSp.s),
@@ -243,7 +243,7 @@ class _RightPanelState extends State<RightPanel> {
           dropdownColor: TokC.panelSolid,
           isExpanded: true,
           isDense: true,
-          style: const TextStyle(color: TokC.textMain, fontSize: TokFs.body),
+          style: const TextStyle(color: TokC.textMainConst, fontSize: TokFs.body),
           decoration: dec('符号样式'),
           items: [
             for (final t in LabelType.all)
@@ -310,17 +310,17 @@ class _RightPanelState extends State<RightPanel> {
     final manual = _segLabel.text.trim().isNotEmpty;
     return Row(
       children: [
-        const Icon(Icons.visibility_outlined, size: 13, color: TokC.textHint),
+        const Icon(Icons.visibility_outlined, size: 13, color: TokC.textHintConst),
         const SizedBox(width: TokSp.xs),
         Text('图上显示：',
-            style: const TextStyle(color: TokC.textHint, fontSize: TokFs.caption)),
+            style: const TextStyle(color: TokC.textHintConst, fontSize: TokFs.caption)),
         Expanded(
           child: Text(
             empty ? '（无段标——缺实测距离）' : preview,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-                color: empty ? TokC.textHint : TokC.accent,
+                color: empty ? TokC.textHintConst : TokC.accent,
                 fontSize: TokFs.caption,
                 fontWeight: FontWeight.w600),
           ),
@@ -340,7 +340,7 @@ class _RightPanelState extends State<RightPanel> {
           ChoiceChip(
             label: Text(kv.value,
                 style: TextStyle(
-                    color: _segKind == kv.key ? Colors.black : TokC.textMain,
+                    color: _segKind == kv.key ? Colors.black : TokC.textMainConst,
                     fontSize: TokFs.small)),
             selected: _segKind == kv.key,
             // 色标与左栏段落表、图例同源：选"架空"就是那根绿线，不是又一个蓝按钮。
@@ -375,7 +375,7 @@ class _RightPanelState extends State<RightPanel> {
                   backgroundColor:
                       TokC.accent.withValues(alpha: _dirty ? 0.95 : 0.32),
                   foregroundColor:
-                      _dirty ? Colors.black : TokC.textSub,
+                      _dirty ? Colors.black : TokC.textSubConst,
                   padding: const EdgeInsets.symmetric(vertical: 10)),
             ),
           ),
@@ -437,7 +437,7 @@ class _RightPanelState extends State<RightPanel> {
       maxLines: maxLines,
       keyboardType:
           number ? const TextInputType.numberWithOptions(decimal: true) : null,
-      style: const TextStyle(color: TokC.textMain, fontSize: TokFs.body),
+      style: const TextStyle(color: TokC.textMainConst, fontSize: TokFs.body),
       decoration: dec(hint),
     );
   }
@@ -445,7 +445,7 @@ class _RightPanelState extends State<RightPanel> {
   /// 区块小标题：11px + 字距，用于"换话题"。
   Widget _title(String t) => Text(t,
       style: const TextStyle(
-          color: TokC.textSub,
+          color: TokC.textSubConst,
           fontSize: TokFs.caption,
           fontWeight: FontWeight.w500));
 
@@ -453,12 +453,12 @@ class _RightPanelState extends State<RightPanel> {
         padding: const EdgeInsets.only(top: TokSp.xs),
         child: OutlinedButton.icon(
           onPressed: onTap,
-          icon: Icon(icon, size: 15, color: TokC.textMain),
+          icon: Icon(icon, size: 15, color: TokC.textMainConst),
           label: Align(
               alignment: Alignment.centerLeft,
               child: Text(text,
                   style: const TextStyle(
-                      color: TokC.textMain, fontSize: TokFs.small))),
+                      color: TokC.textMainConst, fontSize: TokFs.small))),
           style: OutlinedButton.styleFrom(
               side: const BorderSide(color: TokC.divider),
               padding: const EdgeInsets.symmetric(

@@ -41,8 +41,8 @@ const Color kPanelBg = TokC.panel;
 const Color kBarBg = TokC.bar;
 const Color kAccent = TokC.accent;
 const Color kGreen = TokC.ok;
-const Color kTextMain = TokC.textMain;
-const Color kTextSub = TokC.textSub;
+const Color kTextMain = TokC.textMainConst;
+const Color kTextSub = TokC.textSubConst;
 
 /// 常驻侧栏底色（不透明，避免侧栏透出地图）。
 const Color kPanelSolidBg = TokC.panelSolid;
@@ -60,7 +60,7 @@ const Color kDanger = TokC.danger;
 const Color kWarn = TokC.warn;
 
 /// 提示 / 占位文字色。
-const Color kTextHint = TokC.textHint;
+const Color kTextHint = TokC.textHintConst;
 
 InputDecoration dec(String hint) => InputDecoration(
       hintText: hint,
@@ -442,7 +442,7 @@ Widget _photoStripSection(BuildContext context, AppState st, MapLabel label,
         Expanded(
           child: photos.isEmpty
               ? const Text('尚无照片，可拍照或从相册挂接',
-                  style: TextStyle(color: TokC.textHint, fontSize: 12))
+                  style: TextStyle(color: TokC.textHintConst, fontSize: 12))
               : SizedBox(
                   height: 68,
                   child: ListView.separated(

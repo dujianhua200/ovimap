@@ -29,7 +29,7 @@ FavMenuExtra buildSurveyMenuExtra() => FavMenuExtra(
             height: 34,
             child: Text('勘察表单',
                 style:
-                    TextStyle(color: TokC.textMain, fontSize: TokFs.body)),
+                    TextStyle(color: TokC.textMainConst, fontSize: TokFs.body)),
           ),
         ];
       },
