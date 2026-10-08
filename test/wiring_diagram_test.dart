@@ -7,7 +7,18 @@ void main() {
   MapLabel dev(String id, String name, int seq, double lat, double lon) =>
       MapLabel(id: id, name: name, seq: seq, lat: lat, lon: lon);
 
-  group('layoutWiringDiagram（直角简化，跟路由走向，2026-10-08）', () {
+  // 完整路由链：a(杆) -> b(纤) -> c(杆) -> d(纤) -> e(杆)
+  // 地理：a(114.0,32.0) b(114.001,32.0) c(114.002,32.0) d(114.002,31.999) e(114.003,31.999)
+  // 走向：东、东、南、东
+  List<MapLabel> fullRoute() => [
+        dev('a', '杆1', 1, 32.0, 114.0),
+        dev('b', '纤1', 2, 32.0, 114.001),
+        dev('c', '杆2', 3, 32.0, 114.002),
+        dev('d', '纤2', 4, 31.999, 114.002),
+        dev('e', '杆3', 5, 31.999, 114.003),
+      ];
+
+  group('layoutWiringDiagram（整条路由直角简化，2026-10-08）', () {
     test('空输入', () {
       final l = layoutWiringDiagram([], [], []);
       expect(l.nodes, isEmpty);
@@ -15,64 +26,37 @@ void main() {
       expect(l.path, isEmpty);
     });
 
-    test('按 seq 排序，路径跟路由走向', () {
-      // 三个点：a(西) -> b(东) -> c(东偏南)
-      // 地理：a(114.0,32.0) b(114.001,32.0) c(114.001,31.999)
-      final route = [
-        dev('a', 'OLT', 1, 32.0, 114.0),
-        dev('b', 'GX', 2, 32.0, 114.001),
-        dev('c', 'FH', 3, 31.999, 114.001),
-      ];
+    test('路径跟整条路由走（含中间杆转弯）', () {
+      final route = fullRoute();
+      // 纤设备只有 b 和 d
       final ds = [
-        dev('c', 'FH', 3, 31.999, 114.001),
-        dev('a', 'OLT', 1, 32.0, 114.0),
-        dev('b', 'GX', 2, 32.0, 114.001),
+        dev('b', '纤1', 2, 32.0, 114.001),
+        dev('d', '纤2', 4, 31.999, 114.002),
       ];
-      final ls = [
-        FiberLink(fromDeviceId: 'a', toDeviceId: 'b'),
-        FiberLink(fromDeviceId: 'b', toDeviceId: 'c'),
-      ];
+      final ls = [FiberLink(fromDeviceId: 'b', toDeviceId: 'd')];
       final l = layoutWiringDiagram(ds, ls, route);
-      expect(l.nodes.length, 3);
-      // 按 seq 排：a, b, c
-      expect(l.nodes[0].device.id, 'a');
-      expect(l.nodes[1].device.id, 'b');
-      expect(l.nodes[2].device.id, 'c');
-      // 路径：a->b 向东（右），b->c 向南（下）
-      // 第一段：x 增加（右）
+      // 路径有 5 个点（整条路由）
+      expect(l.path.length, 5);
+      // 路径走向：东、东、南、东
+      // p0->p1: 东（x+）
       expect(l.path[1].x > l.path[0].x, isTrue);
-      expect(l.path[1].y == l.path[0].y, isTrue);
-      // 第二段：y 减小（下）
-      expect(l.path[2].y < l.path[1].y, isTrue);
-      expect(l.path[2].x == l.path[1].x, isTrue);
+      // p2->p3: 南（y-）
+      expect(l.path[3].y < l.path[2].y, isTrue);
+      // 纤设备 b 在路径点1，d 在路径点3
+      final byId = {for (final n in l.nodes) n.device.id: n};
+      expect(byId['b']!.x, l.path[1].x);
+      expect(byId['b']!.y, l.path[1].y);
+      expect(byId['d']!.x, l.path[3].x);
+      expect(byId['d']!.y, l.path[3].y);
     });
 
     test('无效连线被过滤', () {
-      final route = [dev('a', 'A', 1, 32.0, 114.0)];
-      final ds = [dev('a', 'A', 1, 32.0, 114.0)];
-      final ls = [FiberLink(fromDeviceId: 'a', toDeviceId: 'zzz')];
+      final route = fullRoute();
+      final ds = [dev('b', '纤1', 2, 32.0, 114.001)];
+      final ls = [FiberLink(fromDeviceId: 'b', toDeviceId: 'zzz')];
       final l = layoutWiringDiagram(ds, ls, route);
       expect(l.nodes.length, 1);
       expect(l.edges, isEmpty);
-    });
-
-    test('连线方向不影响排布（按 seq）', () {
-      // 连线 c->a 逆向，但 seq 是 a(1)->b(2)->c(3)，仍按 seq 排
-      final route = [
-        dev('a', 'A', 1, 32.0, 114.0),
-        dev('b', 'B', 2, 32.0, 114.001),
-        dev('c', 'C', 3, 32.0, 114.002),
-      ];
-      final ds = [
-        dev('a', 'A', 1, 32.0, 114.0),
-        dev('b', 'B', 2, 32.0, 114.001),
-        dev('c', 'C', 3, 32.0, 114.002),
-      ];
-      final ls = [FiberLink(fromDeviceId: 'c', toDeviceId: 'a')];
-      final l = layoutWiringDiagram(ds, ls, route);
-      expect(l.nodes[0].device.id, 'a');
-      expect(l.nodes[2].device.id, 'c');
-      expect(l.edges.length, 1);
     });
   });
 }

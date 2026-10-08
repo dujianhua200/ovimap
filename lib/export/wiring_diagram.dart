@@ -30,7 +30,7 @@ class WiringLayout {
   final List<WiringNode> nodes;
   final List<WiringEdge> edges;
 
-  /// 折线路径点（直角简化后的配线图走向），按顺序。
+  /// 折线路径点（整条路由的直角简化），按顺序。
   final List<math.Point<double>> path;
 
   final double width;
@@ -39,22 +39,22 @@ class WiringLayout {
   WiringLayout(this.nodes, this.edges, this.path, this.width, this.height);
 }
 
-/// 配线图自动排布：**直角简化式**，跟路由走向。
+/// 配线图自动排布：**整条路由的直角简化**，跟路由走向。
 ///
-/// 2026-10-08 用户纠正（看参考 DXF 截图后）：
-/// - 配线图不是直线总线，而是路由走向的直角简化版
-/// - 参考：上半电缆先右后下，下半配线图也先右后下，只是压成直角、缩短距离
-/// - 像地铁图：保留拓扑和大致走向，几何简化为直角，距离压缩
+/// 2026-10-08 用户纠正（看导出 DXF 截图后）：
+/// - 配线图必须跟整条路由走，不能只连纤设备的两点一线
+/// - 中间杆路的转弯也要保留（简化成直角），否则方向不对
+/// - 像地铁图：整条线路简化为直角折线，纤设备标在对应位置
 ///
-/// [routeLabels] 为路由链（有序，含 seq），用于确定走向。
-/// 返回的坐标系原点在左下角，调用方负责平移到 DXF 位置。
+/// [routeLabels] 为完整路由链（有序，含 seq），用于生成路径走向。
+/// [devices] 为纤设备，按 seq 定位到路径上。
 WiringLayout layoutWiringDiagram(
   List<MapLabel> devices,
   List<FiberLink> links,
   List<MapLabel> routeLabels, {
   double segLen = 40,
 }) {
-  if (devices.isEmpty) return WiringLayout([], [], [], 0, 0);
+  if (routeLabels.isEmpty) return WiringLayout([], [], [], 0, 0);
 
   final byId = {for (final d in devices) d.id: d};
 
@@ -64,71 +64,62 @@ WiringLayout layoutWiringDiagram(
       if (byId.containsKey(l.fromDeviceId) && byId.containsKey(l.toDeviceId)) l
   ];
 
-  // 路由顺序：用 seq 字段（路由链的真实顺序）
-  final routeSeqOf = <String, int>{};
-  for (final l in routeLabels) {
-    final s = l.seq;
-    if (!routeSeqOf.containsKey(l.id) || s < routeSeqOf[l.id]!) {
-      routeSeqOf[l.id] = s;
-    }
-  }
+  // 按 seq 排序完整路由链
+  final sortedRoute = routeLabels.toList()..sort((a, b) => a.seq.compareTo(b.seq));
 
-  // 按路由顺序排序
-  final sorted = devices.toList()
-    ..sort((a, b) {
-      final ia = routeSeqOf[a.id] ?? 999999;
-      final ib = routeSeqOf[b.id] ?? 999999;
-      if (ia != ib) return ia.compareTo(ib);
-      return a.name.compareTo(b.name);
-    });
-
-  // 取各设备的经纬度（用于判断走向）
-  // 直角简化：相邻两点的向量，按主导轴量化为上下左右
+  // 生成直角简化路径：整条路由，每个转弯保留
   final path = <math.Point<double>>[];
-  final nodeMap = <String, WiringNode>{};
+  // seq -> 路径点索引
+  final seqToPathIdx = <int, int>{};
 
   double x = 0, y = 0;
   path.add(math.Point(x, y));
-
-  for (var i = 0; i < sorted.length; i++) {
-    final d = sorted[i];
-    if (i > 0) {
-      final prev = sorted[i - 1];
-      // 地理向量
-      final dLon = d.lon - prev.lon;
-      final dLat = d.lat - prev.lat;
-      // 经纬度转米（等距近似）
-      final avgLat = (d.lat + prev.lat) / 2;
-      final cosLat = math.cos(avgLat * math.pi / 180);
-      final dxM = dLon * 111000.0 * cosLat;
-      final dyM = dLat * 111000.0;
-      // 按主导轴量化为直角方向
-      String dir;
-      if (dxM.abs() >= dyM.abs()) {
-        dir = dxM >= 0 ? 'R' : 'L'; // 右 / 左
-      } else {
-        dir = dyM >= 0 ? 'U' : 'D'; // 上 / 下
-      }
-      // 走直角段（压缩为固定长度，保持方向）
-      switch (dir) {
-        case 'R':
-          x += segLen;
-        case 'L':
-          x -= segLen;
-        case 'U':
-          y += segLen;
-        case 'D':
-          y -= segLen;
-      }
-      path.add(math.Point(x, y));
-    }
-    final label = d.name.isNotEmpty ? d.name : d.id.substring(0, 8);
-    final node = WiringNode(d, x, y, label,
-        routeIndex: routeSeqOf[d.id] ?? -1);
-    nodeMap[d.id] = node;
+  if (sortedRoute.isNotEmpty) {
+    seqToPathIdx[sortedRoute[0].seq] = 0;
   }
 
-  final nodes = sorted.map((d) => nodeMap[d.id]!).toList();
+  for (var i = 1; i < sortedRoute.length; i++) {
+    final prev = sortedRoute[i - 1];
+    final curr = sortedRoute[i];
+    // 地理向量
+    final dLon = curr.lon - prev.lon;
+    final dLat = curr.lat - prev.lat;
+    final avgLat = (curr.lat + prev.lat) / 2;
+    final cosLat = math.cos(avgLat * math.pi / 180);
+    final dxM = dLon * 111000.0 * cosLat;
+    final dyM = dLat * 111000.0;
+    // 按主导轴量化为直角方向
+    if (dxM.abs() >= dyM.abs()) {
+      x += dxM >= 0 ? segLen : -segLen; // 右 / 左
+    } else {
+      y += dyM >= 0 ? segLen : -segLen; // 上 / 下
+    }
+    path.add(math.Point(x, y));
+    seqToPathIdx[curr.seq] = path.length - 1;
+  }
+
+  // 纤设备按 seq 定位到路径上
+  final nodeMap = <String, WiringNode>{};
+  final nodes = <WiringNode>[];
+  final sortedDevices = devices.toList()
+    ..sort((a, b) => a.seq.compareTo(b.seq));
+  for (final d in sortedDevices) {
+    final pathIdx = seqToPathIdx[d.seq];
+    double nx, ny;
+    if (pathIdx != null && pathIdx < path.length) {
+      nx = path[pathIdx].x;
+      ny = path[pathIdx].y;
+    } else {
+      // 不在路由链上：放末尾
+      nx = x + segLen;
+      ny = y;
+    }
+    final label = d.name.isNotEmpty ? d.name : d.id.substring(0, 8);
+    final node = WiringNode(d, nx, ny, label, routeIndex: d.seq);
+    nodeMap[d.id] = node;
+    nodes.add(node);
+  }
+
   final edges = [
     for (final l in validLinks)
       if (nodeMap.containsKey(l.fromDeviceId) &&

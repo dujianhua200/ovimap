@@ -565,10 +565,11 @@ class DxfExporter {
         final layout = layoutWiringDiagram(topoDevices, fiberLinks, labels,
             segLen: 40);
         if (layout.nodes.isNotEmpty && layout.path.length >= 2) {
-          // 配线图原点：路由图下方，左对齐，留 40m 间距；0.6 缩小
-          const wiringScale = 0.6;
+          // 配线图原点：路由图下方干净处，留 80m 间距；0.5 缩小
+          // 2026-10-08 用户：不要放一起会重叠，比例缩小
+          const wiringScale = 0.5;
           final ox = extMinX;
-          final oy = extMinY - 40;
+          final oy = extMinY - 80;
           final fontM = _mmOf(2.5, routeScale);
           final smallFontM = _mmOf(2.0, routeScale);
           // 画直角简化路径（配线图走向跟路由一致）
@@ -585,7 +586,7 @@ class DxfExporter {
             hasOut.add(e.from.device.id);
           }
           // 画节点箱体（在路径点上）
-          const wiringSymScale = 0.6;
+          const wiringSymScale = 0.5;
           for (final n in layout.nodes) {
             final cx = ox + n.x * wiringScale;
             final cy = oy + n.y * wiringScale;
