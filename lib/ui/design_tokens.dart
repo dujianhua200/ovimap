@@ -25,6 +25,8 @@ library;
 
 import 'package:flutter/widgets.dart';
 
+import '../services/platform_caps.dart';
+
 /// 间距（spacing）。全部为 4 的倍数。
 class TokSp {
   TokSp._();
@@ -120,14 +122,18 @@ class TokC {
 
   // ---- 前景 ----
   // 用户要求（2026-10-01）：户外强光下灰色字看不清，全部文字统一纯黑。
-  /// 主文字。
-  static const Color textMain = Color(0xFF000000);
+  // 用户要求（2026-10-08）：手机版字体改纯白，否则看不清；桌面保持纯黑。
+  /// 主文字：手机白 / 桌面黑。
+  static Color get textMain =>
+      PlatformCaps.isDesktop ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
 
-  /// 次要文字。
-  static const Color textSub = Color(0xFF000000);
+  /// 次要文字：手机白 / 桌面黑。
+  static Color get textSub =>
+      PlatformCaps.isDesktop ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
 
-  /// 提示/占位文字。
-  static const Color textHint = Color(0xFF000000);
+  /// 提示/占位文字：手机白 / 桌面黑。
+  static Color get textHint =>
+      PlatformCaps.isDesktop ? const Color(0xFF000000) : const Color(0xFFFFFFFF);
 
   // ---- 强调与状态 ----
   // 在白底上，原来深色主题的亮色（40C4FF 等）对比度不足，统一换成

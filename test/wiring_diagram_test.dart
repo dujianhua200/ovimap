@@ -4,94 +4,65 @@ import 'package:ovimap/models/fiber_link.dart';
 import 'package:ovimap/models/map_label.dart';
 
 void main() {
-  MapLabel dev(String id, String name, double lat, double lon) =>
-      MapLabel(id: id, name: name, lat: lat, lon: lon);
+  MapLabel dev(String id, String name) => MapLabel(id: id, name: name);
 
-  group('layoutWiringDiagram（地理同向压缩，2026-10-08）', () {
+  group('layoutWiringDiagram（水平总线式，按路由顺序，2026-10-08）', () {
     test('空输入', () {
-      final l = layoutWiringDiagram([], []);
+      final l = layoutWiringDiagram([], [], []);
       expect(l.nodes, isEmpty);
       expect(l.edges, isEmpty);
     });
 
-    test('线性拓扑保持地理方向', () {
-      // 三个点自西向东排列
-      final ds = [
-        dev('a', 'OLT', 32.0, 114.0),
-        dev('b', 'GX-01', 32.0, 114.001),
-        dev('c', 'FH-01', 32.0, 114.002),
-      ];
+    test('按路由顺序左右排', () {
+      // 路由链顺序：a -> b -> c
+      final route = [dev('a', 'OLT'), dev('b', 'GX-01'), dev('c', 'FH-01')];
+      // 设备乱序传入，应按路由顺序排
+      final ds = [dev('c', 'FH-01'), dev('a', 'OLT'), dev('b', 'GX-01')];
       final ls = [
         FiberLink(fromDeviceId: 'a', toDeviceId: 'b'),
         FiberLink(fromDeviceId: 'b', toDeviceId: 'c'),
       ];
-      final l = layoutWiringDiagram(ds, ls);
+      final l = layoutWiringDiagram(ds, ls, route);
       expect(l.nodes.length, 3);
       expect(l.edges.length, 2);
-      // x 坐标反映经度顺序（自西向东递增），与路由图同向
-      final byId = {for (final n in l.nodes) n.device.id: n};
-      expect(byId['a']!.x < byId['b']!.x, isTrue);
-      expect(byId['b']!.x < byId['c']!.x, isTrue);
-      // y 基本一致（同纬度）
-      expect((byId['a']!.y - byId['b']!.y).abs() < 1, isTrue);
+      // a 最左，c 最右
+      expect(l.nodes[0].device.id, 'a');
+      expect(l.nodes[1].device.id, 'b');
+      expect(l.nodes[2].device.id, 'c');
+      expect(l.nodes[0].x < l.nodes[1].x, isTrue);
+      expect(l.nodes[1].x < l.nodes[2].x, isTrue);
+      // 都在总线下方同一高度
+      expect(l.nodes[0].y, l.nodes[1].y);
+      expect(l.nodes[1].y, l.nodes[2].y);
     });
 
     test('无效连线被过滤', () {
-      final ds = [dev('a', 'A', 32.0, 114.0)];
+      final ds = [dev('a', 'A')];
+      final route = [dev('a', 'A')];
       final ls = [FiberLink(fromDeviceId: 'a', toDeviceId: 'zzz')];
-      final l = layoutWiringDiagram(ds, ls);
+      final l = layoutWiringDiagram(ds, ls, route);
       expect(l.nodes.length, 1);
       expect(l.edges, isEmpty);
     });
 
-    test('不同位置节点位置不同', () {
-      final ds = [
-        dev('a', 'A', 32.0, 114.0),
-        dev('b', 'B', 32.001, 114.001),
-      ];
-      final l = layoutWiringDiagram(ds, []);
+    test('不在路由链中的设备放末尾', () {
+      final route = [dev('a', 'A')];
+      final ds = [dev('a', 'A'), dev('x', 'X')];
+      final l = layoutWiringDiagram(ds, [], route);
       expect(l.nodes.length, 2);
-      // 地理不同，排布位置不同
-      final dx = (l.nodes[0].x - l.nodes[1].x).abs();
-      final dy = (l.nodes[0].y - l.nodes[1].y).abs();
-      expect(dx + dy > 0, isTrue);
+      expect(l.nodes[0].device.id, 'a');
+      expect(l.nodes[1].device.id, 'x');
     });
 
-    test('分支拓扑保持相对方向', () {
-      final ds = [
-        dev('a', 'OLT', 32.0, 114.0),
-        dev('b', 'B', 32.001, 114.001),
-        dev('c', 'C', 31.999, 114.001),
-      ];
-      final ls = [
-        FiberLink(fromDeviceId: 'a', toDeviceId: 'b'),
-        FiberLink(fromDeviceId: 'a', toDeviceId: 'c'),
-      ];
-      final l = layoutWiringDiagram(ds, ls);
-      expect(l.edges.length, 2);
-      final byId = {for (final n in l.nodes) n.device.id: n};
-      // b 在北，c 在南，y 坐标反映纬度
-      expect(byId['b']!.y > byId['c']!.y, isTrue);
-      // b/c 都在 a 以东
-      expect(byId['b']!.x > byId['a']!.x, isTrue);
-      expect(byId['c']!.x > byId['a']!.x, isTrue);
-    });
-
-    test('距离被压缩但方向不变', () {
-      // 实际相距约 111m 的两点，压缩后距离 < 111m 但 > 0
-      final ds = [
-        dev('a', 'A', 32.0, 114.0),
-        dev('b', 'B', 32.001, 114.0), // 纬度差 0.001 ≈ 111m
-      ];
-      final l = layoutWiringDiagram(ds, [], maxWidth: 400, maxHeight: 300);
-      final dx = (l.nodes[0].x - l.nodes[1].x).abs();
-      final dy = (l.nodes[0].y - l.nodes[1].y).abs();
-      final dist = dx + dy;
-      expect(dist > 0, isTrue);
-      expect(dist < 111, isTrue); // 被压缩
-      // b 在北，y 更大
-      final byId = {for (final n in l.nodes) n.device.id: n};
-      expect(byId['b']!.y > byId['a']!.y, isTrue);
+    test('连线方向不影响排布顺序', () {
+      // 连线是 c->a（逆向），但路由顺序是 a->b->c，排布仍按路由
+      final route = [dev('a', 'A'), dev('b', 'B'), dev('c', 'C')];
+      final ds = [dev('a', 'A'), dev('b', 'B'), dev('c', 'C')];
+      final ls = [FiberLink(fromDeviceId: 'c', toDeviceId: 'a')];
+      final l = layoutWiringDiagram(ds, ls, route);
+      expect(l.nodes[0].device.id, 'a');
+      expect(l.nodes[2].device.id, 'c');
+      expect(l.edges.length, 1);
     });
   });
 }
