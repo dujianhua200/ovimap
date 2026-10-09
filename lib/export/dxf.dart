@@ -598,7 +598,8 @@ class DxfExporter {
             hasOut.add(e.from.device.id);
           }
           // 画节点箱体（在路径点上）
-          const wiringSymScale = 0.5;
+          // 2026-10-09 真 1:1：符号按真实尺寸落图（HZ_FIBERBOX 10×4.4）
+          const wiringSymScale = 1.0;
           for (final n in layout.nodes) {
             final cx = ox + n.x * wiringScale;
             final cy = oy + n.y * wiringScale;

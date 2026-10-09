@@ -48,6 +48,8 @@ class WiringLayout {
 ///
 /// [routeLabels] 为完整路由链（有序，含 seq），用于生成路径走向。
 /// [devices] 为纤设备，按 seq 定位到路径上。
+/// 2026-10-09 真 1:1：每段步长取真实地理米数（直角方向保留），
+/// [segLen] 仅用于不在路由链上的设备兜底落点与包络留白。
 WiringLayout layoutWiringDiagram(
   List<MapLabel> devices,
   List<FiberLink> links,
@@ -88,11 +90,12 @@ WiringLayout layoutWiringDiagram(
     final cosLat = math.cos(avgLat * math.pi / 180);
     final dxM = dLon * 111000.0 * cosLat;
     final dyM = dLat * 111000.0;
-    // 按主导轴量化为直角方向
+    // 按主导轴量化为直角方向，步长取真实地理米数（2026-10-09 真 1:1）
+    final trueLenM = math.sqrt(dxM * dxM + dyM * dyM);
     if (dxM.abs() >= dyM.abs()) {
-      x += dxM >= 0 ? segLen : -segLen; // 右 / 左
+      x += dxM >= 0 ? trueLenM : -trueLenM; // 右 / 左
     } else {
-      y += dyM >= 0 ? segLen : -segLen; // 上 / 下
+      y += dyM >= 0 ? trueLenM : -trueLenM; // 上 / 下
     }
     path.add(math.Point(x, y));
     seqToPathIdx[curr.seq] = path.length - 1;

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ovimap/export/wiring_diagram.dart';
 import 'package:ovimap/models/fiber_link.dart';
@@ -57,6 +59,38 @@ void main() {
       final l = layoutWiringDiagram(ds, ls, route);
       expect(l.nodes.length, 1);
       expect(l.edges, isEmpty);
+    });
+
+    test('段长等于真实地理距离（2026-10-09 真 1:1）', () {
+      final route = fullRoute();
+      final ds = [
+        dev('b', '纤1', 2, 32.0, 114.001),
+        dev('d', '纤2', 4, 31.999, 114.002),
+      ];
+      final ls = [FiberLink(fromDeviceId: 'b', toDeviceId: 'd')];
+      final l = layoutWiringDiagram(ds, ls, route);
+      double drawLen(int i) {
+        final dx = l.path[i + 1].x - l.path[i].x;
+        final dy = l.path[i + 1].y - l.path[i].y;
+        return math.sqrt(dx * dx + dy * dy);
+      }
+
+      double geoLen(double lon1, double lat1, double lon2, double lat2) {
+        final avgLat = (lat1 + lat2) / 2;
+        final cosLat = math.cos(avgLat * math.pi / 180);
+        final dxM = (lon2 - lon1) * 111000.0 * cosLat;
+        final dyM = (lat2 - lat1) * 111000.0;
+        return math.sqrt(dxM * dxM + dyM * dyM);
+      }
+
+      // 四段：东约94.1m、东约94.1m、南111m、东约94.1m，都不是固定40
+      expect(drawLen(0), closeTo(geoLen(114.0, 32.0, 114.001, 32.0), 0.001));
+      expect(drawLen(1), closeTo(geoLen(114.001, 32.0, 114.002, 32.0), 0.001));
+      expect(drawLen(2), closeTo(geoLen(114.002, 32.0, 114.002, 31.999), 0.001));
+      expect(drawLen(3),
+          closeTo(geoLen(114.002, 31.999, 114.003, 31.999), 0.001));
+      // 南向那段 111m，证明不是固定 40 步长
+      expect(drawLen(2), isNot(closeTo(40.0, 0.001)));
     });
   });
 }
