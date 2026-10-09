@@ -432,7 +432,18 @@ class DxfExporter {
           block = 'HZ_OVAL';
         } else if (lt.isBox) {
           // 分纤盒（纤）：用正规槽位箱符号（10×4.4），2026-10-08 用户要求
-          block = l.typeId == 'fiberbox' || l.typeId == 'fdcab' || l.typeId == 'termbox' ? 'HZ_FIBERBOX' : 'HZ_BOX';
+          // 兜底：箱体形状且非分光器/光交/ONU/机房/基站，一律按槽位箱画
+          final isFb = l.typeId == 'fiberbox' ||
+              l.typeId == 'fdcab' ||
+              l.typeId == 'termbox' ||
+              l.name.contains('分纤') ||
+              (lt.isBox &&
+                  l.typeId != 'splitterbox' &&
+                  l.typeId != 'crossbox' &&
+                  l.typeId != 'onubox' &&
+                  l.typeId != 'room' &&
+                  l.typeId != 'bts');
+          block = isFb ? 'HZ_FIBERBOX' : 'HZ_BOX';
         } else if (lt.isTri) {
           block = 'HZ_TRI';
         } else {
@@ -590,7 +601,19 @@ class DxfExporter {
           for (final n in layout.nodes) {
             final cx = ox + n.x * wiringScale;
             final cy = oy + n.y * wiringScale;
-            final isFiberBox = n.device.typeId == 'fiberbox' || n.device.typeId == 'fdcab' || n.device.typeId == 'termbox';
+            // 纤箱判断（2026-10-09）：typeId 可能是 fiberbox/fdcab/termbox 或其他；
+            // 兜底：箱体形状且非分光器/光交/ONU/机房/基站，一律按槽位箱画
+            final lt = LabelType.fromId(n.device.typeId);
+            final isFiberBox = n.device.typeId == 'fiberbox' ||
+                n.device.typeId == 'fdcab' ||
+                n.device.typeId == 'termbox' ||
+                n.device.name.contains('分纤') ||
+                (lt.isBox &&
+                    n.device.typeId != 'splitterbox' &&
+                    n.device.typeId != 'crossbox' &&
+                    n.device.typeId != 'onubox' &&
+                    n.device.typeId != 'room' &&
+                    n.device.typeId != 'bts');
             if (isFiberBox) {
               _appendInsert(c, 'PeiXianTu', 'HZ_FIBERBOX', cx, cy,
                   sx: wiringSymScale, sy: wiringSymScale);
@@ -966,7 +989,19 @@ class DxfExporter {
       _Ctx c, MapLabel l, double x, double y, double symScale, int routeScale) {
     // 分纤盒（纤）：正规槽位箱文字标注（2026-10-08 用户要求）
     // 2槽/4槽同图形，仅文字区分；字高 2.5mm 纸面，矩形右侧
-    if (l.typeId != 'fiberbox' && l.typeId != 'fdcab' && l.typeId != 'termbox') return;
+    // 兜底：名字含分纤也算
+    final lt = LabelType.fromId(l.typeId);
+    final isFb = l.typeId == 'fiberbox' ||
+        l.typeId == 'fdcab' ||
+        l.typeId == 'termbox' ||
+        l.name.contains('分纤') ||
+        (lt.isBox &&
+            l.typeId != 'splitterbox' &&
+            l.typeId != 'crossbox' &&
+            l.typeId != 'onubox' &&
+            l.typeId != 'room' &&
+            l.typeId != 'bts');
+    if (!isFb) return;
     final slotText = l.name.contains('4槽') ? '4槽位箱' : '2槽位箱';
     final boxHalfW = 5.0 * symScale;
     _text(c, 'BiaoQian', x + boxHalfW + _mmOf(1.5, routeScale), y,
@@ -1287,8 +1322,19 @@ class DxfExporter {
         if (n.y >= 1) {
           _appendDashedVLine(c, 'PeiXianTu', x, mainY + 1, y - 2.2);
         }
-        _appendInsert(c, 'PeiXianTu',
-            n.src.typeId == 'fiberbox' || n.src.typeId == 'fdcab' || n.src.typeId == 'termbox' ? 'HZ_FIBERBOX' : 'HZ_BOX', x, y);
+        // 兜底同上：箱体非分光器/光交等一律按槽位箱
+        final nlt = LabelType.fromId(n.src.typeId);
+        final nisFb = n.src.typeId == 'fiberbox' ||
+            n.src.typeId == 'fdcab' ||
+            n.src.typeId == 'termbox' ||
+            n.src.name.contains('分纤') ||
+            (nlt.isBox &&
+                n.src.typeId != 'splitterbox' &&
+                n.src.typeId != 'crossbox' &&
+                n.src.typeId != 'onubox' &&
+                n.src.typeId != 'room' &&
+                n.src.typeId != 'bts');
+        _appendInsert(c, 'PeiXianTu', nisFb ? 'HZ_FIBERBOX' : 'HZ_BOX', x, y);
         _appendTextCentered(c, 'PeiXianTu', x, y + 2.6, 2.8, n.title);
         if (n.sub.isNotEmpty) {
           _appendTextCentered(c, 'PeiXianTu', x, y - 3.6, 2.4, n.sub);
