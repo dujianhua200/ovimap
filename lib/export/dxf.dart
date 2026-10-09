@@ -601,13 +601,56 @@ class DxfExporter {
         final layout = layoutWiringDiagram(topoDevices, fiberLinks, labels,
             segLen: 40);
         if (layout.nodes.isNotEmpty && layout.path.length >= 2) {
-          // 配线图原点：路由图下方，间距用**纸面毫米**（30mm）
-          final ox = extMinX;
-          final oy = extMinY - _mm(30);
           // **同比例系数**：与路由图共用 1/ps，叠合严格对齐
           final wiringScale = _geo(1.0, ps);
           final fontM = _mm(2.5);
           final smallFontM = _mm(2.0);
+
+          // 先算配线图自身的包围盒（相对原点的极值），再据此定原点 ——
+          // 2026-10-09 修掉的越框事故：旧实现直接 `oy = extMinY - 30mm`，
+          // 但配线图自身高度可达 118mm（原点在路径起点），下沿直接戳出图框 11mm。
+          // 正确做法：把「路径 + 标注留白」的极值算出来，整体下移到框内。
+          var wMinX = double.infinity, wMaxX = -double.infinity;
+          var wMinY = double.infinity, wMaxY = -double.infinity;
+          void track(double x, double y) {
+            if (x < wMinX) wMinX = x;
+            if (x > wMaxX) wMaxX = x;
+            if (y < wMinY) wMinY = y;
+            if (y > wMaxY) wMaxY = y;
+          }
+
+          for (final n in layout.nodes) {
+            track(n.x, n.y);
+            // 节点周围的标注留白（成端引线/分光器说明在左下 10mm）
+            track(n.x - _mm(10.0), n.y - _mm(12.0));
+            track(n.x + _mm(20.0), n.y + _mm(5.0));
+          }
+          for (final e in layout.edges) {
+            track(e.from.x, e.from.y);
+            track(e.to.x, e.to.y);
+            // 连线中点标注：型号在上 3mm、长度在下 5mm
+            final mx = (e.from.x + e.to.x) / 2;
+            final my = (e.from.y + e.to.y) / 2;
+            track(mx, my - _mm(5.0) / wiringScale);
+            track(mx, my + _mm(3.0) / wiringScale);
+          }
+          if (wMinX > wMaxX || wMinY > wMaxY) wMinY = wMinX = 0;
+
+          // 缩放到模型单位后的实际尺寸
+          final wH = (wMaxY - wMinY) * wiringScale;
+          // 原点：框内左上角 —— 配线图整体落在路由图下方的空白带里
+          final gap = _mm(20.0); // 与路由图的垂直间距（纸面 20mm）
+          final ox = extMinX;
+          // 若下方空间不够（wH > 可用高度），则放到路由图**右侧**（更宽裕）
+          final availBelow = extMinY - extMaxY;
+          final double oy;
+          if (wH + gap <= availBelow.abs() && availBelow < 0) {
+            // extMinY 在下、extMaxY 在上：向下生长到 extMinY - gap
+            oy = extMinY - gap - wMaxY * wiringScale;
+          } else {
+            oy = extMaxY - gap - wMaxY * wiringScale;
+          }
+
           // 画直角简化路径（配线图走向跟路由一致）
           for (var i = 1; i < layout.path.length; i++) {
             final p1 = layout.path[i - 1];
@@ -615,6 +658,15 @@ class DxfExporter {
             _appendLine(c, 'PeiXianTu', ox + p1.x * wiringScale,
                 oy + p1.y * wiringScale, ox + p2.x * wiringScale,
                 oy + p2.y * wiringScale);
+          }
+          // 路径本身也要纳入包围盒（节点只覆盖了部分路径点）
+          for (final p in layout.path) {
+            final px = ox + p.x * wiringScale;
+            final py = oy + p.y * wiringScale;
+            if (px < extMinX) extMinX = px;
+            if (px > extMaxX) extMaxX = px;
+            if (py < extMinY) extMinY = py;
+            if (py > extMaxY) extMaxY = py;
           }
           // 找出端点（无出边的节点）：标成端处
           final hasOut = <String>{};
@@ -714,15 +766,20 @@ class DxfExporter {
 
     // 图框（内容包围盒外加 10mm 边距）+ 图例栏 + 指北针 + 比例标注
     // 2026-10-05：删除标题栏（设计单位/工程名称图框），用户要求。
-    _appendFrame(c, extMinX, extMinY, extMaxX, extMaxY);
+    //
+    // 顺序要点：**先算图例高度再画图框** —— 图例从右上角向下生长，
+    // 若类型很多可能触及下边界，那时要把图框再下扩（保证图例不被裁）。
+    var legendBottom = double.infinity;
     if (showLegend) {
-      _appendLegend(c, labels, extMinX, extMinY);
+      legendBottom = _appendLegend(c, labels, extMaxX, extMaxY);
+      if (legendBottom < extMinY) extMinY = legendBottom;
     }
+    _appendFrame(c, extMinX, extMinY, extMaxX, extMaxY);
     _appendNorthArrow(c, extMaxX, extMaxY);
     // 出图比例标注（正规设计图必备，图框左下角）：
     // 审图/打印时一眼确认这张图是按 1:N 出的，避免"图上量距对不上"。
     _text(c, 'TuQian', extMinX - _mm(10) + _mm(4),
-        extMinY - _mm(10) + _mm(12), _mm(3.0), '比例 $plotLabel',
+        extMinY - _mm(10) + _mm(4), _mm(3.0), '比例 $plotLabel',
         style: true);
 
     // 改造工程量注记（线路下方）：新增/拆除长度，无改造时不画
@@ -952,10 +1009,21 @@ class DxfExporter {
     _appendRect(c, 'TuQian', x0, y0, x1, y1);
   }
 
-  /// 图例栏：图框内左下角，纵向排列本次用到的符号 + 类型名。
+  /// 图例栏：图框内**右上角**，纵向排列本次用到的符号 + 类型名。
   /// 全部尺寸按**纸面毫米**（行距 6mm、字高 2.5mm）。
-  static void _appendLegend(_Ctx c, List<MapLabel> labels,
-      double minX, double minY) {
+  ///
+  /// 返回图例画到的**最低 y**，供调用方在必要时下扩图框（保证绝不越框）。
+  ///
+  /// ## 2026-10-09 从「左下角」改为「右上角」
+  ///
+  /// 旧实现锚在 `minY - 10mm + 4mm`（图框左下内侧 6mm），但图例是**向下生长**的：
+  /// 标题 + N 行 × 6mm。类型一多（杆+管+光交+分光+分纤+引上 = 6 类 = 42mm），
+  /// 就从左下角**向下溢出图框**，压在配线图上（实测溢出 11mm）。
+  ///
+  /// 改锚右上角后同样向下生长，但右上到下的空间就是整个图框高度，通常远够。
+  /// 横向与右上角的指北针错开（图例靠左、指北针靠右，见 [_appendNorthArrow]）。
+  static double _appendLegend(_Ctx c, List<MapLabel> labels,
+      double maxX, double maxY) {
     final used = <String>{};
     for (final l in labels) {
       if (l.typeId == 'track' || l.typeId == 'none' || l.typeId == 'text') {
@@ -963,13 +1031,15 @@ class DxfExporter {
       }
       used.add(l.typeId);
     }
-    if (used.isEmpty) return;
+    if (used.isEmpty) return double.infinity;
     // 按 LabelType.all 的顺序输出，保持图例口径一致
     final ordered = LabelType.all.where((t) => used.contains(t.id)).toList();
     final m = _mm(10.0);
-    var y = minY - m + _mm(4);
-    final lx = minX - m + _mm(4);
-    _text(c, 'TuQian', lx, y + _mm(6), _mm(3.0), '图  例');
+    // 右上角内侧起排（距顶 3mm），逐行向下生长
+    final lx = maxX - m - _mm(40.0); // 图例栏宽约 40mm（符号 + 名称）
+    var y = maxY - m - _mm(3.0);
+    _text(c, 'TuQian', lx, y, _mm(3.0), '图  例');
+    y -= _mm(7.0);
     for (final t in ordered) {
       String block;
       if (t.isOval) {
@@ -985,6 +1055,7 @@ class DxfExporter {
       _text(c, 'TuQian', lx + _mm(5.0), y - _mm(1.0), _mm(2.5), t.name);
       y -= _mm(6.0);
     }
+    return y;
   }
 
   /// 桩号文字：K0+000 格式（千米 + 米，米保留 1 位小数）。字高 2.5mm。
@@ -1154,31 +1225,38 @@ class DxfExporter {
     }
     var b = StringBuffer();
     var bc = _Ctx(b, version, c.h);
-    // 符号块基准尺寸 = **纸面毫米**（人孔 6×3.5mm、箱体 5×3mm、引上边 3mm、
-    // 杆圆 r=1.2mm——通信工程制图惯例，符号远小于文字块、与字号协调）。
-    // 插入缩放恒为 1.0（见符号循环）：模型空间本身就是纸面毫米 @出图比例。
-    _appendOval(bc, '0', 0, 0, 3.0, 1.75);
+    // 符号块基准尺寸按**纸面毫米**给定（人孔 6×3.5mm、箱体 5×3mm、引上边 3mm、
+    // 杆圆 r=1.2mm——通信工程制图惯例，符号远小于文字块、与字号协调），
+    // 但**必须用 [_mm()] 换算成模型单位后再写进块定义**。
+    //
+    // 2026-10-09 修掉的严重事故：块定义里直接写 `10.0`（想当然当成"已在模型
+    // 单位"），而 INSERT 缩放是 1.0 —— 于是 10mm 的槽位箱在 1:3000 下变成
+    // 10 个模型单位 = 30 公里，整个符号比图纸大 1000 倍，渲染出来内容被压成
+    // 一个点（ezdxf bbox 实测 INSERT 占 10.0 而图框仅 0.2467）。
+    //
+    // 记住：块定义 = 模型单位；INSERT 缩放 = 1.0。两者必须同尺度。
+    _appendOval(bc, '0', 0, 0, _mm(3.0), _mm(1.75));
     _appendBlock(c, version, 'HZ_OVAL', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
-    _appendRect(bc, '0', -2.5, -1.5, 2.5, 1.5);
+    _appendRect(bc, '0', -_mm(2.5), -_mm(1.5), _mm(2.5), _mm(1.5));
     _appendBlock(c, version, 'HZ_BOX', b.toString());
     // 正规槽位箱符号（2026-10-08 用户联通竣工图实测）：10.0×4.4 矩形（纸面 mm），
     // 白色；2槽/4槽同尺寸，仅文字区分。专用于分纤盒（纤）。
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
-    _appendRect(bc, '0', -5.0, -2.2, 5.0, 2.2);
+    _appendRect(bc, '0', -_mm(5.0), -_mm(2.2), _mm(5.0), _mm(2.2));
     _appendBlock(c, version, 'HZ_FIBERBOX', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
-    _appendTri(bc, '0', 0, 0, 1.5);
+    _appendTri(bc, '0', 0, 0, _mm(1.5));
     _appendBlock(c, version, 'HZ_TRI', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
     bc.ent('CIRCLE', '0', 'AcDbCircle');
-    bc.sb.write('10\n0\n20\n0\n30\n0\n40\n1.2\n');
-    _appendLine(bc, '0', -1.2, 0, 1.2, 0);
-    _appendLine(bc, '0', 0, -1.2, 0, 1.2);
+    bc.sb.write('10\n0\n20\n0\n30\n0\n40\n${_fmt(_mm(1.2))}\n');
+    _appendLine(bc, '0', -_mm(1.2), 0, _mm(1.2), 0);
+    _appendLine(bc, '0', 0, -_mm(1.2), 0, _mm(1.2));
     _appendBlock(c, version, 'HZ_POLE', b.toString());
     c.sb.write('0\nENDSEC\n');
   }

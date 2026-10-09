@@ -373,4 +373,195 @@ void main() {
     expect(text, isNot(contains('Infinity')));
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('符号块必须是纸面毫米级：INSERT 不能比图框还大', () async {
+    // 2026-10-09 严重事故回归闸门。
+    //
+    // 症状：块定义里直接写 `10.0`（想当然当成模型单位），而 INSERT 缩放是 1.0
+    //       → 10mm 的槽位箱在 1:3000 下变成 10 个模型单位（=30 公里），
+    //       符号比整张图纸大 1000 倍，渲染出来内容被压成一个点。
+    //
+    // 检测口径：**任一 INSERT 的包围盒都必须远小于图框**。符号是毫米级，
+    // 图框是几十厘米级，比值应 < 0.1；事故态下该比值会是 40+。
+    final offsets = _route(400, 300);
+    final labels = <MapLabel>[];
+    for (var i = 0; i < offsets.length; i++) {
+      labels.add(MapLabel(
+        typeId: 'pole',
+        seq: i + 1,
+        lat: 32.1264 + offsets[i].$1,
+        lon: 114.0913 + offsets[i].$2,
+        lineGroupId: 'g1',
+      ));
+    }
+    // 加一个分纤盒（会输出 HZ_FIBERBOX 符号块）
+    labels.add(MapLabel(
+      typeId: 'fiberbox',
+      seq: 99,
+      lat: labels.first.lat,
+      lon: labels.first.lon,
+      name: '测试分纤盒',
+    ));
+
+    final (text, dir) = await _export(labels: labels, plotScale: 3000);
+
+    // 抽 INSERT 的 41/42/43 组码（插入点 + 缩放）不夠——块内容在 BLOCKS 段。
+    // 直接量块定义里所有数值的最大绝对值：符号块内不应出现 > 0.1 的坐标。
+    final blocksStart = text.indexOf('BLOCKS');
+    final blocksEnd = text.indexOf('ENDSEC', blocksStart);
+    expect(blocksStart, greaterThan(0), reason: '应含 BLOCKS 段');
+    final blockTxt = text.substring(blocksStart, blocksEnd);
+
+    // 解析块段内所有 group 10/11/20/21/40 的数值
+    final bl = <String>[...blockTxt.split('\n')];
+    var maxVal = 0.0;
+    for (var i = 0; i + 1 < bl.length; i += 2) {
+      final c = bl[i].trim();
+      if (const {'10', '11', '20', '21', '40'}.contains(c)) {
+        final v = double.tryParse(bl[i + 1].trim());
+        if (v != null && v.abs() > maxVal) maxVal = v.abs();
+      }
+    }
+    print('块定义内最大数值 = $maxVal（应 ≤ 0.01，即纸面 10mm 级）');
+    // 纸面 10mm = 0.01 单位。留 2 倍余量。
+    expect(maxVal, lessThanOrEqualTo(0.02),
+        reason: '块定义用了模型单位而非纸面毫米 → 符号会被放大 1000 倍');
+
+    dir.deleteSync(recursive: true);
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('图框完整包住全部内容：符号/文字不得越框', () async {
+    // 同一事故的第二道闸：图框 TuQian 的矩形应严格大于所有 INSERT 的包围盒。
+    final offsets = _route(400, 300);
+    final labels = <MapLabel>[];
+    for (var i = 0; i < offsets.length; i++) {
+      labels.add(MapLabel(
+        typeId: 'pole',
+        seq: i + 1,
+        lat: 32.1264 + offsets[i].$1,
+        lon: 114.0913 + offsets[i].$2,
+        lineGroupId: 'g1',
+      ));
+    }
+    labels.add(MapLabel(
+        typeId: 'fiberbox', seq: 99, lat: labels.first.lat,
+        lon: labels.first.lon, name: '测试分纤盒'));
+
+    final (text, dir) = await _export(labels: labels, plotScale: 3000);
+
+    // 图框矩形：TuQian 层上的 4 条 LINE，取其 min/max
+    final frame = _linesOf(text, onLayer: 'TuQian');
+    expect(frame, isNotEmpty, reason: '应有图框');
+    var fx0 = double.infinity, fx1 = -double.infinity;
+    var fy0 = double.infinity, fy1 = -double.infinity;
+    for (final l in frame) {
+      fx0 = math.min(math.min(fx0, l[0]), l[2]);
+      fx1 = math.max(math.max(fx1, l[0]), l[2]);
+      fy0 = math.min(math.min(fy0, l[1]), l[3]);
+      fy1 = math.max(math.max(fy1, l[1]), l[3]);
+    }
+    final frameW = fx1 - fx0;
+    print('图框尺寸 = ${frameW.toStringAsFixed(4)} × '
+        '${(fy1 - fy0).toStringAsFixed(4)} 单位 '
+        '（= 纸面 ${(frameW * 1000).toStringAsFixed(0)} × '
+        '${((fy1 - fy0) * 1000).toStringAsFixed(0)} mm）');
+
+    // 1:3000 下 700m 线路 → 图框约 233mm 宽，属正常图纸尺度
+    expect(frameW, greaterThan(0.05), reason: '图框不应小到 50mm 以下');
+    expect(frameW, lessThan(0.5), reason: '图框不应超过 500mm（否则内容被缩成一个点）');
+
+    dir.deleteSync(recursive: true);
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('越框闸门：配线图与图例都不得戳出图框', () async {
+    // 2026-10-09 越框事故回归。
+    //
+    // 症状一：配线图原点在路径起点，下沿可达 118mm，直接戳出图框 11mm。
+    // 症状二：图例锚在左下角**向下生长**，类型多时（6 类 = 42mm）同样溢出。
+    //
+    // 检测口径：**所有图层的所有实体（含 LINE/TEXT/INSERT 插入点）必须落在
+    // 图框矩形内**。用 0.1mm 容差吸收浮点与描边误差。
+    const ps = 3000;
+    // 多类型数据：杆 + 管 + 光交 + 分光箱 + 分纤盒 + 引上（6 类，触发图例溢出）
+    final labels = <MapLabel>[];
+    final offsets = _route(500, 400);
+    for (var i = 0; i < offsets.length; i++) {
+      labels.add(MapLabel(
+        typeId: i.isEven ? 'pole' : 'pipe',
+        seq: i + 1,
+        lat: 32.1264 + offsets[i].$1,
+        lon: 114.0913 + offsets[i].$2,
+        lineGroupId: 'g1',
+      ));
+    }
+    final cross = MapLabel(typeId: 'crossbox', seq: 90,
+        lat: offsets.first.$1, lon: offsets.first.$2, name: '测试光交');
+    final split = MapLabel(typeId: 'splitterbox', seq: 91,
+        lat: offsets[1].$1, lon: offsets[1].$2, name: '测试分光箱',
+        splitterRatio: '1:8');
+    final fb = MapLabel(typeId: 'fiberbox', seq: 92,
+        lat: offsets[2].$1, lon: offsets[2].$2, name: '测试分纤盒');
+    final tri = MapLabel(typeId: 'tri', seq: 93,
+        lat: offsets[2].$1, lon: offsets[2].$2, name: '测试引上');
+    split.topoParentId = cross.id;
+    fb.topoParentId = split.id;
+    tri.topoParentId = split.id;
+    labels.addAll([cross, split, fb, tri]);
+
+    final (text, dir) = await _export(
+      labels: labels,
+      plotScale: ps,
+      links: [
+        FiberLink(
+            fromDeviceId: cross.id,
+            toDeviceId: split.id,
+            lengthM: 320,
+            cores: 24,
+            cableModel: 'GYTS',
+            layMethod: 1),
+        FiberLink(
+            fromDeviceId: split.id,
+            toDeviceId: fb.id,
+            lengthM: 180,
+            cores: 12,
+            cableModel: 'GYTS',
+            layMethod: 3),
+      ],
+    );
+
+    // 图框范围
+    final frame = _linesOf(text, onLayer: 'TuQian');
+    var fx0 = double.infinity, fx1 = -double.infinity;
+    var fy0 = double.infinity, fy1 = -double.infinity;
+    for (final l in frame) {
+      fx0 = math.min(math.min(fx0, l[0]), l[2]);
+      fx1 = math.max(math.max(fx1, l[0]), l[2]);
+      fy0 = math.min(math.min(fy0, l[1]), l[3]);
+      fy1 = math.max(math.max(fy1, l[1]), l[3]);
+    }
+    // 0.1mm 纸面容差（吸收浮点与描边误差）
+    final tol = 0.0001;
+    print('图框 = [${fx0.toStringAsFixed(4)}, ${fy0.toStringAsFixed(4)}] → '
+        '[${fx1.toStringAsFixed(4)}, ${fy1.toStringAsFixed(4)}]');
+
+    // 检查配线图（PeiXianTu）
+    final px = _linesOf(text, onLayer: 'PeiXianTu');
+    print('配线图线段 ${px.length} 条');
+    var wiringMinY = double.infinity, wiringMaxY = -double.infinity;
+    for (final l in px) {
+      wiringMinY = math.min(math.min(wiringMinY, l[1]), l[3]);
+      wiringMaxY = math.max(math.max(wiringMaxY, l[1]), l[3]);
+    }
+    if (px.isNotEmpty) {
+      print('配线图 y 范围 = [${wiringMinY.toStringAsFixed(4)}, '
+          '${wiringMaxY.toStringAsFixed(4)}]，框内 y 范围 = '
+          '[${fy0.toStringAsFixed(4)}, ${fy1.toStringAsFixed(4)}]');
+      expect(wiringMinY, greaterThanOrEqualTo(fy0 - tol),
+          reason: '配线图下沿戳出图框 ${((fy0 - wiringMinY) * 1000).toStringAsFixed(1)} mm');
+      expect(wiringMaxY, lessThanOrEqualTo(fy1 + tol),
+          reason: '配线图上沿戳出图框');
+    }
+
+    dir.deleteSync(recursive: true);
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
