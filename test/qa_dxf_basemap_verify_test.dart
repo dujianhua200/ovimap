@@ -11,7 +11,6 @@
 // ============================================================================
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -90,17 +89,9 @@ List<_Ent> _on(List<_Ent> ents, String type, String layer) => ents
     .where((e) => e.type == type && (e.first('8') ?? '') == layer)
     .toList();
 
-/// 复刻 DxfExporter._pickScale（独立复算，用于期望值）。
-int _pickScale(double minX, double minY, double maxX, double maxY) {
-  const m = 10.0;
-  final contentW = (maxX - minX + 2 * m).abs().clamp(1.0, 1e9);
-  final raw = contentW / 0.40;
-  const std = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
-  for (final s in std) {
-    if (raw <= s) return s;
-  }
-  return (raw / 1000).ceil() * 1000;
-}
+// 注：DxfExporter._pickScale（自动挑比例）已于 2026-10-09 随比例体系重构删除，
+// 比例改由调用方显式指定（plotScale，默认 1:3000）。本文件原先那份复刻实现
+// 已随之移除 —— 线宽期望值改为「纸面毫米 ÷ 1000，与比例无关」。
 
 // ------------------------- 测试数据工厂 -------------------------
 

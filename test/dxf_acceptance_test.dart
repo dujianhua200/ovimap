@@ -2,7 +2,6 @@
 // 使用注入的合成 BasemapData，**不依赖网络**。
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbk_codec/gbk_codec.dart';
