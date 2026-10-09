@@ -136,6 +136,8 @@ Future<BatchExportSummary> runBatchExport({
         showLegend: opts.legend,
         completionRed: opts.redline,
         straightenedWiring: opts.straightened,
+        // 出图比例：沿用「导出成果」里记住的那一档（与单工程导出同一口径）
+        plotScale: opts.plotScale,
         version: opts.version,
         rangeM: opts.rangeM,
         layerRoads: opts.layerRoads,
@@ -182,6 +184,7 @@ class _DxfBatchOptions {
     required this.legend,
     required this.redline,
     required this.straightened,
+    required this.plotScale,
     required this.version,
     required this.rangeM,
     required this.corridor,
@@ -204,6 +207,9 @@ class _DxfBatchOptions {
   final bool legend;
   final bool redline;
   final bool straightened;
+
+  /// 出图比例分母（3000 = 1:3000）。与单工程导出共用 `dxfPlotScale` 记忆键。
+  final int plotScale;
   final DxfVersion version;
   final double rangeM;
   final double corridor;
@@ -249,6 +255,7 @@ class _DxfBatchOptions {
       legend: opt('dxfLegend', true),
       redline: opt('dxfRedline', false),
       straightened: opt('dxfStraightened', false),
+      plotScale: prefs.getInt('dxfPlotScale') ?? DxfExporter.defaultPlotScale,
       version: (prefs.getString('dxfVersion') ?? 'r12') == 'r2000'
           ? DxfVersion.r2000
           : DxfVersion.r12,

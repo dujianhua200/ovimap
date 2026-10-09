@@ -110,19 +110,8 @@ List<double> _bounds(Iterable<_Ent> ents) {
   return [minX, minY, maxX, maxY];
 }
 
-/// 复刻改造后的 _pickScale（较长边）。
-int _pickScale(double minX, double minY, double maxX, double maxY) {
-  const m = 10.0;
-  final spanX = (maxX - minX).abs();
-  final spanY = (maxY - minY).abs();
-  final contentW = (math.max(spanX, spanY) + 2 * m).clamp(1.0, 1e9);
-  final raw = contentW / 0.40;
-  const std = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
-  for (final s in std) {
-    if (raw <= s) return s;
-  }
-  return (raw / 1000).ceil() * 1000;
-}
+// 注：DxfExporter._pickScale（自动挑比例）已于 2026-10-09 随比例体系重构删除，
+// 比例改由调用方显式指定（DxfExporter.defaultPlotScale = 3000）。
 
 // ------------------------- 数据工厂 -------------------------
 
@@ -162,6 +151,7 @@ Future<String> _export(
   DxfVersion v = DxfVersion.r2000,
   bool straightened = false,
   bool buildingFill = false,
+  int plotScale = DxfExporter.defaultPlotScale,
   String name = 'qa2',
 }) async {
   PathProviderPlatform.instance = _FakePathProvider(dir.path);
@@ -172,6 +162,7 @@ Future<String> _export(
       basemap: bm,
       version: v,
       straightenedWiring: straightened,
+      plotScale: plotScale,
       buildingFill: buildingFill);
   return latin1.decode(r.file.readAsBytesSync());
 }
@@ -300,14 +291,20 @@ void main() {
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('F1（最大风险·图框回归）：底图明显超出线路时，图框仍完整包住并集，图签/指北针在框内', () async {
+  test('F1（最大风险·图框回归）：底图明显超出线路时，图框仍完整包住并集，图签/指北针在框内',
+      () async {
+    const ps = 3000; // 默认出图比例：模型空间已缩小，坐标单位 = mm 纸面 @1:3000
     final dir = Directory.systemTemp.createTempSync('qa2_frame');
     PathProviderPlatform.instance = _FakePathProvider(dir.path);
     final labels = _poles(32.0, 114.0, dLon: 0.001); // 线路仅 ~188m
 
     // 无底图基准：图框≈线路范围
     final r0 = await DxfExporter.export(
-        name: 'nobm', labels: labels, includeSurroundings: false, version: DxfVersion.r2000);
+        name: 'nobm',
+        labels: labels,
+        includeSurroundings: false,
+        version: DxfVersion.r2000,
+        plotScale: ps);
     final G0 = _bounds(_entities(latin1.decode(r0.file.readAsBytesSync())));
 
     // 远底图（~2.4km 外）：若图框只按业务算，底图会被裁在框外
@@ -318,9 +315,13 @@ void main() {
     final G = _bounds(ents); // 全图
 
     // 1) 图框必须因底图而显著扩大（证明底图被纳入图框，而非只按业务算）
-    expect(G[2], greaterThan(G0[2] + 1000),
+    //    **新口径**：坐标是缩小后的模型单位，故"扩大 1000 真实米"对应
+    //    1000/ps = 0.333 单位（不是 1000）。
+    final growM = 1000.0;
+    final growU = growM / ps;
+    expect(G[2], greaterThan(G0[2] + growU),
         reason: '图框右边界未随远底图扩大 → 底图可能被裁在框外（回归）');
-    expect(G[3], greaterThan(G0[3] + 1000),
+    expect(G[3], greaterThan(G0[3] + growU),
         reason: '图框上边界未随远底图扩大 → 底图可能被裁在框外（回归）');
 
     // 2) 图框完整包住底图+业务并集（不是"首个对就行"）
@@ -356,14 +357,17 @@ void main() {
     final entsW = _entities(withWire);
     final gW = _bounds(entsW);
 
-    // 配线图向右扩展 → 右边界变大
-    expect(gW[2], greaterThan(gNo[2] + 1),
+    // 配线图向右扩展 → 右边界变大（**新口径**：坐标已按 ps 缩小）
+    final ps = DxfExporter.defaultPlotScale;
+    expect(gW[2], greaterThan(gNo[2]),
         reason: '拉直配线图未向右扩展（布局可能错位）');
 
-    // 存在明显在路由图右侧的 PeiXianTu 实体（原点是 routeW+60）
+    // 存在明显在路由图右侧的 PeiXianTu 实体
+    //（拉直配线图原点 ox = routeW + _mm(60)，即纸面 60mm = 60/ps 单位）
     final routeMaxX = gNo[2]; // 无配线时右边界≈路由图右侧
+    final gapU = 60.0 / ps; // 60mm 纸面 → 模型单位
     final farPei = _on(entsW, 'LWPOLYLINE', 'PeiXianTu')
-        .where((e) => e.points().any((p) => p[0] > routeMaxX + 30))
+        .where((e) => e.points().any((p) => p[0] > routeMaxX + gapU * 0.5))
         .toList();
     expect(farPei, isNotEmpty, reason: '未发现位于路由图右侧的配线图实体');
 
@@ -380,11 +384,21 @@ void main() {
   // ==========================================================================
   // C. O4 南北向比例
   // ==========================================================================
-  test('O4：南北 / 东西 / 斜向三向一致合理，且南北向不再被 X≈0 拖到最小档', () async {
+  test('O4：南北 / 东西 / 斜向三向一致合理，且半宽为纸面毫米（与比例无关）', () async {
     final dir = Directory.systemTemp.createTempSync('qa2_o4');
 
-    double spanXOf(List<MapLabel> ls) {
-      final s = 111320.0 * math.cos(ls.first.lat * math.pi / 180);
+    const ps = 3000;
+
+    // 目标 ~4974m；南北：dLat = 4974/110540；东西：dLon = 4974/94400
+    final ns = _poles(32.0, 114.0, dLat: 4974 / 110540.0); // 经度不变
+    final ew = _poles(32.0, 114.0, dLon: 4974 / 94400.0); // 纬度不变
+    final diag = _poles(32.0, 114.0, dLat: 0.032, dLon: 0.0373);
+
+    // **新口径（2026-10-09）**：比例由用户指定（不再自动挑），南北/东西向
+    // 得到的比例恒等于 ps —— O4 当年要防的"X≈0 拖到最小档"已从根上消失。
+    // 这里改为验证：三种走向下**几何跨度一致**（同为 ~4974m / ps）。
+    double spanXOf(List<MapLabel> ls, int ps) {
+      final s = 111320.0 * math.cos(ls.first.lat * math.pi / 180) / ps;
       var mn = double.infinity, mx = -double.infinity;
       for (final l in ls) {
         final x = (l.lon - ls.first.lon) * s;
@@ -394,32 +408,27 @@ void main() {
       return (mx - mn).abs();
     }
 
-    double spanYOf(List<MapLabel> ls) {
+    double spanYOf(List<MapLabel> ls, int ps) {
       var mn = double.infinity, mx = -double.infinity;
       for (final l in ls) {
-        final y = (l.lat - ls.first.lat) * 110540.0;
+        final y = (l.lat - ls.first.lat) * 110540.0 / ps;
         if (y < mn) mn = y;
         if (y > mx) mx = y;
       }
       return (mx - mn).abs();
     }
 
-    // 目标 ~4974m；南北：dLat = 4974/110540；东西：dLon = 4974/94400
-    final ns = _poles(32.0, 114.0, dLat: 4974 / 110540.0); // 经度不变
-    final ew = _poles(32.0, 114.0, dLon: 4974 / 94400.0); // 纬度不变
-    final diag = _poles(32.0, 114.0, dLat: 0.032, dLon: 0.0373);
+    final spanNS = math.max(spanXOf(ns, ps), spanYOf(ns, ps));
+    final spanEW = math.max(spanXOf(ew, ps), spanYOf(ew, ps));
+    expect(spanNS, closeTo(spanEW, spanEW * 0.01),
+        reason: '南北/东西向跨度应一致（同为 ~4974m @1:$ps）');
+    // 注意：[_poles] 生成 3 个点（i=0,1,2），故跨度是 dLat/dLon 的 **2 倍**：
+    // 2 × 4974m = 9948m @1:3000 = 3.316 单位。
+    expect(spanNS, closeTo(2 * 4974 / ps, (2 * 4974 / ps) * 0.01));
 
-    final scaleNS = _pickScale(0, 0, spanXOf(ns), spanYOf(ns));
-    final scaleEW = _pickScale(0, 0, spanXOf(ew), spanYOf(ew));
-
-    // O4 关键：长度相当的南北/东西向应得到相同比例（不再因 X≈0 退化到最小档）
-    expect(scaleNS, scaleEW, reason: '南北/东西向比例应一致（较长边模型）');
-    expect(scaleNS, greaterThan(1000),
-        reason: '南北向比例不应退化到最小档（旧公式会取 1:100）');
-
-    // 南北向：竖直路 → 描边偏移在 X；半宽=纸面mm×比例
+    // 南北向：竖直路 → 描边偏移在 X；半宽 = 纸面mm/1000（与 ps 无关）
     const halfMm = 1.80; // v4.0.3 在 v3.9.5 基础上路宽再加倍
-    final expNS = halfMm / 1000 * scaleNS;
+    final expHalf = halfMm / 1000.0;
     final nsRoad = BasemapData(
       roads: [
         RoadPoly(
@@ -440,12 +449,12 @@ void main() {
         if (p[0].abs() > maxAbsX) maxAbsX = p[0].abs();
       }
     }
-    expect(maxAbsX, closeTo(expNS, 1e-6), reason: '南北向半宽应=$expNS，实测 $maxAbsX');
+    expect(maxAbsX, closeTo(expHalf, 2e-5),
+        reason: '南北向半宽应=$expHalf（纸面 1.80mm），实测 $maxAbsX');
     expect(tNS.contains('NaN'), isFalse);
     expect(tNS.contains('Infinity'), isFalse);
 
     // 东西向：水平路 → 描边偏移在 Y
-    final expEW = halfMm / 1000 * scaleEW;
     final ewRoad = BasemapData(
       roads: [
         RoadPoly(
@@ -466,8 +475,7 @@ void main() {
         if (p[1].abs() > maxAbsY) maxAbsY = p[1].abs();
       }
     }
-    expect(maxAbsY, closeTo(expEW, 1e-6));
-    expect(expNS, closeTo(expEW, 1e-6), reason: '南北/东西向等效半宽应一致');
+    expect(maxAbsY, closeTo(expHalf, 2e-5));
 
     // 斜向：无 NaN/Inf、有描边、字号为正
     final diagBm = BasemapData(

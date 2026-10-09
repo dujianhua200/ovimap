@@ -126,17 +126,12 @@ List<MapLabel> _poles() => [
           lineGroupId: 'g'),
     ];
 
-// 出图比例（与 dxf.dart _pickScale 同口径，独立复算）
-int get kScale {
-  const m = 10.0;
-  final contentW = (100.0 + 2 * m).clamp(1.0, 1e9);
-  final raw = contentW / 0.40;
-  const std = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
-  for (final s in std) {
-    if (raw <= s) return s;
-  }
-  return (raw / 1000).ceil() * 1000;
-}
+// 出图比例（2026-10-09 起由**用户显式指定**，不再自动挑档）。
+// 与 DxfExporter.defaultPlotScale 一致：1:3000。模型空间坐标 = 真实米 ÷ kScale。
+const int kScale = 3000;
+
+/// 真实米 → 模型单位（DXF 坐标）。
+double _u(double realM) => realM / kScale;
 
 // 等级 → 纸面半宽 mm（与 dxf_layers 规格表一致，独立抄录用于核算）
 // v4.0.3 起路宽在 v3.9.5 基础上再加倍（用户反馈"路有点窄，要增宽一倍"）——镜像表同步。
@@ -150,10 +145,10 @@ double _halfWmm(RoadGrade g) => switch (g) {
       RoadGrade.other => 0.40,
     };
 
-double _halfWm(RoadGrade g) => _halfWmm(g) / 1000 * kScale;
+/// 纸面半宽（模型单位）：模型空间 1 单位 = 1mm 纸面，**与 kScale 无关**。
+double _halfWm(RoadGrade g) => _halfWmm(g) / 1000;
 
-double _clampH(RoadGrade g) =>
-    math.min(_halfWm(g) * 2 * 0.6, 2.0 / 1000 * kScale);
+double _clampH(RoadGrade g) => math.min(_halfWm(g) * 2 * 0.6, 2.0 / 1000);
 
 /// 水平路：恒纬度（投影后 y=0），自西向东 len 米。
 RoadPoly _hRoad(String name, RoadGrade g, double len, {double lat = 0}) =>
@@ -259,9 +254,13 @@ void main() {
       final halfW = _halfWm(RoadGrade.trunk);
       final xs = texts.map((t) => _d(t.first('10'))).toList()..sort();
       for (var i = 0; i < 5; i++) {
-        final expectX = 100.0 + 200.0 * i;
-        expect((xs[i] - expectX).abs(), lessThanOrEqualTo(1.5),
-            reason: '第 ${i + 1} 处 x=${xs[i]} 应≈$expectX（弧长均布 L*(2i-1)/2n）');
+        // **新口径**：x 是模型单位（1 单位 = 1mm 纸面 @1:3000），
+        // 弧长 100/300/…/900 真实米 → 除以 kScale。
+        final expectX = _u(100.0 + 200.0 * i);
+        final tol = _u(1.5);
+        expect((xs[i] - expectX).abs(), lessThanOrEqualTo(tol),
+            reason: '第 ${i + 1} 处 x=${xs[i]} 应≈$expectX'
+                '（真实弧长 ${100 + 200 * i}m @1:$kScale）');
       }
       for (final t in texts) {
         final y = _d(t.first('20'));
@@ -269,7 +268,7 @@ void main() {
         expect(y.abs(), lessThanOrEqualTo(halfW + 1e-6),
             reason: '水平路 TEXT y 应落中心线（偏差≤halfW=$halfW）');
         expect(y.abs(), lessThanOrEqualTo(0.01), reason: '水平路 y 应严格=0');
-        expect(h, closeTo(_clampH(RoadGrade.trunk), 1e-6),
+        expect(h, closeTo(_clampH(RoadGrade.trunk), 1e-5),
             reason: 'trunk clamp 字高应=${_clampH(RoadGrade.trunk)}');
         expect(h, lessThanOrEqualTo(2 * halfW * 0.6 + 1e-6),
             reason: '字高必须塞进双线间隙');
@@ -291,10 +290,12 @@ void main() {
       expect(texts.length, 3, reason: '600m 路应 3 处（n=round(600/200)）');
 
       // 中心线（投影后）：起点与 30° 方向
+      // **新口径**：DXF 坐标是模型单位（真实米 ÷ kScale），故起点也必须换算，
+      // 否则起点落在 ~1436 单位处而路名在 ~0.1 处，垂距算出来天差地别。
       final rad = 30 * math.pi / 180;
-      final sx = 0.01 * kScaleX;
-      final sy = -0.01 * kScaleY;
-      final len = 600.0;
+      final sx = _u(0.01 * kScaleX);
+      final sy = _u(-0.01 * kScaleY);
+      final len = _u(600.0);
       for (final t in texts) {
         final px = _d(t.first('10'));
         final py = _d(t.first('20'));
@@ -303,15 +304,15 @@ void main() {
         final perp = (vx * math.sin(rad) - vy * math.cos(rad)).abs();
         expect(perp, lessThanOrEqualTo(_halfWm(RoadGrade.primary) + 1e-6),
             reason: '斜路 TEXT 应落在双线之间（垂距≤halfW）');
-        expect(perp, lessThanOrEqualTo(0.05), reason: '垂距应≈0（在中心线上）');
+        expect(perp, lessThanOrEqualTo(_u(0.05)), reason: '垂距应≈0（在中心线上）');
         final along = vx * math.cos(rad) + vy * math.sin(rad);
         expect(along, greaterThan(0), reason: '沿线正向');
-        expect(along, lessThan(len + 1), reason: '沿线范围内');
+        expect(along, lessThan(len + _u(1.0)), reason: '沿线范围内');
         final ang = _d(t.first('50'));
         expect(ang, closeTo(30.0, 0.2), reason: '斜路旋转应=30°');
         expect(_readableAngle(ang), isTrue);
         expect(t.first('7'), 'SongTi');
-        expect(_d(t.first('40')), closeTo(_clampH(RoadGrade.primary), 1e-6));
+        expect(_d(t.first('40')), closeTo(_clampH(RoadGrade.primary), 1e-5));
       }
       // 均布位置：n=3 → 弧长 100/300/500
       final alongs = texts
@@ -323,8 +324,8 @@ void main() {
           .toList()
         ..sort();
       for (var i = 0; i < 3; i++) {
-        expect(alongs[i], closeTo(100.0 + 200.0 * i, 1.5),
-            reason: '第 ${i + 1} 处沿线弧长应≈${100 + 200 * i}m');
+        expect(alongs[i], closeTo(_u(100.0 + 200.0 * i), _u(1.5)),
+            reason: '第 ${i + 1} 处沿线弧长应≈${100 + 200 * i}m @1:$kScale');
       }
       dir.deleteSync(recursive: true);
     }, timeout: const Timeout(Duration(minutes: 2)));
@@ -342,15 +343,15 @@ void main() {
       expect(r300.length, inInclusiveRange(1, 2));
       final xs = r300.map((t) => _d(t.first('10'))).toList()..sort();
       if (r300.length == 2) {
-        expect(xs[0], closeTo(75, 1.5));
-        expect(xs[1], closeTo(225, 1.5));
+        expect(xs[0], closeTo(_u(75), _u(1.5)));
+        expect(xs[1], closeTo(_u(225), _u(1.5)));
       }
       final t150 = doc
           .on('TEXT', 'DaoLu')
           .where((t) => t.first('1') == 'TER150')
           .toList();
       expect(t150.length, 1, reason: '150m 路应恰 1 处');
-      expect(_d(t150.first.first('10')), closeTo(75, 1.5),
+      expect(_d(t150.first.first('10')), closeTo(_u(75), _u(1.5)),
           reason: '单处应含中点');
       dir.deleteSync(recursive: true);
     }, timeout: const Timeout(Duration(minutes: 2)));
@@ -446,7 +447,7 @@ void main() {
       };
       for (final t in minor.on('TEXT', 'DaoLu')) {
         final n = t.first('1')!;
-        expect(_d(t.first('40')), closeTo(expectH[n]!, 1e-6),
+        expect(_d(t.first('40')), closeTo(expectH[n]!, 1e-5),
             reason: '$n 字高应=clamp(${expectH[n]!.toStringAsFixed(3)})');
         expect(_d(t.first('40')), lessThanOrEqualTo(2 * _halfWm(RoadGrade.values.first) * 0.6 + 1),
             reason: '字高 sanity');

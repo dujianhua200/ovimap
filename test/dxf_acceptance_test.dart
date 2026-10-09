@@ -41,20 +41,6 @@ List<List<List<double>>> _lwPolylines(String text, String layer) {
   return out;
 }
 
-/// 复刻 DxfExporter._pickScale（仅按线路范围较长边，A3 宽 0.40m）。
-int _pickScale(double minX, double minY, double maxX, double maxY) {
-  const m = 10.0;
-  final spanX = (maxX - minX).abs();
-  final spanY = (maxY - minY).abs();
-  final contentW = (math.max(spanX, spanY) + 2 * m).clamp(1.0, 1e9);
-  final raw = contentW / 0.40;
-  const std = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
-  for (final s in std) {
-    if (raw <= s) return s;
-  }
-  return (raw / 1000).ceil() * 1000;
-}
-
 /// 实体在文本中的出现顺序（按 `0\n<type>\n` 起始索引）。
 List<List<String>> _entities(String text) {
   final lines = text.split('\n');
@@ -155,7 +141,7 @@ void main() {
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('A2/A4 关键：底图线宽按「纸面毫米 ÷ 1000 × 出图比例」换算，不再 1:1 用真实路宽',
+  test('A2/A4 关键：底图线宽按纸面毫米换算（与出图比例无关），不再 1:1 用真实路宽',
       () async {
     final dir = Directory.systemTemp.createTempSync('ovimap_accept_w');
     PathProviderPlatform.instance = FakePathProvider(dir.path);
@@ -169,7 +155,7 @@ void main() {
       MapLabel(
           typeId: 'pipe', seq: 3, lat: baseLat, lon: baseLon + 0.002, lineGroupId: 'g'),
     ];
-    // 仅一条水平 trunk，cart y=0 → 双线描边应在 ±expectedHalf（米）处
+    // 仅一条水平 trunk，cart y=0 → 双线描边应在 ±expectedHalf（模型单位）处
     final trivialRoad = RoadPoly(const [
       [baseLat, baseLon - 0.002],
       [baseLat, baseLon],
@@ -186,43 +172,47 @@ void main() {
       ),
     );
 
-    final r = await DxfExporter.export(
-      name: '线宽换算',
-      labels: labels,
-      includeSurroundings: true,
-      basemap: bm,
-      version: DxfVersion.r2000,
-    );
-    final text = latin1.decode(r.file.readAsBytesSync());
-
-    // 复算线路比例尺
-    final scaleX = 111320.0 * math.cos(baseLat * math.pi / 180);
-    final minX = 0.0;
-    final maxX = (baseLon + 0.002 - baseLon) * scaleX;
-    final scale = _pickScale(minX, 0, maxX, 0);
-
-    // trunk 半宽 1.80mm（v4.0.3 再加倍）→ 图纸米 = 1.80/1000*scale
-    final expectHalf = 1.80 / 1000.0 * scale;
-
-    final casing = _lwPolylines(text, 'DaoLuBian');
-    expect(casing, isNotEmpty, reason: '应生成双线描边');
-    // 所有描边点 |y| 应 ≈ expectHalf（成对 ±）
-    var maxAbsY = 0.0;
-    for (final line in casing) {
-      for (final p in line) {
-        if (p[1].abs() > maxAbsY) maxAbsY = p[1].abs();
+    // **新口径（2026-10-09）**：模型空间就是缩小后的图纸（1 单位 = 1mm 纸面），
+    // 故纸面毫米 → 模型单位就是 mm/1000，**不再乘任何出图比例**。
+    // 旧口径 mm/1000×routeScale（routeScale 自动挑）已删除，见 dxf.dart 的 _mm()。
+    double maxAbsYOf(String text) {
+      final casing = _lwPolylines(text, 'DaoLuBian');
+      expect(casing, isNotEmpty, reason: '应生成双线描边');
+      var m = 0.0;
+      for (final line in casing) {
+        for (final p in line) {
+          if (p[1].abs() > m) m = p[1].abs();
+        }
       }
+      return m;
     }
-    expect(maxAbsY, closeTo(expectHalf, 0.02),
-        reason: '描边偏移应为 纸面毫米×比例（$expectHalf m），实测 $maxAbsY m');
-    // 关键反向断言：绝不是旧逻辑的"真实路宽 12m"（半宽 6m）
-    expect(maxAbsY, lessThan(2.0),
-        reason: '不得沿用真实路宽 1:1（否则半宽达数米，路太粗复发）');
+
+    // trunk 半宽 1.80mm（v4.0.3 再加倍）→ 模型单位 = 1.80/1000
+    const expectHalf = 1.80 / 1000.0;
+
+    // 跑两个极端比例，线宽**必须一模一样** —— 这正是本次重构的核心保证
+    for (final ps in const [1000, 10000]) {
+      final r = await DxfExporter.export(
+        name: '线宽换算_$ps',
+        labels: labels,
+        includeSurroundings: true,
+        basemap: bm,
+        version: DxfVersion.r2000,
+        plotScale: ps,
+      );
+      final text = latin1.decode(r.file.readAsBytesSync());
+      final maxAbsY = maxAbsYOf(text);
+      expect(maxAbsY, closeTo(expectHalf, 2e-5),
+          reason: '1:$ps 下描边半宽应为纸面 1.80mm = $expectHalf 单位，实测 $maxAbsY');
+      // 关键反向断言：绝不是旧逻辑的"真实路宽 12m"（半宽 6m）
+      expect(maxAbsY, lessThan(0.01),
+          reason: '不得沿用真实路宽 1:1（否则半宽达数米，路太粗复发）');
+    }
 
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('A2/O4 南北向线路：比例尺按较长边估算，线宽换算正确（不被 X≈0 拖到最小档）',
+  test('A2/O4 南北向线路：线宽按纸面毫米换算，垂直偏移落在 X 方向且与比例无关',
       () async {
     final dir = Directory.systemTemp.createTempSync('ovimap_accept_ns');
     PathProviderPlatform.instance = FakePathProvider(dir.path);
@@ -262,35 +252,36 @@ void main() {
       ),
     );
 
-    final r = await DxfExporter.export(
-      name: '南北线宽',
-      labels: labels,
-      includeSurroundings: true,
-      basemap: bm,
-      version: DxfVersion.r2000,
-    );
-    final text = latin1.decode(r.file.readAsBytesSync());
-
-    // 复算：经度不变 → 跨度X=0；纬度跨度 0.002° → 跨度Y（较长边）
-    const scaleY = 110540.0;
-    final spanY = (baseLat + 0.002 - baseLat) * scaleY;
-    final scale = _pickScale(0, 0, 0, spanY);
-    // O4：必须按较长边（Y）估到 1:1000，而非按 X≈0 拖到 1:100（线宽会缩到 1/10）
-    expect(scale, 1000, reason: '南北向线路应按 Y 跨度估为 1:1000');
-
-    final expectHalf = 1.80 / 1000.0 * scale;
-    final casing = _lwPolylines(text, 'DaoLuBian');
-    expect(casing, isNotEmpty, reason: '应生成南北向双线描边');
-    // 南北向：垂直偏移发生在 X 方向
-    var maxAbsX = 0.0;
-    for (final line in casing) {
-      for (final p in line) {
-        if (p[0].abs() > maxAbsX) maxAbsX = p[0].abs();
+    // **新口径**：线宽 = 纸面毫米/1000，与出图比例无关（南北走向同理）。
+    // O4 当年要防的是"自动挑比例时被 X≈0 拖到最小档"；现在比例由用户指定，
+    // 这类病态从根上消失了 —— 但仍要验证南北向的垂直偏移落在 X 方向且量级正确。
+    double maxAbsXOf(String text) {
+      final casing = _lwPolylines(text, 'DaoLuBian');
+      expect(casing, isNotEmpty, reason: '应生成南北向双线描边');
+      var m = 0.0;
+      for (final line in casing) {
+        for (final p in line) {
+          if (p[0].abs() > m) m = p[0].abs();
+        }
       }
+      return m;
     }
-    expect(maxAbsX, closeTo(expectHalf, 0.02),
-        reason: '南北向描边偏移应为 纸面毫米×比例（$expectHalf m），实测 $maxAbsX m');
-    expect(maxAbsX, lessThan(2.0), reason: '不得沿用真实路宽 1:1');
+
+    for (final ps in const [1000, 10000]) {
+      final r = await DxfExporter.export(
+        name: '南北线宽_$ps',
+        labels: labels,
+        includeSurroundings: true,
+        basemap: bm,
+        version: DxfVersion.r2000,
+        plotScale: ps,
+      );
+      final text = latin1.decode(r.file.readAsBytesSync());
+      final maxAbsX = maxAbsXOf(text);
+      expect(maxAbsX, closeTo(1.80 / 1000.0, 2e-5),
+          reason: '1:$ps 南北向描边半宽应为纸面 1.80mm = 0.0018，实测 $maxAbsX');
+      expect(maxAbsX, lessThan(0.01), reason: '不得沿用真实路宽 1:1');
+    }
 
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));

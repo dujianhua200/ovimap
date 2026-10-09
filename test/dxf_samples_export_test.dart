@@ -49,6 +49,24 @@ void main() {
       produced.add(r.file);
     }
     expect(produced.length, cases.length);
+
+    // —— 比例样本（2026-10-09）——
+    // 让 ezdxf 闸门顺带严校**非默认比例**下的文件：1:500 与 1:10000。
+    // 比例只影响几何缩放，但若某处仍残留「真实米」硬编码，
+    // 在极端比例下会写出畸形坐标（极大或极小），ezdxf 严格打开会报错。
+    for (final ps in const [500, 10000]) {
+      final r = await DxfExporter.export(
+        name: 'sample_scale_$ps',
+        labels: labels,
+        includeSurroundings: false,
+        version: DxfVersion.r12,
+        straightenedWiring: true,
+        corridorWidth: 2,
+        plotScale: ps,
+      );
+      expect(r.file.existsSync(), isTrue);
+      produced.add(r.file);
+    }
     // 仅确认文件非空且体量合理；**结构自洽**由 test/dxf_validate_test.dart 回归，
     // **真实解析器严格打开**由 tool/validate_dxf.py（ezdxf）对本目录样本执行。
     for (final f in produced) {

@@ -143,15 +143,12 @@ void main() {
   // ==========================================================================
   // 坑① 纸面毫米换算（对抗）：所有线宽必须是 纸面mm÷1000×比例，且与真实路宽无关
   // ==========================================================================
-  test('坑①：道路半宽 = 纸面毫米×比例（逐等级），且绝不等于真实路宽 1:1', () async {
+  test('坑①：道路半宽 = 纸面毫米（逐等级，且与出图比例无关），绝不等于真实路宽 1:1',
+      () async {
     final dir = Directory.systemTemp.createTempSync('qa_mm');
     PathProviderPlatform.instance = _FakePathProvider(dir.path);
 
     final labels = _poles(kLat, kLon);
-    // 独立复算比例尺
-    final scaleX = 111320.0 * math.cos(kLat * math.pi / 180);
-    final scale = _pickScale(0, 0, (kLon + 0.002 - kLon) * scaleX, 0);
-    expect(scale, 1000, reason: '该线路跨度应估为 1:1000');
 
     // 设计表：等级 → 半宽（纸面毫米）
     // v4.0.3 起路宽在 v3.9.5 基础上再加倍（用户反馈"路有点窄，要增宽一倍"）。
@@ -165,28 +162,46 @@ void main() {
       RoadGrade.other: 0.40,
     };
 
+    // **新口径（2026-10-09）**：模型空间就是缩小后的图纸（1 单位 = 1mm 纸面），
+    // 故半宽 = 纸面毫米 ÷ 1000，**与出图比例无关**（旧的 ×自动挑比例 已删除）。
+    // 这里用两个极端比例各跑一遍，断言半宽完全相同 —— 这正是本次重构的核心保证。
     final observed = <RoadGrade, double>{};
-    for (final e in halfMm.entries) {
-      final bm = _oneRoad(e.key, kLat, kLon - 0.003, kLon + 0.004);
-      final r = await DxfExporter.export(
-          name: 'qa_${e.key.name}',
-          labels: labels,
-          includeSurroundings: true,
-          basemap: bm,
-          version: DxfVersion.r2000);
-      final text = latin1.decode(r.file.readAsBytesSync());
-      final casing = _on(_entities(text), 'LWPOLYLINE', 'DaoLuBian');
-      expect(casing, isNotEmpty, reason: '${e.key} 应有双线描边');
-      var maxAbsY = 0.0;
-      for (final ent in casing) {
-        for (final p in ent.points()) {
-          if (p[1].abs() > maxAbsY) maxAbsY = p[1].abs();
+    for (final ps in const [1000, 10000]) {
+      final psObserved = <RoadGrade, double>{};
+      for (final e in halfMm.entries) {
+        final bm = _oneRoad(e.key, kLat, kLon - 0.003, kLon + 0.004);
+        final r = await DxfExporter.export(
+            name: 'qa_${e.key.name}_$ps',
+            labels: labels,
+            includeSurroundings: true,
+            basemap: bm,
+            version: DxfVersion.r2000,
+            plotScale: ps);
+        final text = latin1.decode(r.file.readAsBytesSync());
+        final casing = _on(_entities(text), 'LWPOLYLINE', 'DaoLuBian');
+        expect(casing, isNotEmpty, reason: '${e.key} 应有双线描边');
+        var maxAbsY = 0.0;
+        for (final ent in casing) {
+          for (final p in ent.points()) {
+            if (p[1].abs() > maxAbsY) maxAbsY = p[1].abs();
+          }
+        }
+        final expected = e.value / 1000.0;
+        expect(maxAbsY, closeTo(expected, 2e-5),
+            reason: '1:$ps 下 ${e.key} 半宽应为纸面 ${e.value}mm = $expected 单位，'
+                '实测 $maxAbsY');
+        psObserved[e.key] = maxAbsY;
+      }
+      if (ps == 1000) {
+        observed.addAll(psObserved);
+      } else {
+        // 1:10000 的结果必须与 1:1000 **逐等级完全一致**
+        for (final g in halfMm.keys) {
+          expect(psObserved[g], closeTo(observed[g]!, 1e-9),
+              reason: '$g 半宽不应随出图比例变化：'
+                  '1:1000=${observed[g]} vs 1:10000=${psObserved[g]}');
         }
       }
-      final expected = e.value / 1000.0 * scale;
-      expect(maxAbsY, closeTo(expected, 1e-6),
-          reason: '${e.key} 半宽应为 纸面${e.value}mm×$scale = $expected m，实测 $maxAbsY m');
-      observed[e.key] = maxAbsY;
     }
 
     // 等级越高越粗（严格递减）
@@ -204,11 +219,9 @@ void main() {
           reason: '${ordered[i - 1]} 应比 ${ordered[i]} 宽（分级可见）');
     }
 
-    // 反向红线：绝不是"真实路宽 12m → 半宽 6m"
-    // v4.0.3 起纸面半宽 1.80mm（用户要求再加倍），1:1000 下半宽 1.8m，
-    // 仍远小于真实半宽 6m；红线放宽但保持防 1:1 回归。
-    expect(observed[RoadGrade.trunk]!, lessThan(2.5),
-        reason: '主干半宽必须远小于真实路宽（否则"路太粗"复发）');
+    // 反向红线：绝不是"真实路宽 12m → 半宽 6m"，而是纸面 1.80mm
+    expect(observed[RoadGrade.trunk]!, lessThan(0.01),
+        reason: '主干半宽必须是纸面毫米级（0.0018），否则"路太粗"复发');
 
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));

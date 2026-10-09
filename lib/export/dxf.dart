@@ -95,7 +95,21 @@ class _Ctx {
 
 /// DXF 导出（默认 **R12/AC1009**，可选 **R2000/AC1015**——两者均**结构合法**，
 /// 以真实解析器 ezdxf 严格打开为准）。
-/// 坐标采用本地平面投影（以第一个点为原点，米为单位，等距圆柱近似，小范围足够）。
+///
+/// ## 坐标与比例（2026-10-09 重构：单一比例体系）
+///
+/// **模型空间就是"缩小后的图纸"**：1 DXF 单位 = 1 纸面毫米 @ 出图比例。
+/// 设出图比例 `plotScale`（如 3000 = 1:3000），则
+/// - **几何坐标** = 真实米 ÷ `plotScale`。50m 杆档 → 0.0167 单位（=16.7mm 纸面）。
+/// - **图面元素**（字高/线宽/符号/偏移）= 纸面毫米 ÷ 1000 = 毫米/1000 单位。
+///   即 2.5mm 字高 → 0.0025 单位。**与 `plotScale` 无关**。
+///
+/// **为什么必须这样**：此前几何写 1:1 真实米、字号却按 `_mmOf(mm, routeScale)`
+/// = `mm/1000 × 自动挑的 1:1000~1:10000` 换算 —— **两套比例互相打架**。
+/// 后果：线路一长，自动挑的比例就跳档，字号跟着从 2.5mm 膨胀到 25mm，
+/// 图永远"不像正规设计图"；且配线图与路由图无法套合。
+/// 现在比例是**用户显式指定的单一值**，几何与图面元素同源同尺，
+/// 路由图与配线图叠合能严格对齐，符合设计院出图要求。
 ///
 /// - **版本分支**收敛到 3 处：①图层表（R2000 写 `370`/`420`，R12 只写 `62`/`6`）；
 ///   ②多段线（R2000=`LWPOLYLINE`，R12=经典 `POLYLINE/VERTEX/SEQEND`）；
@@ -104,13 +118,15 @@ class _Ctx {
 ///   CLASSES 段 + TABLES/BLOCKS 记录句柄 + 每个实体句柄(5) + `100 AcDb*` 子类标记 +
 ///   OBJECTS 段。**导出前后由 [DxfStructureValidator] 强校验**，校验不过即抛错，
 ///   绝不产出「打不开」的文件。
-/// - **底图线宽/字号**一律按 `纸面毫米 ÷ 1000 × 出图比例` 换算为图纸米数，
-///   不再 1:1 使用真实路宽（否则"路太粗/建筑塌陷"原样复发）。
-/// - 业务层（杆路/管廊/桩号/距离/标签/配线图/图框）**行为保持不变**。
 class DxfExporter {
   DxfExporter._();
 
-  static String _fmt(double v) => v.toStringAsFixed(3);
+  /// 默认出图比例（1:3000，通信线路路由图常用档）。
+  static const int defaultPlotScale = 3000;
+
+  /// 坐标格式化精度：**5 位小数**。1:3000 下 1 单位 = 1mm，
+  /// 0.001 单位 = 0.001mm 纸面；3 位小数会把 16.7mm 的杆档压成 16.500，量距对不上。
+  static String _fmt(double v) => v.toStringAsFixed(5);
 
   /// CLASSES 段（R2000）：仅声明 HATCH（实体填充）类，供读取器识别。
   static const String _classesSection =
@@ -151,12 +167,15 @@ class DxfExporter {
         GeoJsonImporter.defaultFeatureCap, // 本地底图要素数上限（防御性兜底）
     String segPrefix = '', // 段标前缀（如 埋／架）：空串=仅数字；透传自 AppState.segPrefix
     List<FiberLink> fiberLinks = const [], // 人工光缆拓扑连线（配线图用）
+    int plotScale = defaultPlotScale, // 出图比例分母（3000 = 1:3000）
   }) async {
     final warnings = <String>[];
     final dir = await LabelStore.instance.exportDir();
     final f = File('${dir.path}/${sanitizeName(name)}.dxf');
 
     if (labels.isEmpty) throw Exception('杆路为空');
+    // 比例防御：0/负数会让几何除零产出非法 DXF，此处夹到合理区间。
+    final ps = plotScale < 10 ? defaultPlotScale : plotScale;
 
     final sb = StringBuffer();
     final h = _H();
@@ -170,8 +189,8 @@ class DxfExporter {
       sb.write('9\n\$ACADVER\n1\nAC1015\n');
       sb.write('9\n\$DWGCODEPAGE\n3\nANSI_936\n');
       sb.write('9\n\$INSBASE\n10\n0.000\n20\n0.000\n30\n0.000\n');
-      sb.write('9\n\$LIMMIN\n10\n0.000\n20\n0.000\n');
-      sb.write('9\n\$LIMMAX\n10\n420.000\n20\n297.000\n');
+      sb.write('9\n\$LIMMIN\n10\n@@EXTMINX@@\n20\n@@EXTMINY@@\n30\n0.000\n');
+      sb.write('9\n\$LIMMAX\n10\n@@EXTMAXX@@\n20\n@@EXTMAXY@@\n30\n0.000\n');
       sb.write('9\n\$EXTMIN\n10\n@@EXTMINX@@\n20\n@@EXTMINY@@\n30\n0.000\n');
       sb.write('9\n\$EXTMAX\n10\n@@EXTMAXX@@\n20\n@@EXTMAXY@@\n30\n0.000\n');
       sb.write('9\n\$HANDSEED\n5\n@@HANDSEED@@\n');
@@ -196,8 +215,10 @@ class DxfExporter {
     // 本地投影基准点（第一个点）
     final baseLon = labels.first.lon;
     final baseLat = labels.first.lat;
-    final scaleX = 111320.0 * math.cos(baseLat * math.pi / 180);
-    const scaleY = 110540.0;
+    // 关键：**几何按出图比例缩小**。1:3000 时 1 度经差 ≈ 3.3e-5 单位。
+    // 此前这里是 1:1 真实米（111320），是"图不像设计图"的根因。
+    final scaleX = 111320.0 * math.cos(baseLat * math.pi / 180) / ps;
+    final scaleY = 110540.0 / ps;
 
     // 实体包围盒（米，本地坐标）：用于图签/指北针定位，随周边矢量扩展
     var extMinX = 0.0, extMinY = 0.0, extMaxX = 0.0, extMaxY = 0.0;
@@ -223,18 +244,16 @@ class DxfExporter {
     // 全线桩号沿链输出顺序一杆接一杆递增（与竣工里程口径一致）。
     var globalCum = 0.0;
 
-    // 图幅比例：**只按线路范围估算**（不被过大的底图外扩拖大），
-    // 用于所有底图线宽/字号的「纸面毫米 → 图纸米」换算，图签亦报此比例（N5 修正）。
-    final routeScale = _pickScale(extMinX, extMinY, extMaxX, extMaxY);
-    // 字高按**纸面毫米**换算（v3.9.5）：此前直接写 2.5/3 被当作 2.5 米，
-    // 图上极其巨大。用户要求：距离 2.5mm（宋体），其余与它和谐匹配。
-    // v4.0.2 字高规范：常规注记 2.5mm，次要注记 2.0mm。
-    final subFontM = _mmOf(2.0, routeScale);
-    final labelFontM = _mmOf(2.5, routeScale);
-    final noteFontM = _mmOf(2.0, routeScale);
-    // pin 同步字高：圆内字、距离数字与 pin 圆同比例缩放（字高 = 圆半径）。
-    // 道路名、小区/地名标识不参与同步，保持原纸面毫米尺寸。
-    final pinFontM = _pinRadiusM(routeScale);
+    // 出图比例：**用户显式指定**（1:1000 ~ 1:10000），不再自动挑档。
+    // 自动挑档（_pickScale）是"两套比例打架"的根源：线路一长比例就跳，
+    // 字号跟着膨胀，图永远不像正规设计图。详见类文档。
+    final plotLabel = '1:$ps';
+    // 图面元素一律按**纸面毫米**换算（与 ps 无关）：
+    // 常规注记 2.5mm（宋体）、次要注记 2.0mm、pin 圆内字 = 圆半径。
+    final subFontM = _mm(2.0);
+    final labelFontM = _mm(2.5);
+    final noteFontM = _mm(2.0);
+    final pinFontM = _pinRadius();
 
     // 周边矢量（底图）：**必须先于业务实体写出**。
     // DXF 中「后画者在上层」（见 _appendBasemap 内注释），故底图（含建筑填充 HATCH/SOLID）
@@ -297,11 +316,11 @@ class DxfExporter {
         c,
         bm,
         version,
-        routeScale,
         baseLon: baseLon,
         baseLat: baseLat,
         scaleX: scaleX,
         scaleY: scaleY,
+        ps: ps,
         layerRoads: layerRoads,
         layerBuildingOutline: layerBuildingOutline,
         buildingFill: buildingFill,
@@ -325,11 +344,13 @@ class DxfExporter {
         for (final l in chain)
           [(l.lon - baseLon) * scaleX, (l.lat - baseLat) * scaleY]
       ];
-      if (corridorWidth > 0) _appendCorridor(c, cart, corridorWidth, version);
+      if (corridorWidth > 0) {
+        _appendCorridor(c, cart, _geo(corridorWidth, ps), version);
+      }
 
       var chainCum = globalCum;
-      // pin 类标签的圆半径（米）：线只连接到圆边，不穿过圆心
-      final pinR = _pinRadiusM(routeScale);
+      // pin 类标签的圆半径：线只连接到圆边，不穿过圆心
+      final pinR = _pinRadius();
       for (var i = 1; i < chain.length; i++) {
         final a = chain[i - 1];
         final b = chain[i];
@@ -372,14 +393,15 @@ class DxfExporter {
         final segText = GeoUtil.segTextFor(b, _formatDistNoUnit(segmentDistance),
             prefix: segPrefix);
         // 宋体（STYLE 表里注册的是 SimSun）；字高与 pin 圆同步（= 圆半径）。
-        _text(c, 'JuLi', mx, my + 1.2, pinFontM, segText,
+        // 偏移一律**纸面毫米**：线上 1.2mm、盘留行下方 3.4mm、逐行递减 2.6mm。
+        _text(c, 'JuLi', mx, my + _mm(1.2), pinFontM, segText,
             angle: angle, style: true);
         // 盘留标注（段下方第一行）
-        var extraY = my - 3.4;
+        var extraY = my - _mm(3.4);
         if (b.slackM > 0) {
           _text(c, 'JuLi', mx, extraY, subFontM, '盘留${_formatSlack(b.slackM)}m',
               angle: angle, style: true);
-          extraY -= 2.6;
+          extraY -= _mm(2.6);
         }
         // 本段光缆型号（再下一行）
         if (b.segCable.trim().isNotEmpty) {
@@ -407,14 +429,14 @@ class DxfExporter {
     // 标签符号按图例转成 CAD 符号块（INSERT 引用，可在 CAD 中整体编辑）。
     // 轨迹/无标签点不输出符号。
     if (includeLabelSymbols) {
-      // 符号与文字同一坐标体系（对照通信工程图纸）：块基准 = 1:1000 纸面 mm，
-      // 插入缩放 = routeScale/1000；文字偏移一律**纸面毫米**，不再用米。
-      final symScale = routeScale / 1000.0;
-      final offUpM = _mmOf(3.0, routeScale); // 名称在符号上方 3mm
-      final offDownM = _mmOf(4.0, routeScale); // 孔数/附加在下方 4mm
-      final offNoteM = _mmOf(6.0, routeScale); // 备注 6mm
-      final offPhotoM = _mmOf(8.0, routeScale); // 照片数 8mm
-      final holeDotsUpM = _mmOf(5.5, routeScale); // 芯线占用点 5.5mm
+      // 符号块定义基准 = **纸面毫米**（见 _appendBlocksSection），插入缩放固定 1.0。
+      // 旧实现 symScale = routeScale/1000 让符号随比例膨胀，同样是病态根源。
+      const symScale = 1.0;
+      final offUpM = _mm(3.0); // 名称在符号上方 3mm
+      final offDownM = _mm(4.0); // 孔数/附加在下方 4mm
+      final offNoteM = _mm(6.0); // 备注 6mm
+      final offPhotoM = _mm(8.0); // 照片数 8mm
+      final holeDotsUpM = _mm(5.5); // 芯线占用点 5.5mm
       for (final l in labels) {
         if (l.typeId == 'track' || l.typeId == 'none') continue;
         final x = (l.lon - baseLon) * scaleX;
@@ -458,8 +480,8 @@ class DxfExporter {
               wChars += ch < 128 ? 0.55 : 1.0;
             }
             final textW = wChars * labelFontM;
-            final boxW = textW + _mmOf(2.0, routeScale);
-            final boxH = labelFontM + _mmOf(1.6, routeScale);
+            final boxW = textW + _mm(2.0);
+            final boxH = labelFontM + _mm(1.6);
             _appendRect(c, 'BiaoQian', x - boxW / 2, y - boxH / 2,
                 x + boxW / 2, y + boxH / 2);
             if (lt.id == 'crossbox') {
@@ -472,12 +494,12 @@ class DxfExporter {
             _appendTextCentered(c, 'BiaoQian', x, y, labelFontM, disp);
           } else {
             _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
-            _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
+            _appendFiberBoxLabel(c, l, x, y, symScale);
           }
         } else if (isPin) {
           // pin 类（杆/管等）：圆圈 + 符号字在圆内（对齐地图样式；
           // 用户要求：圆内除字之外别无其他）。
-          final rM = _pinRadiusM(routeScale);
+          final rM = _pinRadius();
           _appendCircle(c, 'BiaoQian', x, y, rM);
           if (lt.symbol.isNotEmpty) {
             // 圆内字与 pin 圆同步缩放（字高 = 圆半径）
@@ -492,7 +514,7 @@ class DxfExporter {
         final topoBox = hasTopo && (lt.role >= 1 && lt.role <= 4 || lt.role == 7);
         if (topoBox) {
           _appendHoleDots(c, x, y + holeDotsUpM, l); // 芯线/管孔占用可视化
-          _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
+          _appendFiberBoxLabel(c, l, x, y, symScale);
           continue;
         }
         // 箱体/人孔文字已在框内（上方入框画法）；pin 类符号字已在圆内，
@@ -545,10 +567,11 @@ class DxfExporter {
           if (l.lon > maxLonW) maxLonW = l.lon;
         }
         final routeW = (maxLonW - labels.first.lon) * scaleX;
-        final ox = routeW + 60; // 配线图原点 X（路由图右侧留白）
+        // 右侧留白用**纸面毫米**（60mm），不再用 60 真实米（1:3000 下=0.02 单位）
+        final ox = routeW + _mm(60);
         final oyTop = (maxLatW - baseLat) * scaleY; // 顶部对齐路由图顶部
         final wiringExtent = _appendWiringDiagram(c, labels, ox, oyTop,
-            baseLon, baseLat, scaleX, scaleY, version);
+            baseLon, baseLat, scaleX, scaleY, version, ps);
         if (wiringExtent[0] > extMaxX) extMaxX = wiringExtent[0];
         if (wiringExtent[1] < extMinY) extMinY = wiringExtent[1];
         if (wiringExtent[2] > extMaxY) extMaxY = wiringExtent[2];
@@ -558,9 +581,9 @@ class DxfExporter {
     }
 
     // 人工光缆配线图（Phase 3）：基于 FiberLink。
-    // 2026-10-08 用户定版（看参考 DXF 后）：直角简化式，跟路由走向；
-    // 像地铁图：保留拓扑和大致走向，几何压成直角，距离压缩。
-    // 放在路由图下方干净处，不重叠；比例缩小。
+    // 2026-10-09 用户定版：**与路由图同比例（1:3000）、走向完全一致**——
+    // 几何由 layoutWiringDiagram 直角简化而来（保留每段真实米数），
+    // 落图时统一除以 ps，于是两张图**叠合可严格对齐**，就是缩小版的路由图。
     // 配线图 = 地图里的纤拓扑结构：只含 FiberLink 两端的设备
     if (fiberLinks.isNotEmpty) {
       try {
@@ -573,17 +596,18 @@ class DxfExporter {
           for (final d in labels)
             if (topoIds.contains(d.id)) d
         ];
-        // 直角简化，段长 40m（压缩）
+        // 直角简化：每段步长取真实地理米数（在 layoutWiringDiagram 内部完成），
+        // segLen 仅用于不在路由链上的设备兜底落点与包络留白（纸面毫米量级）。
         final layout = layoutWiringDiagram(topoDevices, fiberLinks, labels,
             segLen: 40);
         if (layout.nodes.isNotEmpty && layout.path.length >= 2) {
-          // 配线图原点：路由图下方干净处
-          // 2026-10-09 用户：距离按 1:3000 真实比例，wiringScale=1.0 不压缩
-          const wiringScale = 1.0;
+          // 配线图原点：路由图下方，间距用**纸面毫米**（30mm）
           final ox = extMinX;
-          final oy = extMinY - 120;
-          final fontM = _mmOf(2.5, routeScale);
-          final smallFontM = _mmOf(2.0, routeScale);
+          final oy = extMinY - _mm(30);
+          // **同比例系数**：与路由图共用 1/ps，叠合严格对齐
+          final wiringScale = _geo(1.0, ps);
+          final fontM = _mm(2.5);
+          final smallFontM = _mm(2.0);
           // 画直角简化路径（配线图走向跟路由一致）
           for (var i = 1; i < layout.path.length; i++) {
             final p1 = layout.path[i - 1];
@@ -597,9 +621,7 @@ class DxfExporter {
           for (final e in layout.edges) {
             hasOut.add(e.from.device.id);
           }
-          // 画节点箱体（在路径点上）
-          // 2026-10-09 真 1:1：符号按真实尺寸落图（HZ_FIBERBOX 10×4.4）
-          const wiringSymScale = 1.0;
+          // 画节点箱体（在路径点上），符号按纸面毫米尺寸落图
           for (final n in layout.nodes) {
             final cx = ox + n.x * wiringScale;
             final cy = oy + n.y * wiringScale;
@@ -617,22 +639,25 @@ class DxfExporter {
                     n.device.typeId != 'room' &&
                     n.device.typeId != 'bts');
             if (isFiberBox) {
-              _appendInsert(c, 'PeiXianTu', 'HZ_FIBERBOX', cx, cy,
-                  sx: wiringSymScale, sy: wiringSymScale);
+              _appendInsert(c, 'PeiXianTu', 'HZ_FIBERBOX', cx, cy);
               final slotText = n.device.name.contains('4槽')
                   ? '4槽位箱'
                   : '2槽位箱';
-              _text(c, 'PeiXianTu',
-                  cx + 5.0 * wiringSymScale + 2, cy, fontM, slotText);
+              // 槽位箱符号半宽 5mm（块定义 10mm 宽），文字右移 2mm
+              _text(c, 'PeiXianTu', cx + _mm(5.0) + _mm(2.0), cy, fontM,
+                  slotText);
             } else {
-              final hw = 9.0, hh = 5.0;
+              final hw = _mm(9.0), hh = _mm(5.0);
               _appendRect(c, 'PeiXianTu', cx - hw, cy - hh, cx + hw, cy + hh);
-              _text(c, 'PeiXianTu', cx - hw + 1, cy - fontM / 2, fontM, n.label);
+              _text(c, 'PeiXianTu', cx - hw + _mm(1.0), cy - fontM / 2,
+                  fontM, n.label);
             }
-            // 成端处：无出边的端点加引线标注
+            // 成端处：无出边的端点加引线标注（引线长 8mm，文字再右移 1mm）
             if (!hasOut.contains(n.device.id)) {
-              _appendLine(c, 'PeiXianTu', cx + 6, cy - 3, cx + 14, cy - 8);
-              _text(c, 'PeiXianTu', cx + 15, cy - 10, fontM, '成端处');
+              _appendLine(c, 'PeiXianTu', cx + _mm(6.0), cy - _mm(3.0),
+                  cx + _mm(14.0), cy - _mm(8.0));
+              _text(c, 'PeiXianTu', cx + _mm(15.0), cy - _mm(10.0), fontM,
+                  '成端处');
             }
             // 分光器标注
             if (n.device.typeId == 'splitterbox') {
@@ -640,12 +665,12 @@ class DxfExporter {
                   ? n.device.note
                   : n.device.name;
               if (splitterInfo.isNotEmpty) {
-                _text(c, 'PeiXianTu', cx - 10, cy - 10,
+                _text(c, 'PeiXianTu', cx - _mm(10.0), cy - _mm(10.0),
                     smallFontM, '分光器:$splitterInfo');
               }
             }
-            if (cy - 12 < extMinY) extMinY = cy - 12;
-            if (cx + 10 > extMaxX) extMaxX = cx + 10;
+            if (cy - _mm(12.0) < extMinY) extMinY = cy - _mm(12.0);
+            if (cx + _mm(10.0) > extMaxX) extMaxX = cx + _mm(10.0);
           }
           // 路径分段标光缆型号+长度（按连线）
           for (final e in layout.edges) {
@@ -662,10 +687,10 @@ class DxfExporter {
             }
             final spec = e.link.fullSpec;
             if (spec.isNotEmpty) {
-              _text(c, 'PeiXianTu', midX, midY + 3, smallFontM, spec);
+              _text(c, 'PeiXianTu', midX, midY + _mm(3.0), smallFontM, spec);
             }
             if (e.link.lengthM > 0) {
-              _text(c, 'PeiXianTu', midX, midY - 5, smallFontM,
+              _text(c, 'PeiXianTu', midX, midY - _mm(5.0), smallFontM,
                   '长${e.link.lengthM.toStringAsFixed(1)}');
             }
           }
@@ -683,17 +708,22 @@ class DxfExporter {
         fiberNewLenM > 0 ||
         fiberRemoveLenM > 0;
     if (hasRenoStat) {
-      final renoH = _mmOf(10, routeScale) + _mmOf(6 * 2 + 4, routeScale);
+      final renoH = _mm(10) + _mm(6 * 2 + 4);
       if (routeMinY - renoH < extMinY) extMinY = routeMinY - renoH;
     }
 
-    // 图框（A3 幅面自动比例）+ 图例栏 + 指北针（对齐设计院图纸习惯）
+    // 图框（内容包围盒外加 10mm 边距）+ 图例栏 + 指北针 + 比例标注
     // 2026-10-05：删除标题栏（设计单位/工程名称图框），用户要求。
     _appendFrame(c, extMinX, extMinY, extMaxX, extMaxY);
     if (showLegend) {
       _appendLegend(c, labels, extMinX, extMinY);
     }
     _appendNorthArrow(c, extMaxX, extMaxY);
+    // 出图比例标注（正规设计图必备，图框左下角）：
+    // 审图/打印时一眼确认这张图是按 1:N 出的，避免"图上量距对不上"。
+    _text(c, 'TuQian', extMinX - _mm(10) + _mm(4),
+        extMinY - _mm(10) + _mm(12), _mm(3.0), '比例 $plotLabel',
+        style: true);
 
     // 改造工程量注记（线路下方）：新增/拆除长度，无改造时不画
     // 2026-10-05：标题栏已删除，注记直接放在线路下方 10mm 处。
@@ -702,9 +732,9 @@ class DxfExporter {
         fiberNewLenM > 0 ||
         fiberRemoveLenM > 0;
     if (hasReno) {
-      final statFontM = _mmOf(3.0, routeScale);
-      final sx = routeMaxX - _mmOf(120, routeScale);
-      var sy = routeMinY - _mmOf(10, routeScale) - _mmOf(6, routeScale);
+      final statFontM = _mm(3.0);
+      final sx = routeMaxX - _mm(120);
+      var sy = routeMinY - _mm(10) - _mm(6);
       final stats = <String>[];
       if (renoNewLenM > 0 || renoRemoveLenM > 0) {
         stats.add(
@@ -716,7 +746,7 @@ class DxfExporter {
       }
       for (final s in stats) {
         _text(c, 'TuQian', sx, sy, statFontM, s, style: true);
-        sy -= _mmOf(6, routeScale);
+        sy -= _mm(6);
       }
     }
 
@@ -730,14 +760,16 @@ class DxfExporter {
     sb.write('0\nEOF\n');
 
     // 回填 R2000 HEADER 占位符（句柄种子 / 图幅范围）
+    // **必须 replaceAll**：EXTMIN/LIMMIN 等占位符各出现两次（此前用 replaceFirst，
+    // 会留下第二处 `@@EXTMINX@@` 字面量进文件 —— 那正是 R2000 打开报"修复"的诱因之一）。
     var text = sb.toString();
     if (version == DxfVersion.r2000) {
       text = text
-          .replaceFirst('@@HANDSEED@@', h.nextValue.toRadixString(16).toUpperCase())
-          .replaceFirst('@@EXTMINX@@', _fmt(extMinX))
-          .replaceFirst('@@EXTMINY@@', _fmt(extMinY))
-          .replaceFirst('@@EXTMAXX@@', _fmt(extMaxX))
-          .replaceFirst('@@EXTMAXY@@', _fmt(extMaxY));
+          .replaceAll('@@HANDSEED@@', h.nextValue.toRadixString(16).toUpperCase())
+          .replaceAll('@@EXTMINX@@', _fmt(extMinX))
+          .replaceAll('@@EXTMINY@@', _fmt(extMinY))
+          .replaceAll('@@EXTMAXX@@', _fmt(extMaxX))
+          .replaceAll('@@EXTMAXY@@', _fmt(extMaxY));
     }
 
     // 【防复发闸门】产出前用「严格结构校验器」自检：结构不合法立即抛错，
@@ -897,49 +929,31 @@ class DxfExporter {
     return [dx / len, dy / len];
   }
 
-  /// 指北针：图框内右上角，圆 + N 字 + 指针三角。
+  /// 指北针：图框内右上角，圆 + N 字 + 指针三角。尺寸一律**纸面毫米**。
   static void _appendNorthArrow(_Ctx c, double maxX, double maxY) {
-    final cx = maxX - 14;
-    final cy = maxY - 12;
-    const r = 6.0;
+    final cx = maxX - _mm(14);
+    final cy = maxY - _mm(12);
+    final r = _mm(6.0);
     // 外圆（R12 直接输出 CIRCLE）
     c.ent('CIRCLE', 'BeiFangZhen', 'AcDbCircle');
     c.sb.write('10\n${_fmt(cx)}\n20\n${_fmt(cy)}\n30\n0\n40\n${_fmt(r)}\n');
     // 指针三角：尖朝上
-    _appendTri(c, 'BeiFangZhen', cx, cy - 0.8, 2.4);
+    _appendTri(c, 'BeiFangZhen', cx, cy - _mm(0.8), _mm(2.4));
     // N 字
-    _appendTextCentered(c, 'BeiFangZhen', cx, cy + r + 1.5, 3.5, 'N');
+    _appendTextCentered(c, 'BeiFangZhen', cx, cy + r + _mm(1.5), _mm(3.5), 'N');
   }
 
-  /// A3 图框：内容包围盒外加 10m 边距画边框。
+  /// 图框：内容包围盒外加 **10mm 边距**画边框（正规设计图标准内边距）。
   static void _appendFrame(_Ctx c, double minX,
       double minY, double maxX, double maxY) {
-    const m = 10.0;
+    final m = _mm(10.0);
     final x0 = minX - m, y0 = minY - m;
     final x1 = maxX + m, y1 = maxY + m;
     _appendRect(c, 'TuQian', x0, y0, x1, y1);
   }
 
-  /// 按 A3 幅面估算比例：**仅按线路包围盒** 较长边(米) ÷ 可打印宽(约 0.40m)，
-  /// 向上对齐标准比例系列（1:100 … 1:10000）。
-  /// 只用于"线路范围"（不被过大的底图外扩拖大），供底图线宽/字号换算与图签报告。
-  ///
-  /// **取 max(跨度X, 跨度Y) 作为内容尺寸**：南北向线路跨度 X≈0，若只看 X 会把比例
-  /// 估到最小档，线宽/字号随之异常（O4 修正）；用较长边对横/纵两种走向都稳健。
-  static int _pickScale(double minX, double minY, double maxX, double maxY) {
-    const m = 10.0;
-    final spanX = (maxX - minX).abs();
-    final spanY = (maxY - minY).abs();
-    final contentW = (math.max(spanX, spanY) + 2 * m).clamp(1.0, 1e9);
-    final raw = contentW / 0.40;
-    const std = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000];
-    for (final s in std) {
-      if (raw <= s) return s;
-    }
-    return (raw / 1000).ceil() * 1000;
-  }
-
   /// 图例栏：图框内左下角，纵向排列本次用到的符号 + 类型名。
+  /// 全部尺寸按**纸面毫米**（行距 6mm、字高 2.5mm）。
   static void _appendLegend(_Ctx c, List<MapLabel> labels,
       double minX, double minY) {
     final used = <String>{};
@@ -952,10 +966,10 @@ class DxfExporter {
     if (used.isEmpty) return;
     // 按 LabelType.all 的顺序输出，保持图例口径一致
     final ordered = LabelType.all.where((t) => used.contains(t.id)).toList();
-    const m = 10.0;
-    var y = minY - m + 4;
-    final lx = minX - m + 4;
-    _text(c, 'TuQian', lx, y + 6, 3, '图  例');
+    final m = _mm(10.0);
+    var y = minY - m + _mm(4);
+    final lx = minX - m + _mm(4);
+    _text(c, 'TuQian', lx, y + _mm(6), _mm(3.0), '图  例');
     for (final t in ordered) {
       String block;
       if (t.isOval) {
@@ -967,9 +981,9 @@ class DxfExporter {
       } else {
         block = 'HZ_POLE';
       }
-      _appendInsert(c, 'TuQian', block, lx + 2, y);
-      _text(c, 'TuQian', lx + 5, y - 1, 2.5, t.name);
-      y -= 6;
+      _appendInsert(c, 'TuQian', block, lx + _mm(2.0), y);
+      _text(c, 'TuQian', lx + _mm(5.0), y - _mm(1.0), _mm(2.5), t.name);
+      y -= _mm(6.0);
     }
   }
 
@@ -978,7 +992,8 @@ class DxfExporter {
     final km = cum ~/ 1000;
     final m = cum - km * 1000;
     final mStr = m.toStringAsFixed(1).padLeft(5, '0');
-    _text(c, 'ZhuangHao', x + 1.5, y + 3, 2.5, 'K$km+$mStr');
+    _text(c, 'ZhuangHao', x + _mm(1.5), y + _mm(3.0), _mm(2.5),
+        'K$km+$mStr');
   }
 
   /// 盘留数字格式：整数或 1 位小数。
@@ -986,9 +1001,9 @@ class DxfExporter {
       v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 
   /// 芯线/管孔占用可视化：一排小圆，已占用 = 圆内打叉，空闲 = 空心。
-  /// 最多画 24 孔，避免一行拉太长。
+  /// 最多画 24 孔，避免一行拉太长。尺寸按**纸面毫米**。
   static void _appendFiberBoxLabel(
-      _Ctx c, MapLabel l, double x, double y, double symScale, int routeScale) {
+      _Ctx c, MapLabel l, double x, double y, double symScale) {
     // 分纤盒（纤）：正规槽位箱文字标注（2026-10-08 用户要求）
     // 2槽/4槽同图形，仅文字区分；字高 2.5mm 纸面，矩形右侧
     // 兜底：名字含分纤也算
@@ -1005,15 +1020,15 @@ class DxfExporter {
             l.typeId != 'bts');
     if (!isFb) return;
     final slotText = l.name.contains('4槽') ? '4槽位箱' : '2槽位箱';
-    final boxHalfW = 5.0 * symScale;
-    _text(c, 'BiaoQian', x + boxHalfW + _mmOf(1.5, routeScale), y,
-        _mmOf(2.5, routeScale), slotText);
+    // HZ_FIBERBOX 块宽 10mm（半宽 5mm），插入缩放 symScale 恒为 1.0
+    final boxHalfW = _mm(5.0) * symScale;
+    _text(c, 'BiaoQian', x + boxHalfW + _mm(1.5), y, _mm(2.5), slotText);
   }
 
   static void _appendHoleDots(_Ctx c, double cx, double cy, MapLabel l) {
     final n = l.holes;
     if (n <= 0 || n > 24) return;
-    const r = 0.7, gap = 2.0;
+    final r = _mm(0.7), gap = _mm(2.0);
     final x0 = cx - (n - 1) * gap / 2;
     final used = l.usedHoles.clamp(0, n);
     for (var i = 0; i < n; i++) {
@@ -1028,9 +1043,9 @@ class DxfExporter {
     }
   }
 
-  /// 地理式配线（对齐手绘样图）：拓扑父子箱体在真实位置连粗黑线（宽 0.6），
+  /// 地理式配线（对齐手绘样图）：拓扑父子箱体在真实位置连粗黑线（宽 0.6mm），
   /// 沿线旋转标注箱体间距离与光缆型号；箱体上方挂标签牌（小矩形 + 名称），
-  /// 牌下依次为分光比/孔数与备注。
+  /// 牌下依次为分光比/孔数与备注。**所有偏移/字号按纸面毫米。**
   static void _appendTopoGeo(_Ctx c, List<MapLabel> labels,
       double baseLon, double baseLat, double scaleX, double scaleY,
       DxfVersion version) {
@@ -1050,9 +1065,9 @@ class DxfExporter {
       final p = n.parent;
       if (p == null) continue;
       final p1 = pos[p.src.id]!, p2 = pos[n.src.id]!;
-      // 粗黑折线（R2000=LWPOLYLINE / R12 经典 POLYLINE 常宽 0.6）
+      // 粗黑折线（R2000=LWPOLYLINE / R12 经典 POLYLINE 常宽 0.6mm）
       _appendPolyline(c, 'PeiXianTu', [p1, p2],
-          width: 0.6, version: version);
+          width: _mm(0.6), version: version);
       final dx = p2[0] - p1[0], dy = p2[1] - p1[1];
       final len = math.sqrt(dx * dx + dy * dy);
       var angle = len > 1e-6 ? math.atan2(dy, dx) * 180 / math.pi : 0.0;
@@ -1060,10 +1075,10 @@ class DxfExporter {
       final dist = _haversine(p.src.lat, p.src.lon, n.src.lat, n.src.lon);
       final mx = (p1[0] + p2[0]) / 2, my = (p1[1] + p2[1]) / 2;
       // 距离放线上方，光缆型号放线下方
-      _text(c, 'PeiXianTu', mx, my + 1.2, 2.5, dist.toStringAsFixed(1),
+      _text(c, 'PeiXianTu', mx, my + _mm(1.2), _mm(2.5), dist.toStringAsFixed(1),
           angle: angle, style: true);
       if (n.cable.isNotEmpty) {
-        _text(c, 'PeiXianTu', mx, my - 2.6, 2, n.cable,
+        _text(c, 'PeiXianTu', mx, my - _mm(2.6), _mm(2.0), n.cable,
             angle: angle, style: true);
       }
     }
@@ -1074,15 +1089,17 @@ class DxfExporter {
       final xy = pos[n.src.id]!;
       final x = xy[0], y = xy[1];
       final title = n.title;
-      final tagW = title.length * 2.6 + 3.0;
-      _appendRect(c, 'PeiXianTu', x - tagW / 2, y + 3.5, x + tagW / 2, y + 7);
-      _appendTextCentered(c, 'PeiXianTu', x, y + 4.2, 2.2, title);
+      // 牌宽按标题字数估算（每字 2.6mm + 两侧留白 3mm）
+      final tagW = title.length * _mm(2.6) + _mm(3.0);
+      _appendRect(c, 'PeiXianTu', x - tagW / 2, y + _mm(3.5),
+          x + tagW / 2, y + _mm(7.0));
+      _appendTextCentered(c, 'PeiXianTu', x, y + _mm(4.2), _mm(2.2), title);
       if (n.sub.isNotEmpty) {
-        _appendTextCentered(c, 'PeiXianTu', x, y - 4.2, 2.2, n.sub);
+        _appendTextCentered(c, 'PeiXianTu', x, y - _mm(4.2), _mm(2.2), n.sub);
       }
       final note = n.src.note.trim();
       if (note.isNotEmpty) {
-        _appendTextCentered(c, 'PeiXianTu', x, y - 6.8, 2.2, note);
+        _appendTextCentered(c, 'PeiXianTu', x, y - _mm(6.8), _mm(2.2), note);
       }
     }
   }
@@ -1137,16 +1154,16 @@ class DxfExporter {
     }
     var b = StringBuffer();
     var bc = _Ctx(b, version, c.h);
-    // 符号块基准尺寸 = **1:1000 出图比例下的纸面毫米值**（人孔 6×3.5mm、
-    // 箱体 5×3mm、引上边 3mm、杆圆 r=1.2mm——通信工程制图惯例，符号远小
-    // 于文字块、与字号协调）。插入时按 routeScale/1000 缩放（见符号循环）。
+    // 符号块基准尺寸 = **纸面毫米**（人孔 6×3.5mm、箱体 5×3mm、引上边 3mm、
+    // 杆圆 r=1.2mm——通信工程制图惯例，符号远小于文字块、与字号协调）。
+    // 插入缩放恒为 1.0（见符号循环）：模型空间本身就是纸面毫米 @出图比例。
     _appendOval(bc, '0', 0, 0, 3.0, 1.75);
     _appendBlock(c, version, 'HZ_OVAL', b.toString());
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
     _appendRect(bc, '0', -2.5, -1.5, 2.5, 1.5);
     _appendBlock(c, version, 'HZ_BOX', b.toString());
-    // 正规槽位箱符号（2026-10-08 用户联通竣工图实测）：10.0×4.4 矩形，
+    // 正规槽位箱符号（2026-10-08 用户联通竣工图实测）：10.0×4.4 矩形（纸面 mm），
     // 白色；2槽/4槽同尺寸，仅文字区分。专用于分纤盒（纤）。
     b = StringBuffer();
     bc = _Ctx(b, version, c.h);
@@ -1208,7 +1225,8 @@ class DxfExporter {
       double baseLat,
       double scaleX,
       double scaleY,
-      DxfVersion version) {
+      DxfVersion version,
+      int ps) {
     final roots = Topology.buildTree(labels);
     Topology.assignTitles(roots);
     final nodes = Topology.flatten(roots);
@@ -1261,6 +1279,7 @@ class DxfExporter {
         (n.src.lat - baseLat) * scaleY,
       ];
       final proj = _projectOnChain(p0, trunkCart, cumMile);
+      // 垂距阈值 200 **真实米**（_projectOnChain 返回的是米制距离）
       if (proj[1] <= 200) {
         n.x = proj[0];
       } else {
@@ -1268,34 +1287,41 @@ class DxfExporter {
       }
     }
 
-    // ---- 4. 分图幅：每幅 500m，纵向堆叠间距 45m ----
+    // ---- 4. 分图幅：每幅 500m（真实里程），纵向堆叠间距 45m ----
+    // 注意：里程轴单位是**真实米**，落图时统一乘 1/ps 转成模型单位。
     const bandW = 500.0;
+    final km2u = _geo(1.0, ps); // 米 → 模型单位
     final totalMile = cumMile.isEmpty ? 0.0 : cumMile.last;
     final bandCount = math.max(1, (totalMile / bandW).ceil());
-    var extMaxX = ox + bandW, extMinY = oyTop - 30, extMaxY = oyTop;
+    var extMaxX = ox + bandW * km2u,
+        extMinY = oyTop - 30 * km2u,
+        extMaxY = oyTop;
 
     for (var band = 0; band < bandCount; band++) {
       final xs = band * bandW;
       final xe = math.min(totalMile, xs + bandW);
-      final mainY = oyTop - 25 - band * 45;
-      // 主干粗线（按幅裁剪，宽 0.6）
+      final mainY = oyTop - 25 * km2u - band * 45 * km2u;
+      // 主干粗线（按幅裁剪，宽 0.6mm 纸面）
       final clipped = _clipChainByMile(trunkCart, cumMile, xs, xe);
       if (clipped.length >= 2) {
         final pts = [
-          for (final p in clipped) [ox + p[0] - xs, mainY]
+          for (final p in clipped)
+            // p 是链上笛卡尔（模型单位），xs 是里程（米）→ 里程也要换算
+            [ox + p[0] - xs * km2u, mainY]
         ];
-        _appendPolyline(c, 'PeiXianTu', pts, width: 0.6, version: version);
+        _appendPolyline(c, 'PeiXianTu', pts, width: _mm(0.6), version: version);
       }
-      // 沿线每杆位置画小刻度短线
+      // 沿线每杆位置画小刻度短线（±2mm 纸面）
       for (var i = 0; i < trunkCart.length; i++) {
         final mi = cumMile[i];
         if (mi < xs || mi > xe) continue;
-        final x = ox + mi - xs;
-        _appendLine(c, 'PeiXianTu', x, mainY - 2, x, mainY + 2);
+        final x = ox + mi * km2u - xs * km2u;
+        _appendLine(c, 'PeiXianTu', x, mainY - _mm(2.0),
+            x, mainY + _mm(2.0));
       }
       // 图幅分幅线与标注
       if (bandCount > 1) {
-        _text(c, 'PeiXianTu', ox, mainY + 8, 3,
+        _text(c, 'PeiXianTu', ox, mainY + _mm(8.0), _mm(3.0),
             '第 ${band + 1}/$bandCount 幅（K${(xs / 1000).toStringAsFixed(1)}-K${(xe / 1000).toStringAsFixed(1)}）');
       }
 
@@ -1319,10 +1345,11 @@ class DxfExporter {
 
       // 箱体：挂接虚线 + 符号 + 名称/分光比
       for (final n in inBand) {
-        final x = ox + n.x - xs;
-        final y = mainY + 15 * n.y;
+        final x = ox + n.x * km2u - xs * km2u;
+        final y = mainY + 15 * km2u * n.y;
         if (n.y >= 1) {
-          _appendDashedVLine(c, 'PeiXianTu', x, mainY + 1, y - 2.2);
+          _appendDashedVLine(
+              c, 'PeiXianTu', x, mainY + km2u, y - 2.2 * km2u);
         }
         // 兜底同上：箱体非分光器/光交等一律按槽位箱
         final nlt = LabelType.fromId(n.src.typeId);
@@ -1337,13 +1364,16 @@ class DxfExporter {
                 n.src.typeId != 'room' &&
                 n.src.typeId != 'bts');
         _appendInsert(c, 'PeiXianTu', nisFb ? 'HZ_FIBERBOX' : 'HZ_BOX', x, y);
-        _appendTextCentered(c, 'PeiXianTu', x, y + 2.6, 2.8, n.title);
+        _appendTextCentered(
+            c, 'PeiXianTu', x, y + _mm(2.6), _mm(2.8), n.title);
         if (n.sub.isNotEmpty) {
-          _appendTextCentered(c, 'PeiXianTu', x, y - 3.6, 2.4, n.sub);
+          _appendTextCentered(
+              c, 'PeiXianTu', x, y - _mm(3.6), _mm(2.4), n.sub);
         }
         final note = n.src.note.trim();
         if (note.isNotEmpty) {
-          _appendTextCentered(c, 'PeiXianTu', x, y - 6.4, 2.4, note);
+          _appendTextCentered(
+              c, 'PeiXianTu', x, y - _mm(6.4), _mm(2.4), note);
         }
       }
 
@@ -1352,10 +1382,12 @@ class DxfExporter {
         final p = n.parent;
         if (p == null) continue;
         if (p.x < xs || p.x > xe) continue; // 父在邻幅：跳过（避免跨幅乱线）
-        final px = ox + p.x - xs, pyTop = mainY + 15 * p.y - 2.2;
-        final cx = ox + n.x - xs, cyTop = mainY + 15 * n.y + 2.2;
+        final px = ox + p.x * km2u - xs * km2u,
+            pyTop = mainY + 15 * km2u * p.y - 2.2 * km2u;
+        final cx = ox + n.x * km2u - xs * km2u,
+            cyTop = mainY + 15 * km2u * n.y + 2.2 * km2u;
         final midY = (pyTop + cyTop) / 2;
-        if ((cx - px).abs() < 0.01) {
+        if ((cx - px).abs() < 1e-6) {
           _appendLine(c, 'PeiXianTu', px, pyTop, cx, cyTop);
         } else {
           _appendLine(c, 'PeiXianTu', px, pyTop, px, midY);
@@ -1363,15 +1395,16 @@ class DxfExporter {
           _appendLine(c, 'PeiXianTu', cx, midY, cx, cyTop);
         }
         final dist = _haversine(p.src.lat, p.src.lon, n.src.lat, n.src.lon);
-        _text(c, 'PeiXianTu', cx + 2, midY + 1.2, 2.5, dist.toStringAsFixed(1),
-            style: true);
+        _text(c, 'PeiXianTu', cx + _mm(2.0), midY + _mm(1.2), _mm(2.5),
+            dist.toStringAsFixed(1), style: true);
         if (n.cable.isNotEmpty) {
-          _text(c, 'PeiXianTu', cx + 2, midY - 2.2, 2.5, n.cable, style: true);
+          _text(c, 'PeiXianTu', cx + _mm(2.0), midY - _mm(2.2), _mm(2.5),
+              n.cable, style: true);
         }
       }
 
-      if (ox + bandW > extMaxX) extMaxX = ox + bandW;
-      final bandBottom = mainY - 15;
+      if (ox + bandW * km2u > extMaxX) extMaxX = ox + bandW * km2u;
+      final bandBottom = mainY - 15 * km2u;
       if (bandBottom < extMinY) extMinY = bandBottom;
     }
 
@@ -1438,10 +1471,11 @@ class DxfExporter {
   }
 
   /// 竖直细虚线（短线段手工断开模拟）：x 固定，从 y1 到 y2（y2 > y1）。
+  /// 虚线节奏按**纸面毫米**（2mm 实 + 1.2mm 空）。
   static void _appendDashedVLine(_Ctx c, String layer,
       double x, double y1, double y2) {
     if (y2 <= y1) return;
-    const dash = 2.0, gap = 1.2;
+    final dash = _mm(2.0), gap = _mm(1.2);
     var y = y1;
     while (y < y2) {
       final ye = math.min(y + dash, y2);
@@ -1623,18 +1657,18 @@ class DxfExporter {
   // ==================== 底图渲染（T3） ====================
 
   /// 渲染底图（建筑填充(可选)→建筑轮廓→道路双线描边→路名→地名），文字统一后置输出。
-  /// 返回底图几何的整体包围盒 `[minX, minY, maxX, maxY]`（供图框/图签扩展）。
+  /// 返回底图几何的整体包围盒 `[minX, minY, maxX, maxY]`（供图框扩展）。
   ///
-  /// **所有线宽/字号均由「纸面毫米 ÷ 1000 × 出图比例 [scale]」换算为图纸米数。**
+  /// **所有线宽/字号按纸面毫米换算（见 [_mm]），与出图比例无关。**
   static List<double>? _appendBasemap(
     _Ctx c,
     BasemapData bm,
-    DxfVersion version,
-    int scale, {
+    DxfVersion version, {
     required double baseLon,
     required double baseLat,
     required double scaleX,
     required double scaleY,
+    required int ps, // 出图比例：米制容差 → 模型单位的换算用
     required bool layerRoads,
     required bool layerBuildingOutline,
     required bool buildingFill,
@@ -1686,7 +1720,7 @@ class DxfExporter {
             }
             cx /= o.length;
             cy /= o.length;
-            final h = _mmOf(2.5, scale); // 建筑名 2.5mm（字高规范）
+            final h = _mm(2.5); // 建筑名 2.5mm（字高规范）
             _appendTextCentered(lc, 'JianZhu', cx, cy, h, b.name);
           }
         }
@@ -1704,13 +1738,14 @@ class DxfExporter {
           for (final p in r.pts)
             [(p[1] - baseLon) * scaleX, (p[0] - baseLat) * scaleY]
         ];
-        final simp = _simplifyPath(cart, _roadTolM(r.grade));
+        // 简化容差：表值是**真实米**，须换算到模型单位才能与 cart 同尺度
+        final simp = _simplifyPath(cart, _roadTolM(r.grade) / ps);
         if (simp.length < 2) continue;
-        jroads.add(JunctionRoad(simp, r.grade, _roadHalfWidthM(r.grade, scale)));
+        jroads.add(JunctionRoad(simp, r.grade, _roadHalfWidth(r.grade)));
         rpList.add(r);
       }
       // 交叉口倒角腿长：纸面 1.5mm（45° 真倒角，视觉上明确可辨）。
-      final jres = RoadJunction.process(jroads, _mmOf(1.5, scale));
+      final jres = RoadJunction.process(jroads, _mm(1.5));
       for (var i = 0; i < jroads.length; i++) {
         final rp = rpList[i];
         final halfW = jroads[i].halfW;
@@ -1730,11 +1765,12 @@ class DxfExporter {
               true,
             RoadGrade.service || RoadGrade.other => false,
           };
-          // 路名按截断后的 piece 独立排布（不穿过交叉口）；过短的桩间不注记。
+          // 路名按截断后的 piece 独立排布（不穿过交叉口）；
+          // 过短的桩间不注记（60 **真实米**，须换算到模型单位）。
           if (rp.name.isNotEmpty &&
               (isMajor || showMinorRoadNames) &&
-              _polyLen(piece) >= 60) {
-            _appendRoadName(lc, rp.name, piece, rp.grade, scale, halfW);
+              _polyLen(piece) >= _geo(60.0, ps)) {
+            _appendRoadName(lc, rp.name, piece, rp.grade, halfW, ps);
           }
         }
       }
@@ -1768,7 +1804,7 @@ class DxfExporter {
         final x = (p.lon - baseLon) * scaleX;
         final y = (p.lat - baseLat) * scaleY;
         _appendTextCentered(lc, 'DiMing', x, y,
-            _mmOf(_placeFontMm(p.level), scale), p.name);
+            _mm(_placeFontMm(p.level)), p.name);
         acc.add(x, y);
       }
     }
@@ -1799,7 +1835,7 @@ class DxfExporter {
     }
   }
 
-  /// 折线总长（米）。
+  /// 折线总长（模型单位）。
   static double _polyLen(List<List<double>> pts) {
     var t = 0.0;
     for (var i = 1; i < pts.length; i++) {
@@ -1810,16 +1846,17 @@ class DxfExporter {
   }
 
   /// 路名注记：**置于道路中心线上（即双线描边之间）**，字号 clamp 进双线间隙，
-  /// 沿弧长每约 200 米一处（均匀分布），宋体（SongTi 样式），旋转不倒立。
+  /// 沿弧长每约 200 **真实米**一处（均匀分布），宋体（SongTi 样式），旋转不倒立。
+  ///
+  /// 间距取真实米而非纸面毫米：路名重复频率应与**道路实际长度**挂钩，
+  /// 这样无论按 1:1000 还是 1:10000 出图，同一段路都保持"约每 200m 一个名"，
+  /// 与图纸比例无关（这与字号/线宽的处理不同——那两项按纸面毫米，才对）。
   static void _appendRoadName(_Ctx lc, String name,
-      List<List<double>> pts, RoadGrade grade, int scale, double halfW) {
+      List<List<double>> pts, RoadGrade grade, double halfW, int ps) {
     // 字号 clamp：必须放得进双线之间（0.6 系数留上下空隙）
-    final h = math.min(_roadLabelM(grade, scale), 2 * halfW * 0.6);
+    final h = math.min(_roadLabelM(grade), 2 * halfW * 0.6);
     // clamp 后纸面高度下限：低于最小可读高度则该路不标注（塞不下，硬塞会糊）。
-    // 注：现行分级半宽表下双线间隙最大 1.8mm（trunk），clamp 后字高最大 1.08mm，
-    // 若按字面 1mm 阈值会把小路路名吞掉（与"尽量多保留路名"冲突），
-    // 故取可读下限 0.10mm 纸面高度——仅病态窄路/未来表变更时兜底。
-    if (h < _mmOf(0.10, scale)) return;
+    if (h < _mm(0.10)) return;
     var totalLen = 0.0;
     for (var i = 1; i < pts.length; i++) {
       final dx = pts[i][0] - pts[i - 1][0];
@@ -1827,9 +1864,10 @@ class DxfExporter {
       totalLen += math.sqrt(dx * dx + dy * dy);
     }
     if (totalLen < 1e-6) return;
-    // 每约 200 米一处：n 处均匀分布，第 i 处（i=1..n）在弧长 totalLen*(2i-1)/(2n)
-    //（n=1 时正好中点）
-    final n = math.max(1, (totalLen / 200).round());
+    // 每约 200 真实米一处：n 处均匀分布，第 i 处（i=1..n）在弧长
+    // totalLen*(2i-1)/(2n)（n=1 时正好中点）。总长是模型单位，故间距要换算。
+    final labelGap = _geo(200.0, ps);
+    final n = math.max(1, (totalLen / labelGap).round());
     var walked = 0.0; // 已走过弧长
     var idx = 1;
     for (var i = 1; i < pts.length && idx <= n; i++) {
@@ -1989,22 +2027,31 @@ class DxfExporter {
     return dx * dx + dy * dy;
   }
 
-  // ---- 纸面毫米 → 图纸米（唯一换算入口）----
+  // ---- 比例换算（唯二入口，禁止再出现第三种写法）----
 
-  static double _mmOf(double mm, int scale) => mm / 1000.0 * scale;
+  /// **真实地面米 → DXF 模型单位**（几何专用）。
+  ///
+  /// 模型空间即缩小后的图纸：1 单位 = 1 纸面毫米 @ `plotScale`。
+  /// 故 1:3000 时 50m 杆档 → 50/3000 = 0.01667 单位（纸面 16.67mm），量距正确。
+  static double _geo(double realMeters, int plotScale) =>
+      realMeters / plotScale;
 
-  /// pin 类标签圆半径（米）：纸面 2.5mm，但设 1.0m 上限。
-  /// 根因（2026-10-05）：_mmOf(2.5, routeScale) 随线路跨度无上限膨胀——
-  /// 3km 跨度时 routeScale=10000，半径=25m（直径50m），巨圆互相覆盖、
-  /// 与地图上的小 pin 完全对不上。2026-10-05 用户要求上限 1m，
-  /// 且圆内字、距离数字与圆同步缩放（字高 = 圆半径，保持 1:1）。
-  static double _pinRadiusM(int scale) =>
-      math.min(_mmOf(2.5, scale), 1.0);
+  /// **纸面毫米 → DXF 模型单位**（图面元素专用：字高/线宽/符号/偏移）。
+  ///
+  /// 与 [plotScale] **无关**：因为模型单位本身就是纸面毫米。
+  /// 2.5mm 字高 → 0.0025 单位，任何比例下视觉大小一致（这才是正规图纸该有的行为）。
+  static double _mm(double paperMm) => paperMm / 1000.0;
 
-  static double _roadHalfWidthM(RoadGrade g, int scale) =>
-      _mmOf(_roadHalfWidthMm(g), scale);
-  static double _roadLabelM(RoadGrade g, int scale) =>
-      _mmOf(_roadLabelMm(g), scale);
+  /// pin 类标签圆半径（纸面 2.5mm）。
+  ///
+  /// 旧实现 `_pinRadiusM(scale) = min(mm/1000*scale, 1.0)` 带 1.0 米上限，
+  /// 是为了压制"比例跳档导致巨圆"的病态症状；比例统一后**上限不再需要**
+  /// （0.0025 单位恒定），去掉它才能让杆符号在 1:3000 下是正常的 5mm 直径圆。
+  static double _pinRadius() => _mm(2.5);
+
+  static double _roadHalfWidth(RoadGrade g) =>
+      _mm(_roadHalfWidthMm(g));
+  static double _roadLabelM(RoadGrade g) => _mm(_roadLabelMm(g));
 
   /// 等级 → 半宽（纸面毫米）。
   /// 路宽（纸面毫米）：v3.9.5 放大一倍后用户仍反馈"有点窄"，

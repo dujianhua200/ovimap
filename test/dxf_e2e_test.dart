@@ -80,10 +80,14 @@ void main() {
     expect(text, contains('架12芯GYTS-02'));
     expect(text, contains('237.8')); // 光交→分光箱 箱体间距离
     expect(text, contains('183.5')); // 分光箱→分纤盒 箱体间距离
-    // R12 兼容：多段线用经典 POLYLINE（不再用 LWPOLYLINE），主干宽 0.6
+    // R12 兼容：多段线用经典 POLYLINE（不再用 LWPOLYLINE）
+    // 配线主干常宽 = **0.6mm 纸面** = 0.0006 模型单位（1:3000 比例体系下）。
+    // 旧实现是 0.6 真实米，在图纸上粗 30 倍，压得连字都看不见。
     expect(text, contains('0\nPOLYLINE'));
     expect(text, isNot(contains('LWPOLYLINE')));
-    expect(text, contains('40\n0.600'));
+    expect(text, contains('40\n0.00060'));
+    // 出图比例标注（正规设计图必备，审图时确认按 1:N 出图）
+    expect(text, contains('比例 1:3000'));
     // 图例 + 指北针图层（2026-10-05：标题栏已按用户要求删除，不再断言其内容）
     expect(text, contains('TuQian'));
     expect(text, contains('BeiFangZhen'));

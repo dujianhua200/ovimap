@@ -166,6 +166,7 @@ Future<String> _exportText(
   DxfVersion v = DxfVersion.r2000,
   bool buildingFill = false,
   bool showMinorRoadNames = false,
+  int plotScale = DxfExporter.defaultPlotScale,
   String name = '微调',
 }) async {
   PathProviderPlatform.instance = _FakePathProvider(dir.path);
@@ -177,6 +178,7 @@ Future<String> _exportText(
     version: v,
     buildingFill: buildingFill,
     showMinorRoadNames: showMinorRoadNames,
+    plotScale: plotScale,
   );
   return latin1.decode(r.file.readAsBytesSync());
 }
@@ -248,9 +250,9 @@ void main() {
     final texts = _on(_entities(text), 'TEXT', 'DaoLu');
     expect(texts, isNotEmpty, reason: '应有路名 TEXT');
 
-    // 比例 1:1000（0.002° 跨度 3 杆）→ trunk 半宽 = 1.80mm/1000×1000 = 1.8m
-    //（2026-10-01 用户反馈路窄，半宽表再翻一倍）
-    const halfW = 1.80 / 1000.0 * 1000;
+    // **新口径（2026-10-09）**：模型空间就是缩小后的图纸（1 单位 = 1mm 纸面），
+    // 故 trunk 半宽 = 1.80mm 纸面 = 0.0018 单位，**不再乘出图比例**。
+    const halfW = 1.80 / 1000.0;
     for (final t in texts) {
       final y = double.parse(t.first('20')!);
       final h = double.parse(t.first('40')!);
@@ -265,18 +267,23 @@ void main() {
 
   test('路名每约 200 米一处：1000m 直路 → 5 处，位置均匀（弧长中点式分布）', () async {
     final dir = Directory.systemTemp.createTempSync('tune_200m');
+    const ps = 3000; // 默认出图比例
     final lonSpan = 1000.0 / kScaleX; // 1000m 直路
     final bm = _bm([_hRoad(RoadGrade.trunk, '千米大道', kLon, kLon + lonSpan)]);
-    final text = await _exportText(dir, bm, name: '间隔两百');
+    final text = await _exportText(dir, bm, name: '间隔两百', plotScale: ps);
     final texts = _on(_entities(text), 'TEXT', 'DaoLu');
     expect(texts.length, 5, reason: '1000m 应标 5 处，实测 ${texts.length}');
 
+    // **新口径**：X 坐标是模型单位（1 单位 = 1mm 纸面 @1:3000），
+    // 故弧长 100/300/…/900 真实米 → 0.0333/0.1/…/0.3 单位。
+    // 期望位置由「真实米 × 1/ps」推出，与比例强绑定 —— 这正是本次重构要保证的。
     final xs = texts.map((t) => double.parse(t.first('10')!)).toList()..sort();
     final ys = texts.map((t) => double.parse(t.first('20')!)).toList();
-    // 均匀分布：第 i 处在弧长 1000*(2i-1)/(2*5) = 100,300,...,900
     for (var i = 0; i < xs.length; i++) {
-      expect(xs[i], closeTo(100.0 + 200.0 * i, 0.01),
-          reason: '第 ${i + 1} 处应在弧长 ${100 + 200 * i}m，实测 ${xs[i]}');
+      final expectX = (100.0 + 200.0 * i) / ps;
+      expect(xs[i], closeTo(expectX, expectX * 0.01),
+          reason: '第 ${i + 1} 处应在真实弧长 ${100 + 200 * i}m = '
+              '${expectX.toStringAsFixed(5)} 单位，实测 ${xs[i]}');
       expect(ys[i], closeTo(0, 1e-6), reason: '应落在中心线上');
     }
     dir.deleteSync(recursive: true);
@@ -368,11 +375,11 @@ void main() {
         reason: 'other 级道路默认不应标注路名');
 
     // 放开：标注存在，但字号必须 clamp 进双线间隙
-    //（other 半宽 0.40mm，2026-10-01 再翻一倍）
+    //（other 半宽 0.40mm 纸面，2026-10-01 再翻一倍）
     final tAll = await _exportText(dir, bm, showMinorRoadNames: true, name: '窄路放开');
     final texts = _on(_entities(tAll), 'TEXT', 'DaoLu');
     expect(texts, isNotEmpty);
-    const halfW = 0.40 / 1000.0 * 1000; // other 半宽（米，比例 1:1000）
+    const halfW = 0.40 / 1000.0; // other 半宽（纸面毫米 → 模型单位，与比例无关）
     for (final t in texts) {
       final y = double.parse(t.first('20')!);
       final h = double.parse(t.first('40')!);

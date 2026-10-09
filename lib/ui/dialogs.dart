@@ -1032,6 +1032,15 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   // 默认 **沿线 50m**（线路设计口径：用户明确"轨迹附近 50 米就好"）。
   // 原默认 880m → 100m → 现在 50m；用户手选过的值仍按记忆走。
   var rangeM = prefs.getDouble('dxfRangeM') ?? 50;
+  // 出图比例（1:N 的 N）。**用户显式指定**，默认 1:3000（通信线路路由图常用档）。
+  // 比例只缩放几何，不缩放字号/符号/线宽——那些一律按纸面毫米，故换比例时
+  // 图面观感保持一致，只是图幅大小变化（这才是正规设计图的行为）。
+  const plotScaleOptions = <int>[1000, 2000, 3000, 5000, 10000];
+  var plotScale =
+      prefs.getInt('dxfPlotScale') ?? DxfExporter.defaultPlotScale;
+  if (!plotScaleOptions.contains(plotScale)) {
+    // 记忆里是历史自定义值：保留，但 UI 会显示为"自定义"
+  }
   final corridorCtl =
       TextEditingController(text: prefs.getString('dxfCorridor') ?? '0');
 
@@ -1247,6 +1256,62 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
                   const TextInputType.numberWithOptions(decimal: true),
               style: const TextStyle(color: kTextMain, fontSize: 14),
               decoration: dec('走廊宽度（米），如 2')),
+          const Divider(color: TokC.divider),
+          // —————— 出图比例（正式设计图的核心参数）——————
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
+              child: Text('出图比例（模型空间直接写缩小坐标）',
+                  style: TextStyle(color: kTextSub, fontSize: 11)),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16, bottom: 4),
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  for (final s in plotScaleOptions)
+                    ChoiceChip(
+                      label: Text('1:$s', style: const TextStyle(fontSize: 12)),
+                      selected: plotScale == s,
+                      onSelected: (_) => setSt(() => plotScale = s),
+                    ),
+                  ChoiceChip(
+                    label: Text(
+                        plotScaleOptions.contains(plotScale)
+                            ? '自定义…'
+                            : '1:$plotScale',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: plotScaleOptions.contains(plotScale)
+                                ? null
+                                : kAccent)),
+                    selected: !plotScaleOptions.contains(plotScale),
+                    onSelected: (_) async {
+                      final v = await _promptCustomScale(context, plotScale);
+                      if (v == null) return;
+                      await prefs.setInt('dxfPlotScale', v);
+                      setSt(() => plotScale = v);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 2),
+              child: Text(
+                '图上量距 × $plotScale = 真实米数；CAD 里按 1:$plotScale 打印即为标准图纸。'
+                '字号/符号/线宽恒为 2.5mm/标准图例，不随比例变化。',
+                style: const TextStyle(color: kTextSub, fontSize: 10.5),
+              ),
+            ),
+          ),
           const Divider(color: TokC.divider),
           // —————— DXF 版本 ——————
           CheckboxListTile(
@@ -1571,8 +1636,8 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
               ),
             ),
           ],
-          const Text('坐标系：以第一个点为原点的本地平面（米）',
-              style: TextStyle(color: kTextSub, fontSize: 11)),
+          Text('坐标系：以第一个点为原点的本地平面；模型空间已按 1:$plotScale 缩小',
+              style: const TextStyle(color: kTextSub, fontSize: 11)),
         ],
         ),
       );
@@ -1602,6 +1667,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
         prefs.setBool('dxfBuildingFallback', useBuildingFallback);
         prefs.setBool('dxfUseLocal', useLocal);
         prefs.setDouble('dxfRangeM', rangeM);
+        prefs.setInt('dxfPlotScale', plotScale);
         toast(context, '正在生成 DXF…');
         try {
           final corridor =
@@ -1637,6 +1703,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             // 本地开源矢量底图（离线优先）；未勾选则走缓存/联网抓取。
             localBasemap: (surroundings && useLocal) ? localBm : null,
             fiberLinks: fiberLinks,
+            plotScale: plotScale,
           );
           if (context.mounted) {
             // 非致命警告 / 底图三态结构化说明（文件仍正常分享）
@@ -1702,6 +1769,48 @@ Future<double?> _promptCustomRange(BuildContext context, double current) async {
         final v = double.tryParse(ctl.text.trim());
         if (v == null || v < 20 || v > 5000) {
           toast(context, '请输入 20~5000 之间的范围（米）');
+          return;
+        }
+        confirmed = v;
+        Navigator.pop(context);
+      }),
+    ],
+  );
+  return confirmed;
+}
+
+/// 自定义出图比例分母（限 100 ~ 100000，如 3000 = 1:3000）。
+/// 与 [_promptCustomRange] 同构：合法才确认，取消返回 null。
+Future<int?> _promptCustomScale(BuildContext context, int current) async {
+  final ctl = TextEditingController(text: current.toString());
+  int? confirmed;
+  await showDarkDialog(
+    context,
+    title: '自定义出图比例',
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: ctl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: const TextStyle(color: kTextMain, fontSize: 14),
+          decoration: dec('100 ~ 100000，如 3000'),
+        ),
+        const SizedBox(height: 6),
+        const Text('填比例分母：3000 表示 1:3000。'
+            '图上量距乘以该值即为真实米数，CAD 按同比例打印。',
+            style: TextStyle(color: kTextSub, fontSize: 11)),
+      ],
+    ),
+    actions: [
+      darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+      darkTextBtn('确定', () {
+        final v = int.tryParse(ctl.text.trim());
+        if (v == null || v < 100 || v > 100000) {
+          toast(context, '请输入 100~100000 之间的比例分母');
           return;
         }
         confirmed = v;
