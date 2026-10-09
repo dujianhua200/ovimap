@@ -535,7 +535,8 @@ class DxfExporter {
     }
 
     // 拉直沿线配线图（可选附加，长杆路出图）：放路由图右侧，按 500m 分图幅。
-    if (hasTopo && straightenedWiring) {
+    // 2026-10-09：有 FiberLink 时用新的跟路由走向配线图，跳过老的不跟走向的
+    if (hasTopo && straightenedWiring && fiberLinks.isEmpty) {
       try {
         var minLatW = 90.0, maxLatW = -90.0, maxLonW = -180.0;
         for (final l in labels) {
