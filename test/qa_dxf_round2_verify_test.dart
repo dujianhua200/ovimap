@@ -344,11 +344,19 @@ void main() {
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('F1（连带）：拉直配线图仍置于路由图右侧，且被图框包住、走向正常', () async {
+  test('F1（连带）：有 ODN 拓扑时走新配线图（下方、走向一致），不再用老拉直图', () async {
     final dir = Directory.systemTemp.createTempSync('qa2_wire');
     final labels = _topoLabels();
+    // 无拓扑的对照组：去掉 topoParentId
+    final noTopoLabels = labels.map((l) {
+      final c = MapLabel(
+        typeId: l.typeId, seq: l.seq, lat: l.lat, lon: l.lon,
+        lineGroupId: l.lineGroupId, name: l.name,
+      );
+      return c;
+    }).toList();
 
-    final noWire = await _export(dir, labels: labels, bm: _stdBasemap(), name: 'nw');
+    final noWire = await _export(dir, labels: noTopoLabels, bm: _stdBasemap(), name: 'nw');
     final withWire = await _export(
         dir, labels: labels, bm: _stdBasemap(), straightened: true, name: 'ww');
 
@@ -356,18 +364,16 @@ void main() {
     final entsW = _entities(withWire);
     final gW = _bounds(entsW);
 
-    // 配线图向右扩展 → 右边界变大
-    expect(gW[2], greaterThan(gNo[2] + 1),
-        reason: '拉直配线图未向右扩展（布局可能错位）');
+    // 2026-10-10：有 ODN 拓扑（topoParentId）时走新配线图（下方），
+    // 不再画老拉直图（右侧）。新配线图向下方扩展 → 下边界变小（更负）。
+    expect(gW[1], lessThan(gNo[1] - 1),
+        reason: '新配线图未向下方扩展（ODN 拓扑应走新逻辑）');
 
-    // 存在明显在路由图右侧的 PeiXianTu 实体（原点是 routeW+60）
-    final routeMaxX = gNo[2]; // 无配线时右边界≈路由图右侧
-    final farPei = _on(entsW, 'LWPOLYLINE', 'PeiXianTu')
-        .where((e) => e.points().any((p) => p[0] > routeMaxX + 30))
-        .toList();
-    expect(farPei, isNotEmpty, reason: '未发现位于路由图右侧的配线图实体');
+    // PeiXianTu 层有实体（新配线图）
+    final peiEnts = _on(entsW, 'LINE', 'PeiXianTu');
+    expect(peiEnts, isNotEmpty, reason: 'PeiXianTu 层无实体');
 
-    // 图框包住配线图：G 最外=图框，配线在其内（trivially）——确保未越框
+    // 图框包住配线图：确保未越框
     for (final e in entsW) {
       for (final p in e.points()) {
         expect(p[0], lessThanOrEqualTo(gW[2] + 0.005));
