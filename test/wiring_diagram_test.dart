@@ -61,13 +61,14 @@ void main() {
       expect(l.edges, isEmpty);
     });
 
-    test('段长等于真实地理距离（2026-10-09 真 1:1）', () {
+    test('段长=真实地理距离×统一缩放，方向与地理一致（2026-10-10 走向相同整体缩小）', () {
       final route = fullRoute();
       final ds = [
         dev('b', '纤1', 2, 32.0, 114.001),
         dev('d', '纤2', 4, 31.999, 114.002),
       ];
       final ls = [FiberLink(fromDeviceId: 'b', toDeviceId: 'd')];
+      // 默认 uniformScale=0.5
       final l = layoutWiringDiagram(ds, ls, route);
       double drawLen(int i) {
         final dx = l.path[i + 1].x - l.path[i].x;
@@ -83,14 +84,25 @@ void main() {
         return math.sqrt(dxM * dxM + dyM * dyM);
       }
 
-      // 四段：东约94.1m、东约94.1m、南111m、东约94.1m，都不是固定40
-      expect(drawLen(0), closeTo(geoLen(114.0, 32.0, 114.001, 32.0), 0.001));
-      expect(drawLen(1), closeTo(geoLen(114.001, 32.0, 114.002, 32.0), 0.001));
-      expect(drawLen(2), closeTo(geoLen(114.002, 32.0, 114.002, 31.999), 0.001));
+      // 四段长度 = 真实地理距离 × 0.5（统一缩放），不是固定40，也不是真1:1
+      const kScale = 0.5;
+      expect(drawLen(0),
+          closeTo(geoLen(114.0, 32.0, 114.001, 32.0) * kScale, 0.001));
+      expect(drawLen(1),
+          closeTo(geoLen(114.001, 32.0, 114.002, 32.0) * kScale, 0.001));
+      expect(drawLen(2),
+          closeTo(geoLen(114.002, 32.0, 114.002, 31.999) * kScale, 0.001));
       expect(drawLen(3),
-          closeTo(geoLen(114.002, 31.999, 114.003, 31.999), 0.001));
-      // 南向那段 111m，证明不是固定 40 步长
-      expect(drawLen(2), isNot(closeTo(40.0, 0.001)));
+          closeTo(geoLen(114.002, 31.999, 114.003, 31.999) * kScale, 0.001));
+      // 方向保留：第一段纯东向（dy≈0），第三段纯南向（dx≈0），非直角量化也能对上
+      final dx0 = l.path[1].x - l.path[0].x;
+      final dy0 = l.path[1].y - l.path[0].y;
+      expect(dy0.abs(), lessThan(0.001)); // 东向
+      expect(dx0, greaterThan(0));
+      final dx2 = l.path[3].x - l.path[2].x;
+      final dy2 = l.path[3].y - l.path[2].y;
+      expect(dx2.abs(), lessThan(0.001)); // 南向
+      expect(dy2, lessThan(0));
     });
   });
 }

@@ -558,9 +558,9 @@ class DxfExporter {
     }
 
     // 人工光缆配线图（Phase 3）：基于 FiberLink。
-    // 2026-10-08 用户定版（看参考 DXF 后）：直角简化式，跟路由走向；
-    // 像地铁图：保留拓扑和大致走向，几何压成直角，距离压缩。
-    // 放在路由图下方干净处，不重叠；比例缩小。
+    // 2026-10-10 用户定版：走向与杆路图完全一致，只是整体缩小；
+    // 保留每段真实方向，不做直角量化；整图统一缩放。
+    // 放在路由图下方干净处，不重叠。
     // 配线图 = 地图里的纤拓扑结构：只含 FiberLink 两端的设备
     if (fiberLinks.isNotEmpty) {
       try {
@@ -573,9 +573,9 @@ class DxfExporter {
           for (final d in labels)
             if (topoIds.contains(d.id)) d
         ];
-        // 直角简化，段长 40m（压缩）
+        // 走向与路由一致，整体缩小（uniformScale=0.5）
         final layout = layoutWiringDiagram(topoDevices, fiberLinks, labels,
-            segLen: 40);
+            segLen: 40, uniformScale: 0.5);
         if (layout.nodes.isNotEmpty && layout.path.length >= 2) {
           // 配线图原点：路由图下方干净处
           // 2026-10-09 用户：距离按 1:3000 真实比例，wiringScale=1.0 不压缩
@@ -584,7 +584,7 @@ class DxfExporter {
           final oy = extMinY - 120;
           final fontM = _mmOf(2.5, routeScale);
           final smallFontM = _mmOf(2.0, routeScale);
-          // 画直角简化路径（配线图走向跟路由一致）
+          // 画缩小路径（配线图走向与路由完全一致，只是整体缩小）
           for (var i = 1; i < layout.path.length; i++) {
             final p1 = layout.path[i - 1];
             final p2 = layout.path[i];

@@ -30,7 +30,7 @@ class WiringLayout {
   final List<WiringNode> nodes;
   final List<WiringEdge> edges;
 
-  /// 折线路径点（整条路由的直角简化），按顺序。
+  /// 折线路径点（整条路由按统一比例缩小，走向与路由一致），按顺序。
   final List<math.Point<double>> path;
 
   final double width;
@@ -39,22 +39,25 @@ class WiringLayout {
   WiringLayout(this.nodes, this.edges, this.path, this.width, this.height);
 }
 
-/// 配线图自动排布：**整条路由的直角简化**，跟路由走向。
+/// 配线图自动排布：**整条路由整体缩小**，走向与路由完全一致。
 ///
-/// 2026-10-08 用户纠正（看导出 DXF 截图后）：
-/// - 配线图必须跟整条路由走，不能只连纤设备的两点一线
-/// - 中间杆路的转弯也要保留（简化成直角），否则方向不对
-/// - 像地铁图：整条线路简化为直角折线，纤设备标在对应位置
+/// 2026-10-10 用户定版：
+/// - 配线图走向与杆路图一样，只是缩小了
+/// - 保留每段真实地理方向，不做直角量化
+/// - 整图使用统一缩放系数 [uniformScale]
 ///
 /// [routeLabels] 为完整路由链（有序，含 seq），用于生成路径走向。
 /// [devices] 为纤设备，按 seq 定位到路径上。
-/// 2026-10-09 真 1:1：每段步长取真实地理米数（直角方向保留），
 /// [segLen] 仅用于不在路由链上的设备兜底落点与包络留白。
+/// [uniformScale] 整图统一缩放系数（默认 0.5）。
 WiringLayout layoutWiringDiagram(
   List<MapLabel> devices,
   List<FiberLink> links,
   List<MapLabel> routeLabels, {
   double segLen = 40,
+  // 2026-10-10 用户定版：配线图走向与杆路图完全一致，只是整体缩小。
+  // 整图使用统一缩放系数，保留每段真实方向（不再做直角量化）。
+  double uniformScale = 0.5,
 }) {
   if (routeLabels.isEmpty) return WiringLayout([], [], [], 0, 0);
 
@@ -90,13 +93,10 @@ WiringLayout layoutWiringDiagram(
     final cosLat = math.cos(avgLat * math.pi / 180);
     final dxM = dLon * 111000.0 * cosLat;
     final dyM = dLat * 111000.0;
-    // 按主导轴量化为直角方向，步长取真实地理米数（2026-10-09 真 1:1）
-    final trueLenM = math.sqrt(dxM * dxM + dyM * dyM);
-    if (dxM.abs() >= dyM.abs()) {
-      x += dxM >= 0 ? trueLenM : -trueLenM; // 右 / 左
-    } else {
-      y += dyM >= 0 ? trueLenM : -trueLenM; // 上 / 下
-    }
+    // 2026-10-10 用户定版：走向与杆路图完全一致，只是整体缩小。
+    // 保留每段真实地理方向，整图统一缩放（不再按主导轴量化为直角）。
+    x += dxM * uniformScale;
+    y += dyM * uniformScale;
     path.add(math.Point(x, y));
     seqToPathIdx[curr.seq] = path.length - 1;
   }
