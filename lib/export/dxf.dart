@@ -534,9 +534,27 @@ class DxfExporter {
       }
     }
 
-    // 拉直沿线配线图（可选附加，长杆路出图）：放路由图右侧，按 500m 分图幅。
-    // 2026-10-09：有 FiberLink 时用新的跟路由走向配线图，跳过老的不跟走向的
-    if (hasTopo && straightenedWiring && fiberLinks.isEmpty) {
+    // 配线图：2026-10-10 用户定版——走向与杆路图完全一致，只是整体缩小。
+    // 数据源：手动光缆拓扑编辑器的 fiberLinks，或 ODN 拓扑图（topoParentId）。
+    // 2026-10-10 补充：用户用 ODN 拓扑图而非手动编辑器时，fiberLinks 为空，
+    // 需从 ODN 父子关系合成 FiberLink 再走新逻辑。
+    var effectiveFiberLinks = fiberLinks;
+    if (effectiveFiberLinks.isEmpty && hasTopo) {
+      final byId = {for (final l in labels) l.id: l};
+      final synth = <FiberLink>[];
+      for (final l in labels) {
+        if (l.topoParentId.isNotEmpty && byId.containsKey(l.topoParentId)) {
+          synth.add(FiberLink(
+            fromDeviceId: l.topoParentId,
+            toDeviceId: l.id,
+          ));
+        }
+      }
+      if (synth.isNotEmpty) effectiveFiberLinks = synth;
+    }
+    final useNewWiring = effectiveFiberLinks.isNotEmpty;
+    // 老的拉直配线图：仅在无有效连线时作为兜底（新逻辑优先）
+    if (hasTopo && straightenedWiring && !useNewWiring) {
       try {
         var minLatW = 90.0, maxLatW = -90.0, maxLonW = -180.0;
         for (final l in labels) {
@@ -557,15 +575,12 @@ class DxfExporter {
       }
     }
 
-    // 人工光缆配线图（Phase 3）：基于 FiberLink。
-    // 2026-10-10 用户定版：走向与杆路图完全一致，只是整体缩小；
-    // 保留每段真实方向，不做直角量化；整图统一缩放。
-    // 放在路由图下方干净处，不重叠。
-    // 配线图 = 地图里的纤拓扑结构：只含 FiberLink 两端的设备
-    if (fiberLinks.isNotEmpty) {
+    // 新配线图：走向与路由完全一致，整体缩小（uniformScale=0.5），放路由图下方。
+    // 配线图 = 纤拓扑结构：只含连线两端的设备。
+    if (useNewWiring) {
       try {
         final topoIds = <String>{};
-        for (final l in fiberLinks) {
+        for (final l in effectiveFiberLinks) {
           topoIds.add(l.fromDeviceId);
           topoIds.add(l.toDeviceId);
         }
@@ -574,7 +589,7 @@ class DxfExporter {
             if (topoIds.contains(d.id)) d
         ];
         // 走向与路由一致，整体缩小（uniformScale=0.5）
-        final layout = layoutWiringDiagram(topoDevices, fiberLinks, labels,
+        final layout = layoutWiringDiagram(topoDevices, effectiveFiberLinks, labels,
             segLen: 40, uniformScale: 0.5);
         if (layout.nodes.isNotEmpty && layout.path.length >= 2) {
           // 配线图原点：路由图下方干净处
