@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 
 import '../geo/geo_util.dart';
+import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
 import 'csv.dart';
@@ -38,10 +39,19 @@ class ArchiveBookExporter {
     double totalLenM = 0,
     String editMode = 'completion',
     String segPrefix = '', // 段标前缀（如 埋／架）：空串=仅数字；透传自 AppState.segPrefix
+    List<FiberLink> fiberLinks = const [], // 人工光缆拓扑连线（配线图用）
   }) async {
     final archive = Archive();
     final included = <String>[];
     final skipped = <String>[];
+
+    // P1-14：手动拓扑连线也要能画出配线图。未显式传入时，按工程 id
+    // 从工程文件加载（与收藏夹右键导出口径一致）。
+    var links = fiberLinks;
+    if (links.isEmpty && folderId.isNotEmpty) {
+      final raws = await LabelStore.instance.loadCollectionFiberLinks(folderId);
+      links = [for (final m in raws) FiberLink.fromJson(m)];
+    }
 
     // 1) DXF 路由图（复用 DxfExporter；不抓取周边矢量，保证离线可用）
     //    成册资料要交给结算/甲方，兼容性优先级最高 → **固定 R12（AC1009）**，
@@ -55,6 +65,7 @@ class ArchiveBookExporter {
         includeSurroundings: false,
         version: DxfVersion.r12,
         segPrefix: segPrefix,
+        fiberLinks: links,
       );
       final bytes = r.file.readAsBytesSync();
       archive.addFile(ArchiveFile('路由图.dxf', bytes.length, bytes));

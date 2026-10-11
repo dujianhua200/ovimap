@@ -388,8 +388,8 @@ class DxfExporter {
         }
         // 桩号：每杆位置标 K+里程（跨链连续；段距优先用人工确认值）
         if (showStakes) {
-          if (i == 1) _appendStake(c, cart[0][0], cart[0][1], globalCum);
-          _appendStake(c, cart[i][0], cart[i][1], chainCum);
+          if (i == 1) _appendStake(c, cart[0][0], cart[0][1], globalCum, routeScale);
+          _appendStake(c, cart[i][0], cart[i][1], chainCum, routeScale);
         }
       }
       globalCum = chainCum;
@@ -427,22 +427,22 @@ class DxfExporter {
           }
           continue;
         }
+        // 分纤盒（纤）判定：用正规槽位箱符号（10×4.4），2026-10-08 用户要求
+        // 兜底：箱体形状且非分光器/光交/ONU/机房/基站，一律按槽位箱画
+        final isFb = lt.isBox &&
+            (l.typeId == 'fiberbox' ||
+                l.typeId == 'fdcab' ||
+                l.typeId == 'termbox' ||
+                l.name.contains('分纤') ||
+                (l.typeId != 'splitterbox' &&
+                    l.typeId != 'crossbox' &&
+                    l.typeId != 'onubox' &&
+                    l.typeId != 'room' &&
+                    l.typeId != 'bts'));
         String block;
         if (lt.isOval) {
           block = 'HZ_OVAL';
         } else if (lt.isBox) {
-          // 分纤盒（纤）：用正规槽位箱符号（10×4.4），2026-10-08 用户要求
-          // 兜底：箱体形状且非分光器/光交/ONU/机房/基站，一律按槽位箱画
-          final isFb = l.typeId == 'fiberbox' ||
-              l.typeId == 'fdcab' ||
-              l.typeId == 'termbox' ||
-              l.name.contains('分纤') ||
-              (lt.isBox &&
-                  l.typeId != 'splitterbox' &&
-                  l.typeId != 'crossbox' &&
-                  l.typeId != 'onubox' &&
-                  l.typeId != 'room' &&
-                  l.typeId != 'bts');
           block = isFb ? 'HZ_FIBERBOX' : 'HZ_BOX';
         } else if (lt.isTri) {
           block = 'HZ_TRI';
@@ -452,7 +452,14 @@ class DxfExporter {
         // pin 类 = 杆/管等（非 oval/box/tri）：圆圈 + 符号字在圆内。
         final isPin = !lt.isOval && !lt.isBox && !lt.isTri;
         if (lt.isBox || lt.isOval) {
-          if (disp.isNotEmpty) {
+          if (isFb) {
+            // P1-16（2026-10-08 用户定版）：分纤盒永远标准 10×4.4 HZ_FIBERBOX，
+            // 有名字也不按名字长度自适应画框；2槽/4槽仅"2槽位箱/4槽位箱"文字区分，
+            // 与配线图画法一致。名字改注在符号上方（下方名字区，不再丢名）。
+            _appendInsert(c, 'BiaoQian', 'HZ_FIBERBOX', x, y,
+                sx: symScale, sy: symScale);
+            _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
+          } else if (disp.isNotEmpty) {
             var wChars = 0.0;
             for (final ch in disp.runes) {
               wChars += ch < 128 ? 0.55 : 1.0;
@@ -471,8 +478,8 @@ class DxfExporter {
             }
             _appendTextCentered(c, 'BiaoQian', x, y, labelFontM, disp);
           } else {
+            // 非分纤盒的无名箱体/人孔：普通符号（分纤盒已在 isFb 分支处理）
             _appendInsert(c, 'BiaoQian', block, x, y, sx: symScale, sy: symScale);
-            _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
           }
         } else if (isPin) {
           // pin 类（杆/管等）：圆圈 + 符号字在圆内（对齐地图样式；
@@ -492,13 +499,20 @@ class DxfExporter {
         final topoBox = hasTopo && (lt.role >= 1 && lt.role <= 4 || lt.role == 7);
         if (topoBox) {
           _appendHoleDots(c, x, y + holeDotsUpM, l); // 芯线/管孔占用可视化
-          _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
+          // 分纤盒的槽位箱文字已在符号分支画过，这里不再重复
+          if (!isFb) _appendFiberBoxLabel(c, l, x, y, symScale, routeScale);
           continue;
         }
         // 箱体/人孔文字已在框内（上方入框画法）；pin 类符号字已在圆内，
         // 上方只注记点名（有名称才注）；引上（tri）保持符号/名称在上方。
+        // 分纤盒（P1-16）：符号固定为 10×4.4 槽位箱，名字改注在符号上方。
         final pointName = l.name.trim();
         if (isPin) {
+          if (pointName.isNotEmpty) {
+            _text(c, 'BiaoQian', x, y + offUpM, labelFontM, pointName,
+                style: true);
+          }
+        } else if (isFb) {
           if (pointName.isNotEmpty) {
             _text(c, 'BiaoQian', x, y + offUpM, labelFontM, pointName,
                 style: true);
@@ -530,7 +544,9 @@ class DxfExporter {
       try {
         _appendTopoGeo(c, labels, baseLon, baseLat, scaleX, scaleY, version);
       } catch (e) {
-        // 拓扑异常不阻塞路由图导出（如节点数据不全）
+        // 拓扑异常不阻塞路由图导出（如节点数据不全），但必须让用户知道
+        // （P0-7：此前空 catch，用户拿到"成功"的 DXF 却缺配线，会误判功能没生效）
+        warnings.add('地理式配线（拓扑连线）绘制失败，已跳过：$e');
       }
     }
 
@@ -543,12 +559,42 @@ class DxfExporter {
       final byId = {for (final l in labels) l.id: l};
       final synth = <FiberLink>[];
       for (final l in labels) {
-        if (l.topoParentId.isNotEmpty && byId.containsKey(l.topoParentId)) {
-          synth.add(FiberLink(
-            fromDeviceId: l.topoParentId,
-            toDeviceId: l.id,
-          ));
+        final parent = l.topoParentId.isNotEmpty ? byId[l.topoParentId] : null;
+        if (parent == null) continue;
+        // P0-6：ODN 合成的连线必须带业务字段，否则新配线图的型号、
+        // "长xx"、改造工程量标注全部缺失（用户主工作流）。
+        // cableSpec 形如 "架24芯GYTS-01"：敷设前缀 → layMethod，
+        // 芯数 → cores，剩余型号部分 → cableModel
+        // （fullSpec 会自己拼 "N芯"，此处剥离避免 "48芯48芯GYTS"）。
+        var cores =
+            l.cableCores > 0 ? l.cableCores : Topology.parseCores(l.cableSpec);
+        var lay = 0;
+        var model = l.cableSpec.trim();
+        const layPrefixes = {
+          '架空': 1, '架': 1, //
+          '管道': 2, '管': 2, //
+          '埋地': 3, '直埋': 3, '埋': 3, //
+          '引上': 4,
+        };
+        for (final e in layPrefixes.entries) {
+          if (model.startsWith(e.key)) {
+            lay = e.value;
+            model = model.substring(e.key.length);
+            break;
+          }
         }
+        if (cores > 0) {
+          model = model.replaceFirst(RegExp('^$cores\\s*芯'), '');
+        }
+        synth.add(FiberLink(
+          fromDeviceId: l.topoParentId,
+          toDeviceId: l.id,
+          cores: cores,
+          cableModel: model.trim(),
+          layMethod: lay,
+          lengthM: _haversine(parent.lat, parent.lon, l.lat, l.lon),
+          reno: l.reno,
+        ));
       }
       if (synth.isNotEmpty) effectiveFiberLinks = synth;
     }
@@ -571,7 +617,8 @@ class DxfExporter {
         if (wiringExtent[1] < extMinY) extMinY = wiringExtent[1];
         if (wiringExtent[2] > extMaxY) extMaxY = wiringExtent[2];
       } catch (e) {
-        // 拉直配线异常不阻塞主图导出
+        // 拉直配线异常不阻塞主图导出（P0-7：失败要进 warnings，不能静默）
+        warnings.add('拉直配线图绘制失败，已跳过：$e');
       }
     }
 
@@ -686,7 +733,8 @@ class DxfExporter {
           }
         }
       } catch (e) {
-        // 配线图异常不阻塞主图导出
+        // 配线图异常不阻塞主图导出（P0-7：失败要进 warnings，不能静默缺图）
+        warnings.add('配线图绘制失败，已跳过：$e');
       }
     }
 
@@ -706,7 +754,7 @@ class DxfExporter {
     // 2026-10-05：删除标题栏（设计单位/工程名称图框），用户要求。
     _appendFrame(c, extMinX, extMinY, extMaxX, extMaxY);
     if (showLegend) {
-      _appendLegend(c, labels, extMinX, extMinY);
+      _appendLegend(c, labels, extMinX, extMinY, routeScale);
     }
     _appendNorthArrow(c, extMaxX, extMaxY);
 
@@ -955,8 +1003,11 @@ class DxfExporter {
   }
 
   /// 图例栏：图框内左下角，纵向排列本次用到的符号 + 类型名。
+  ///
+  /// P1-15：分纤盒用正规槽位箱符号 HZ_FIBERBOX（10×4.4，与图面一致），
+  /// 不再一刀切 HZ_BOX；字高按纸面毫米换算（此前 3/2.5 裸米数）。
   static void _appendLegend(_Ctx c, List<MapLabel> labels,
-      double minX, double minY) {
+      double minX, double minY, int routeScale) {
     final used = <String>{};
     for (final l in labels) {
       if (l.typeId == 'track' || l.typeId == 'none' || l.typeId == 'text') {
@@ -970,30 +1021,47 @@ class DxfExporter {
     const m = 10.0;
     var y = minY - m + 4;
     final lx = minX - m + 4;
-    _text(c, 'TuQian', lx, y + 6, 3, '图  例');
+    final symScale = routeScale / 1000.0; // 块基准 = 1:1000 纸面 mm（与图面一致）
+    _text(c, 'TuQian', lx, y + 6, _mmOf(3.0, routeScale), '图  例');
     for (final t in ordered) {
       String block;
       if (t.isOval) {
         block = 'HZ_OVAL';
       } else if (t.isBox) {
-        block = 'HZ_BOX';
+        // 与图面同口径：箱体形状且非分光器/光交/ONU/机房/基站 → 分纤盒符号
+        final isFb = t.id == 'fiberbox' ||
+            t.id == 'fdcab' ||
+            t.id == 'termbox' ||
+            (t.id != 'splitterbox' &&
+                t.id != 'crossbox' &&
+                t.id != 'onubox' &&
+                t.id != 'room' &&
+                t.id != 'bts');
+        block = isFb ? 'HZ_FIBERBOX' : 'HZ_BOX';
       } else if (t.isTri) {
         block = 'HZ_TRI';
       } else {
         block = 'HZ_POLE';
       }
-      _appendInsert(c, 'TuQian', block, lx + 2, y);
-      _text(c, 'TuQian', lx + 5, y - 1, 2.5, t.name);
+      _appendInsert(c, 'TuQian', block, lx + 2, y,
+          sx: symScale, sy: symScale);
+      _text(c, 'TuQian', lx + 5, y - 1, _mmOf(2.5, routeScale), t.name);
       y -= 6;
     }
   }
 
-  /// 桩号文字：K0+000 格式（千米 + 米，米保留 1 位小数）。字高 2.5mm。
-  static void _appendStake(_Ctx c, double x, double y, double cum) {
+  /// 桩号文字：K0+000 格式（千米 + 米，米保留 1 位小数）。字高 2.5mm 纸面。
+  ///
+  /// P0-8：字高/偏移一律按**纸面毫米**换算（同类修法见文件头注释）。
+  /// 此前写裸米数（2.5/1.5/3.0），只在 routeScale=1000 时碰巧正确；
+  /// 1:100 时字高 25mm 巨大、1:10000 时 0.25mm 看不见且压线。
+  static void _appendStake(
+      _Ctx c, double x, double y, double cum, int routeScale) {
     final km = cum ~/ 1000;
     final m = cum - km * 1000;
     final mStr = m.toStringAsFixed(1).padLeft(5, '0');
-    _text(c, 'ZhuangHao', x + 1.5, y + 3, 2.5, 'K$km+$mStr');
+    _text(c, 'ZhuangHao', x + _mmOf(1.5, routeScale),
+        y + _mmOf(3.0, routeScale), _mmOf(2.5, routeScale), 'K$km+$mStr');
   }
 
   /// 盘留数字格式：整数或 1 位小数。
@@ -1061,9 +1129,14 @@ class DxfExporter {
     }
 
     // 父子连线 + 段标注
+    // P0-11：与新配线图口径统一——只画**显式** topoParentId 的边。
+    // Topology.buildTree 还会按 seq 自动挂载无父节点的边（含显式 id 悬空/
+    // 成环时的回退）；若把自动边也画出来，同一份数据在路由图 overlay 与
+    // 配线图里就不是同一个拓扑。判定：树边的父 == 显式指定的父，才画。
     for (final n in nodes) {
       final p = n.parent;
       if (p == null) continue;
+      if (n.src.topoParentId.isEmpty || p.src.id != n.src.topoParentId) continue;
       final p1 = pos[p.src.id]!, p2 = pos[n.src.id]!;
       // 粗黑折线（R2000=LWPOLYLINE / R12 经典 POLYLINE 常宽 0.6）
       _appendPolyline(c, 'PeiXianTu', [p1, p2],
