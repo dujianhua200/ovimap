@@ -55,6 +55,7 @@ Future<String> diskFiberLinksRaw(String dir, String cid) async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory dir;
 
   setUp(() {
