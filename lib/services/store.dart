@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+
 import '../geo/geo_util.dart';
 import '../models/map_label.dart';
 import 'app_paths.dart';
@@ -105,6 +107,22 @@ class LabelStore {
   static const kindData = 'data';
   static const kindArea = 'area';
 
+  /// 持久化异常记录（P1-17）：磁盘满 / 权限异常等不再静默吞掉。
+  ///
+  /// 每次写盘/读盘 catch 到异常时追加一条（最多保留 20 条）并 `debugPrint`
+  /// 输出；AppState 经 [persistErrors] 对外暴露，UI 层可据此提示用户
+  /// （store 层无 BuildContext，不能直接 toast）。
+  final List<String> recentPersistErrors = [];
+
+  void _reportPersistError(String op, Object e) {
+    final msg = '$op 持久化异常：$e';
+    recentPersistErrors.add(msg);
+    if (recentPersistErrors.length > 20) {
+      recentPersistErrors.removeRange(0, recentPersistErrors.length - 20);
+    }
+    debugPrint('[ovimap:persist] $msg');
+  }
+
   /// 测试专用：注入基础目录，绕过 path_provider 插件依赖（flutter_test 无插件）。
   /// 注入后本实例所有读写都落在该目录下的 labels/ 等子目录。
   /// 现转调 [AppPaths.setBaseForTest]（唯一磁盘注入点），既有 49 个用例的注入点不破。
@@ -126,22 +144,29 @@ class LabelStore {
 
   // ---- 草稿 ----
 
+  /// [fiberLinks] 为 null 时保留草稿文件里已有的值（非连线编辑路径，如
+  /// mergeProject 只换 labels 不动连线）；传入非 null（含空数组）则按传入值
+  /// 无条件写入——P0-4：清空连线必须落盘空数组，不许 `isNotEmpty` 跳过，
+  /// 否则旧连线会在文件里"复活"。
   Future<void> saveDraft(List<MapLabel> labels,
       [String projectName = '',
       String folderId = '',
       String editMode = 'design',
-      List<Map<String, dynamic>> fiberLinks = const []]) async {
+      List<Map<String, dynamic>>? fiberLinks]) async {
     try {
       final dir = await labelsDir();
+      final links = fiberLinks ?? await loadFiberLinks();
       final o = <String, dynamic>{
         'labels': labels.map((l) => l.toJson()).toList(),
         'projectName': projectName,
         'folderId': folderId,
         'editMode': editMode,
-        if (fiberLinks.isNotEmpty) 'fiberLinks': fiberLinks,
+        'fiberLinks': links,
       };
       await robustWriteAsString(File('${dir.path}/draft.json'), jsonEncode(o));
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('saveDraft', e);
+    }
   }
 
   Future<DraftMeta> loadDraftMeta() async {
@@ -154,7 +179,9 @@ class LabelStore {
       meta.projectName = (o['projectName'] as String?) ?? '';
       meta.folderId = (o['folderId'] as String?) ?? '';
       meta.editMode = (o['editMode'] as String?) ?? 'design';
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('loadDraftMeta', e);
+    }
     return meta;
   }
 
@@ -167,7 +194,8 @@ class LabelStore {
       return (o['labels'] as List)
           .map((e) => MapLabel.fromJson(e as Map<String, dynamic>))
           .toList();
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('loadDraft', e);
       return [];
     }
   }
@@ -182,7 +210,8 @@ class LabelStore {
       final list = o['fiberLinks'] as List?;
       if (list == null) return [];
       return [for (final e in list) (e as Map).cast<String, dynamic>()];
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('loadFiberLinks', e);
       return [];
     }
   }
@@ -192,7 +221,9 @@ class LabelStore {
       final dir = await labelsDir();
       final f = File('${dir.path}/draft.json');
       if (f.existsSync()) f.deleteSync();
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('clearDraft', e);
+    }
   }
 
   // ---- 文件夹 ----
@@ -211,7 +242,9 @@ class LabelStore {
           (o['parentId'] as String?) ?? '',
         ));
       }
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('loadFolders', e);
+    }
     return list;
   }
 
@@ -295,7 +328,9 @@ class LabelStore {
         }
       }
       if (moved > 0) await _saveIndexItems(items);
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('deleteFolder', e);
+    }
     return (doomed.length, moved);
   }
 
@@ -307,7 +342,9 @@ class LabelStore {
           .map((f) => {'id': f.id, 'name': f.name, 'parentId': f.parentId})
           .toList();
       await robustWriteAsString(File('${dir.path}/folders.json'), jsonEncode(arr));
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('_saveFolders', e);
+    }
   }
 
   // ---- 收藏索引 ----
@@ -317,7 +354,8 @@ class LabelStore {
       final items = await _loadIndexItems();
       return items.map(CollectionMeta.fromJson).toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('loadIndex', e);
       return [];
     }
   }
@@ -347,8 +385,12 @@ await robustWriteAsString(
   // ---- 收藏内容 ----
 
   /// 仅更新收藏文件中的 labels（拓扑连接编辑保存用），不动索引元数据。
+  ///
+  /// [fiberLinks] 为 null 时保留文件里已有的连线（updateOverlayLabel /
+  /// topoTap 等只改 labels 的路径）；传入非 null（含空数组）则按传入值
+  /// 无条件覆盖——P0-4：清空连线必须落盘，不许 `isNotEmpty` 跳过。
   Future<void> saveCollectionLabels(String cid, List<MapLabel> labels,
-      {List<Map<String, dynamic>> fiberLinks = const []}) async {
+      {List<Map<String, dynamic>>? fiberLinks}) async {
     final dir = await labelsDir();
     final f = File('${dir.path}/collection_$cid.json');
     if (!f.existsSync()) return;
@@ -357,9 +399,13 @@ await robustWriteAsString(
           Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map);
       o['labels'] = labels.map((l) => l.toJson()).toList();
       // 2026-10-08：收藏工程也要存纤拓扑，否则导出无配线图
-      if (fiberLinks.isNotEmpty) o['fiberLinks'] = fiberLinks;
+      // P0-4：非 null 时无条件写入（空数组也写），否则清空连线后旧值"复活"；
+      // null 时保留文件原有值（见方法文档）。
+      if (fiberLinks != null) o['fiberLinks'] = fiberLinks;
       await robustWriteAsString(f, jsonEncode(o));
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('saveCollectionLabels', e);
+    }
   }
 
   Future<List<MapLabel>> loadCollection(String cid) async {
@@ -371,7 +417,8 @@ await robustWriteAsString(
       return (o['labels'] as List)
           .map((e) => MapLabel.fromJson(e as Map<String, dynamic>))
           .toList();
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('loadCollection', e);
       return [];
     }
   }
@@ -387,7 +434,8 @@ await robustWriteAsString(
       final list = o['fiberLinks'] as List?;
       if (list == null) return [];
       return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('loadCollectionFiberLinks', e);
       return [];
     }
   }
@@ -399,7 +447,8 @@ await robustWriteAsString(
       if (!f.existsSync()) return kindLabel;
       final o = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       return (o['kind'] as String?) ?? kindLabel;
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('loadCollectionKind', e);
       return kindLabel;
     }
   }
@@ -411,7 +460,8 @@ await robustWriteAsString(
       if (!f.existsSync()) return '';
       final o = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       return (o['name'] as String?) ?? '';
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('loadCollectionName', e);
       return '';
     }
   }
@@ -424,7 +474,9 @@ await robustWriteAsString(
       final items = await _loadIndexItems();
       final out = items.where((m) => cid != (m['id'] as String?)).toList();
       await _saveIndexItems(out);
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('deleteCollection', e);
+    }
   }
 
   // ---- 云同步（T13/T16）：原文读写 + 远端落盘。均为**纯加法**，不改既有语义。
@@ -438,7 +490,8 @@ await robustWriteAsString(
       final f = File('${dir.path}/collection_$cid.json');
       if (!f.existsSync()) return null;
       return await f.readAsString();
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('readCollectionRaw', e);
       return null;
     }
   }
@@ -454,7 +507,9 @@ await robustWriteAsString(
           Map<String, dynamic>.from(jsonDecode(await f.readAsString()) as Map);
       o['_sync'] = syncTag;
       await robustWriteAsString(f, jsonEncode(o));
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('writeSyncTag', e);
+    }
   }
 
   /// 把远端快照落盘为本地工程（云同步拉取/冲突覆盖用）。
@@ -474,7 +529,8 @@ await robustWriteAsString(
     Map<String, dynamic> o;
     try {
       o = Map<String, dynamic>.from(jsonDecode(payload) as Map);
-    } catch (_) {
+    } catch (e) {
+      _reportPersistError('applyRemoteCollection', e);
       o = <String, dynamic>{};
     }
     o['id'] = cid;
@@ -529,7 +585,9 @@ await robustWriteAsString(
         if (cid == (o['id'] as String?)) o['folder'] = folderId;
       }
       await _saveIndexItems(items);
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('moveCollection', e);
+    }
   }
 
   /// 重命名收藏项目（同时更新 collection 文件内的 name）。
@@ -548,7 +606,9 @@ await robustWriteAsString(
         o['name'] = newName;
         await robustWriteAsString(f, jsonEncode(o));
       }
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('renameCollection', e);
+    }
   }
 
   /// 收藏项目线样式（颜色 ARGB / 宽度 dp），存入索引。
@@ -562,7 +622,9 @@ await robustWriteAsString(
         }
       }
       await _saveIndexItems(items);
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('setCollectionStyle', e);
+    }
   }
 
   /// 更新索引中的点数（导入节点后同步）
@@ -573,7 +635,9 @@ await robustWriteAsString(
         if (cid == (o['id'] as String?)) o['count'] = count;
       }
       await _saveIndexItems(items);
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('setCollectionCount', e);
+    }
   }
 
   Future<void> setCollectionDesc(String cid, String desc) async {
@@ -583,7 +647,9 @@ await robustWriteAsString(
         if (cid == (o['id'] as String?)) o['desc'] = desc;
       }
       await _saveIndexItems(items);
-    } catch (_) {}
+    } catch (e) {
+      _reportPersistError('setCollectionDesc', e);
+    }
   }
 
   /// 保存收藏（新建或更新）。
@@ -591,6 +657,9 @@ await robustWriteAsString(
   /// [clearDraftNow] 默认 true（正常保存收藏后清空草稿，行为不变）。
   /// 传 false 用于「临时点直接入收藏」等不经过草稿的保存场景——
   /// 保留用户正在编辑的草稿不被误清。
+  ///
+  /// [fiberLinks]：P0-2/P0-4 整文件重写必须带上（无条件写入，空数组也写，
+  /// 否则文件中残留的旧连线会在清空后"复活"）。
   Future<String> finishCollection({
     String existingId = '',
     required String name,
@@ -598,6 +667,7 @@ await robustWriteAsString(
     required String folderId,
     required String editMode,
     required List<MapLabel> labels,
+    List<Map<String, dynamic>> fiberLinks = const [],
     bool clearDraftNow = true,
   }) async {
     final cid = existingId.isEmpty ? MapLabel().id : existingId;
@@ -610,6 +680,7 @@ await robustWriteAsString(
       'folderId': folderId,
       'editMode': editMode,
       'labels': labels.map((l) => l.toJson()).toList(),
+      'fiberLinks': fiberLinks,
     };
     if (kindData == kind) {
       final segs = <Map<String, dynamic>>[];

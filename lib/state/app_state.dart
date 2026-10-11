@@ -81,9 +81,19 @@ class AppState extends ChangeNotifier {
       if (activeCollectionId == cid) {
         labels =
             (await store.loadCollection(cid)).map((e) => e.clone()).toList();
+        // P1-18：连线与拓扑关系同属工程数据，必须一起重载，否则同步后
+        // 导出仍用旧连线/旧拓扑。
+        fiberLinks = [
+          for (final j in await store.loadCollectionFiberLinks(cid))
+            FiberLink.fromJson(j)
+        ];
       }
       if (visibleCids.contains(cid)) {
         overlayLabels[cid] = await store.loadCollection(cid);
+      }
+      // 拓扑连线模式正连着该工程：topoColl 同样重载，保持与文件一致。
+      if (topoCid == cid) {
+        topoColl = await store.loadCollection(cid);
       }
       notifyListeners();
     };
@@ -605,6 +615,8 @@ class AppState extends ChangeNotifier {
         folderId: fm.folder,
         editMode: fm.editMode,
         labels: from,
+        // P0-2：整文件重写必须带回该工程自己的连线，否则静默丢弃。
+        fiberLinks: await store.loadCollectionFiberLinks(fromCid),
       );
     }
 
@@ -621,6 +633,8 @@ class AppState extends ChangeNotifier {
         folderId: tm.folder,
         editMode: tm.editMode,
         labels: toLabels,
+        // P0-2：同上，目标工程的既有连线予以保留。
+        fiberLinks: await store.loadCollectionFiberLinks(toCid),
       );
     } else {
       // 防御：索引缺失时按「标记」工程兜底创建，不丢点。
@@ -659,13 +673,21 @@ class AppState extends ChangeNotifier {
     }
     List<MapLabel> ls;
     String cid;
+    // P0-2：整文件重写必须带回「标记」收藏既有的连线（移动标记不丢配线）。
+    List<Map<String, dynamic>> keepLinks = const [];
     if (meta == null) {
       ls = [l];
       cid = await store.finishCollection(
-          name: kMarkBook, kind: 'mark', folderId: '', editMode: 'design', labels: ls);
+          name: kMarkBook,
+          kind: 'mark',
+          folderId: '',
+          editMode: 'design',
+          labels: ls,
+          fiberLinks: keepLinks);
     } else {
       cid = meta.id;
       ls = await store.loadCollection(cid);
+      keepLinks = await store.loadCollectionFiberLinks(cid);
       l.seq = ls.length + 1;
       ls.add(l);
       await store.finishCollection(
@@ -674,7 +696,8 @@ class AppState extends ChangeNotifier {
           kind: 'mark',
           folderId: '',
           editMode: 'design',
-          labels: ls);
+          labels: ls,
+          fiberLinks: keepLinks);
     }
     await refreshCollections();
     // 自动在地图上显示（首点自动开显，后续保持）。
@@ -794,11 +817,15 @@ class AppState extends ChangeNotifier {
   void clearDraft() {
     pushUndoSnapshot();
     labels.clear();
+    // P0-1：清空草稿时连线一并清空，否则旧连线残留并随下一次 _saveDraft 落盘。
+    fiberLinks = [];
     _saveDraft();
     notifyListeners();
   }
 
   void markHere() {
+    // P1-7：参与撤销快照，否则一次撤销可能删多笔（退到更早的快照）。
+    pushUndoSnapshot();
     final lat = curLat ?? initLat;
     final lon = curLon ?? initLon;
     final l = MapLabel(
@@ -888,12 +915,35 @@ class AppState extends ChangeNotifier {
   /// 任何改 `labels` 的路径只要调了本方法就不会再漏。
   ///
   /// [topoCid] 非空时由拓扑编辑流程自己落盘（见 [updateLabel] 的历史口径），不在这里抢。
+  ///
+  /// ## 串行化（P0-9）
+  /// 本方法是同步 void，内部落盘是异步的：快速连打两点会产生两次全文件写，
+  /// 必须按调用顺序完成——旧快照绝不能覆盖新快照。实现为 Future 链式队列；
+  /// 单次失败只记日志（见 store 的持久化异常上报），不打断后续保存。
+  /// 测试/调试可用 [saveIdle] 等待队列排空。
+  Future<void> _saveChain = Future<void>.value();
+
+  /// 等待 [_saveDraft] 保存队列排空。
+  Future<void> get saveIdle => _saveChain;
+
+  /// 持久化异常内存日志（P1-17 的落点之一）：store 层无 BuildContext 不能
+  /// 直接 toast，异常先记在这里 + debugPrint，UI 层可按需取用提示用户。
+  List<String> get persistErrors => store.recentPersistErrors;
+
   void _saveDraft() {
-    store.saveDraft(labels, projectName, folderId, editModeName,
+    _saveChain = _saveChain.then((_) => _doSaveDraft());
+    // 队列本身永不带错完成：单次保存失败只记日志，后续保存照常执行。
+    _saveChain = _saveChain.catchError((Object e) {
+      debugPrint('[ovimap] 保存队列捕获异常（已隔离，不影响后续保存）：$e');
+    });
+  }
+
+  Future<void> _doSaveDraft() async {
+    await store.saveDraft(labels, projectName, folderId, editModeName,
         [for (final l in fiberLinks) l.toJson()]);
     if (activeCollectionId.isNotEmpty && topoCid.isEmpty) {
       // 2026-10-08：收藏工程同步存纤拓扑，导出才有配线图
-      store.saveCollectionLabels(activeCollectionId, labels,
+      await store.saveCollectionLabels(activeCollectionId, labels,
           fiberLinks: [for (final l in fiberLinks) l.toJson()]);
     }
   }
@@ -920,7 +970,7 @@ class AppState extends ChangeNotifier {
     activeCollectionId = '';
     _openedForEdit = false;
     _chainBroken = true; // 新建空白工程：从零开始画
-    clearDraft();
+    clearDraft(); // 含 fiberLinks = []（P0-1：不留上一个工程的连线）
     projectName = '';
     folderId = '';
     _saveDraft();
@@ -1406,9 +1456,16 @@ class AppState extends ChangeNotifier {
     activeCollectionId = meta.id;
     _openedForEdit = true;
     _chainBroken = true; // 打开收藏：新打的第一笔绝不接在收藏末端
+    // P0-1：打开工程必须加载它自己的连线，否则内存里还是上一个工程的，
+    // 随后一次 _saveDraft 会把 A 的连线写进 B 的文件（跨工程泄漏）。
+    fiberLinks = [
+      for (final j in await store.loadCollectionFiberLinks(meta.id))
+        FiberLink.fromJson(j)
+    ];
     mode = AppMode.edit;
     // 收藏打开即作为草稿继续编辑（保存时覆盖原收藏）
-    await store.saveDraft(labels, projectName, folderId, editModeName);
+    await store.saveDraft(labels, projectName, folderId, editModeName,
+        [for (final l in fiberLinks) l.toJson()]);
     notifyListeners();
     // 打开工程时拉取该工程最新（若服务端 rev 更新，落盘后经 onRemoteApplied 重载）。
     unawaited(syncController?.pullProject(meta.id) ?? Future<void>.value());
@@ -1430,11 +1487,15 @@ class AppState extends ChangeNotifier {
       folderId: folderId,
       editMode: editModeName,
       labels: labels,
+      // P0-2：整文件重写必须带上连线，否则文件中原有连线被静默丢弃。
+      fiberLinks: [for (final l in fiberLinks) l.toJson()],
     );
     // 保存后复位：下一次保存是全新工程，不会误覆盖
     activeCollectionId = '';
     _openedForEdit = false;
     labels = [];
+    // P0-1：内存连线随工程一起复位，否则打开下一个工程时仍是这批连线。
+    fiberLinks = [];
     mode = AppMode.view;
     await refreshCollections();
     if (updating) {
@@ -1546,6 +1607,14 @@ class AppState extends ChangeNotifier {
       final folder =
           (o['folderId'] as String?) ?? (o['folder'] as String?) ?? '';
       final editMode = (o['editMode'] as String?) ?? 'design';
+      // P0-10：导出写了 fiberLinks，导入必须读回，否则往返一次丢配线。
+      final rawLinks = o['fiberLinks'];
+      final linkJsons = <Map<String, dynamic>>[];
+      if (rawLinks is List) {
+        for (final e in rawLinks) {
+          if (e is Map) linkJsons.add(Map<String, dynamic>.from(e));
+        }
+      }
       final cid = await store.finishCollection(
         existingId: '',
         name: name,
@@ -1553,6 +1622,7 @@ class AppState extends ChangeNotifier {
         folderId: folder,
         editMode: editMode,
         labels: labels,
+        fiberLinks: linkJsons,
         clearDraftNow: false,
       );
       await refreshCollections();
@@ -1561,7 +1631,8 @@ class AppState extends ChangeNotifier {
         orElse: () => CollectionMeta(id: cid, name: name, kind: kind),
       );
       await openCollection(meta);
-      return '已导入并打开工程「$name」（${labels.length} 点）';
+      final linkInfo = linkJsons.isEmpty ? '' : '、${linkJsons.length} 条连线';
+      return '已导入并打开工程「$name」（${labels.length} 点$linkInfo）';
     } catch (e) {
       return '导入工程失败：$e';
     }
@@ -1579,6 +1650,26 @@ class AppState extends ChangeNotifier {
         '${dir.path}/${sanitizeName(nm.isEmpty ? '未命名工程' : nm)}.ovimap');
     await robustWriteAsString(f, raw);
     return f;
+  }
+
+  /// 导出数据源单一入口（P0-5）。
+  ///
+  /// 编辑器内"导出"与收藏夹右键"导出"曾经读两套数据源（内存 st.labels /
+  /// st.fiberLinks vs 磁盘文件），同一工程导出结果可能不一致，验收口径不唯一。
+  /// 今后两处导出入口都必须走本方法：**以磁盘文件为准**（含 labels +
+  /// fiberLinks），返回同一套数据。
+  ///
+  /// 注意：未保存的新草稿（无 cid）不在本方法覆盖范围，仍走内存；但 _saveDraft
+  /// 每次编辑都同步落盘，草稿文件与内存一致。
+  Future<({List<MapLabel> labels, List<FiberLink> fiberLinks, String name})>
+      resolveExportData(String cid) async {
+    final labels = await store.loadCollection(cid);
+    final fiberLinks = [
+      for (final j in await store.loadCollectionFiberLinks(cid))
+        FiberLink.fromJson(j)
+    ];
+    final name = await store.loadCollectionName(cid);
+    return (labels: labels, fiberLinks: fiberLinks, name: name);
   }
 
   /// 把一个临时点直接保存为独立收藏工程（R4 搜索临时标记「加入收藏」用）。
@@ -1905,9 +1996,23 @@ class AppState extends ChangeNotifier {
     target.topoParentId = topoSelId!;
     topoSelId = null;
     store.saveCollectionLabels(topoCid, topoColl);
+    _mirrorTopoParentsToDraft();
     notifyListeners();
     return '已连接：${src.name.isNotEmpty ? src.name : src.type.name} → '
         '${target.name.isNotEmpty ? target.name : target.type.name}';
+  }
+
+  /// P0-3：topoTap 只改独立的 topoColl、st.labels 不动；若该工程正被编辑器
+  /// 打开（activeCollectionId == topoCid），必须把 topoParentId 同步写回
+  /// st.labels——否则随后一次 _saveDraft 会用旧 labels 全量覆盖收藏文件，
+  /// 刚连好的 ODN 拓扑关系被静默擦除（"连好的线莫名其妙没了"）。
+  void _mirrorTopoParentsToDraft() {
+    if (topoCid.isEmpty || activeCollectionId != topoCid) return;
+    final parentOf = {for (final l in topoColl) l.id: l.topoParentId};
+    for (final l in labels) {
+      final p = parentOf[l.id];
+      if (p != null) l.topoParentId = p;
+    }
   }
 
   void undoTopoLink() {
@@ -1923,6 +2028,7 @@ class AppState extends ChangeNotifier {
       }
     }
     store.saveCollectionLabels(topoCid, topoColl);
+    _mirrorTopoParentsToDraft(); // P0-3：同 topoTap，撤销也要写回草稿
     notifyListeners();
   }
 
