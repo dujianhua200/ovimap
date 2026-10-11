@@ -21,20 +21,25 @@ import 'design_tokens.dart';
 Future<void> openExportCenter(BuildContext context, AppState st) async {
   List<MapLabel> labels;
   String name;
+  // P1-1：来源条——按实际用的数据源如实显示，不硬编码。
+  String source;
   if (st.mode == AppMode.topoLink) {
     labels = st.topoColl;
     final nm = await st.store.loadCollectionName(st.topoCid);
     name = nm.isEmpty ? '配线' : nm;
+    source = '拓扑连线集合';
   } else if (st.labels.isNotEmpty) {
     labels = st.labels;
     name = st.projectName.isEmpty ? '当前草稿' : st.projectName;
+    // 编辑收藏工程时 st.labels 即该工程的点：来源记为收藏工程，而非草稿。
+    source = st.activeCollectionId.isNotEmpty ? '收藏工程' : '当前草稿';
   } else {
     toast(context, '没有可导出的数据');
     return;
   }
   if (!context.mounted) return;
   await showExportDialog(context, labels, name,
-      segPrefix: st.segPrefix, fiberLinks: st.fiberLinks);
+      segPrefix: st.segPrefix, fiberLinks: st.fiberLinks, source: source);
 }
 
 /// 成册对象：当前草稿（[draft]=true）或某个收藏工程。

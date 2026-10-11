@@ -878,7 +878,10 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
 Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
     String name,
     {String segPrefix = '',
-    List<FiberLink> fiberLinks = const []}) async {
+    List<FiberLink> fiberLinks = const [],
+    // P1-1：数据源来源条——调用方如实传入（当前草稿/收藏工程/拓扑连线集合），
+    // 空=未知来源，不渲染来源条。
+    String source = ''}) async {
   if (labels.isEmpty) {
     toast(context, '没有可导出的数据');
     return;
@@ -893,10 +896,12 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (source.isNotEmpty)
+              _exportSourceBar(name, labels.length, source),
             _exportTile('📐 DXF 路由图（CAD 可直接打开）', () async {
               Navigator.pop(context);
               await showDxfOptions(context, labels, name,
-                  segPrefix: segPrefix, fiberLinks: fiberLinks);
+                  segPrefix: segPrefix, fiberLinks: fiberLinks, source: source);
             }),
             _exportTile('🌍 KML（谷歌地球 / 奥维）', () async {
               Navigator.pop(context);
@@ -965,6 +970,22 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
   );
 }
 
+/// P1-1：导出对话框顶部来源条——"导出对象：XXX（N 个点）· 来源：…"
+/// `source` 由调用方按实际数据源如实传入（当前草稿/收藏工程/拓扑连线集合），不硬编码。
+Widget _exportSourceBar(String name, int count, String source) => Container(
+      width: double.maxFinite,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: TokC.field,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '导出对象：$name（$count 个点）· 来源：$source',
+        style: const TextStyle(color: kTextSub, fontSize: 12),
+      ),
+    );
+
 Widget _exportTile(String title, VoidCallback onTap) => InkWell(
       onTap: onTap,
       child: Container(
@@ -983,10 +1004,45 @@ Widget _exportTile(String title, VoidCallback onTap) => InkWell(
       ),
     );
 
+/// P1-4：配线图数据源标注——与 lib/export/dxf.dart 的生效口径一致。
+///
+/// - 人工连线：fiberLinks 非空（人工光缆拓扑编辑器建的连线）；
+/// - ODN 拓扑：任一点 topoParentId 非空（dxf.dart `hasTopo` 同口径）；
+/// - 两者同时存在：导出以人工连线为准，ODN 拓扑被忽略（dxf.dart：fiberLinks
+///   非空时不再从 ODN 合成）。此处只做 UI 展示，优先级逻辑不动。
+({bool manual, bool odn}) _wiringSources(
+    List<MapLabel> labels, List<FiberLink> fiberLinks) {
+  final manual = fiberLinks.isNotEmpty;
+  var odn = false;
+  for (final l in labels) {
+    if (l.topoParentId.isNotEmpty) {
+      odn = true;
+      break;
+    }
+  }
+  return (manual: manual, odn: odn);
+}
+
+/// P1-5：新配线图（useNewWiring）是否会生效——与 dxf.dart 同口径：
+/// 人工连线非空，或 ODN 父子能合成至少一条有效连线（父 id 实际存在）。
+bool _newWiringWillRender(List<MapLabel> labels, List<FiberLink> fiberLinks) {
+  if (fiberLinks.isNotEmpty) return true;
+  final ids = {for (final l in labels) l.id};
+  for (final l in labels) {
+    if (l.topoParentId.isNotEmpty && ids.contains(l.topoParentId)) return true;
+  }
+  return false;
+}
+
 Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
     String name,
     {String segPrefix = '',
-    List<FiberLink> fiberLinks = const []}) async {
+    List<FiberLink> fiberLinks = const [],
+    // P1-1：与 showExportDialog 同口径的来源条（DXF 选项是第二层对话框，同样要写清来源）。
+    String source = ''}) async {
+  // P1-4/P1-5：配线图数据源与新配线图生效判定（口径见上方 helper）。
+  final wiringSrc = _wiringSources(labels, fiberLinks);
+  final hasNewWiring = _newWiringWillRender(labels, fiberLinks);
   // 选项记忆：下次导出默认沿用上次勾选
   final prefs = await SharedPreferences.getInstance();
   bool opt(String k, bool def) => prefs.getBool(k) ?? def;
@@ -1186,6 +1242,8 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+          // P1-1：DXF 选项顶部同样写清"导出谁"。
+          if (source.isNotEmpty) _exportSourceBar(name, labels.length, source),
           CheckboxListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
@@ -1222,14 +1280,36 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             activeColor: kAccent,
             onChanged: (v) => setSt(() => redline = v ?? false),
           ),
+          // P1-4：配线图数据来源标注（人工连线 / ODN 拓扑 / 无）；两者冲突时警告。
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Text(
+              '配线图数据来源：'
+              '${wiringSrc.manual && wiringSrc.odn ? '人工连线 + ODN 拓扑' : wiringSrc.manual ? '人工连线' : wiringSrc.odn ? 'ODN 拓扑' : '无（不绘制配线图）'}',
+              style: const TextStyle(color: kTextSub, fontSize: 12),
+            ),
+          ),
+          if (wiringSrc.manual && wiringSrc.odn)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 4),
+              child: Text('⚠ 人工连线与 ODN 拓扑同时存在，导出以人工连线为准，ODN 拓扑连线将被忽略。',
+                  style: TextStyle(color: TokC.warn, fontSize: 11.5)),
+            ),
           CheckboxListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: const Text('附加拉直沿线配线图（长杆路分幅）',
                 style: TextStyle(color: kTextMain, fontSize: 13)),
+            // P1-5：新配线图会生效时禁用（老拉直图此时走不到），并附注原因。
+            subtitle: hasNewWiring
+                ? const Text('已有拓扑配线图，此选项不生效',
+                    style: TextStyle(color: kTextSub, fontSize: 11))
+                : null,
             value: straightened,
             activeColor: kAccent,
-            onChanged: (v) => setSt(() => straightened = v ?? false),
+            onChanged: hasNewWiring
+                ? null
+                : (v) => setSt(() => straightened = v ?? false),
           ),
           CheckboxListTile(
             dense: true,
@@ -2254,7 +2334,8 @@ Future<void> showTopoGuide(BuildContext context) => showDarkDialog(
           '1. 画杆路：正常放置水泥杆/人孔等，自动连线。\n\n'
           '2. 放箱体：光交、分光器箱、分纤盒、ONU箱、机房、基站、引上是独立点，'
           '不会打断杆路线，画完杆路后单独放置即可。\n\n'
-          '3. 保存项目后：收藏夹项目右侧点「⚡拓扑」。\n\n'
+          '3. 保存项目后：在收藏夹里找到该工程 → 点行尾「⋯」→「拓扑连线」'
+          '（桌面端也可点工具栏「连线路（拓扑）」按钮）。\n\n'
           '4. 连线：点起点箱体（如光交）→ 点终点箱体（如分光箱）→ 选光缆规格'
           '（6芯/12芯/24芯/48芯…）→ 保存；重复直到全部连完。可「撤销连线」。\n\n'
           '5. 出图：导出里选 DXF（路由图+配线图同图框）/ 配线拓扑图 PNG / 芯线占用表。\n\n'

@@ -393,11 +393,20 @@ Future<bool> deleteSelectedTreeNodes(
     return false;
   }
   if (!context.mounted) return false;
+  // P1-10：预先提示——工程未打开的标记会被跳过（deleteMarksBatch 按 cid 查内存），
+  // 在确认框里先说清楚 N 个将被跳过，而不是事后 toast。
+  var unopenedMarkCount = 0;
+  for (final (cid, _) in marks) {
+    if (st.overlayLabels[cid] == null) unopenedMarkCount++;
+  }
   final ok = await askConfirm(context,
       title: '删除所选',
       content: '将把 ${folders.length} 个文件夹、${projects.length} 个工程'
           '移入回收站${marks.isNotEmpty ? '，并直接删除 ${marks.length} 个标记' : ''}。\n'
-          '文件夹与工程可在回收站还原。确定？',
+          '文件夹与工程可在回收站还原'
+          // P1-9：标记走纯内存撤销栈（重启清空），文案如实说明。
+          '${marks.isNotEmpty ? '；标记删除仅本次会话可撤销，重启后无法找回' : ''}'
+          '${unopenedMarkCount > 0 ? '；其中 $unopenedMarkCount 个标记所在工程未打开，将被跳过' : ''}。确定？',
       okText: '删除');
   if (!ok || !context.mounted) return false;
   var failCount = 0;

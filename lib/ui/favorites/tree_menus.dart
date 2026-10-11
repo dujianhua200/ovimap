@@ -313,7 +313,7 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
       ];
       if (!context.mounted) return;
       await showExportDialog(context, List.of(labels), node.name,
-          segPrefix: st.segPrefix, fiberLinks: fiberLinks);
+          segPrefix: st.segPrefix, fiberLinks: fiberLinks, source: '收藏工程');
       break;
     }
 
@@ -369,8 +369,18 @@ Future<void> _deleteNode(BuildContext context, FavTreeController c,
     }
     if (context.mounted) toast(context, '「${node.name}」已移入回收站');
   } else if (node.isMark && node.label != null) {
+    final cid = node.labelCid ?? '';
+    // P1-10：预先提示——工程未打开时单点删除同样删不动（removeOverlayLabel
+    // 按 cid 查内存，无该 cid 直接返回），确认框里先说清楚，避免"以为删了"。
+    final unopened = st.overlayLabels[cid] == null;
+    // P1-9：标记走纯内存撤销栈（重启清空），文案如实说明。
+    var content = '将删除标记「${node.name}」。标记删除仅本次会话可撤销，'
+        '重启后无法找回。确定？';
+    if (unopened) {
+      content = '「${node.name}」所在工程未打开，将被跳过（无法删除）。\n$content';
+    }
     final ok = await askConfirm(context,
-        title: '删除标记', content: '将删除标记「${node.name}」。确定？',
+        title: '删除标记', content: content,
         okText: '删除');
     if (!ok || !context.mounted) return;
     await st.removeOverlayLabel(node.labelCid ?? '', node.label!);
@@ -378,9 +388,18 @@ Future<void> _deleteNode(BuildContext context, FavTreeController c,
   } else if (node.isChain) {
     final members = await c.childrenOf(node.id);
     if (!context.mounted) return;
+    // P1-10：线组成员走同样的单点删除路径，工程未打开同样删不动，先提示。
+    final chainCid = node.chainCid ?? '';
+    final chainUnopened = st.overlayLabels[chainCid] == null;
+    var chainContent = '将删除「${node.name}」（${members.length} 点）。'
+        '标记删除仅本次会话可撤销，重启后无法找回。确定？';
+    if (chainUnopened) {
+      chainContent = '「${node.name}」所在工程未打开，将被跳过（无法删除）。\n'
+          '$chainContent';
+    }
     final ok = await askConfirm(context,
         title: '删除线组',
-        content: '将删除「${node.name}」（${members.length} 点）。确定？',
+        content: chainContent,
         okText: '删除');
     if (!ok || !context.mounted) return;
     final cid = node.chainCid ?? '';

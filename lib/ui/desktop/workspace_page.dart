@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../../geo/geo_util.dart';
 import '../../models/map_label.dart';
+import '../../services/store.dart';
 import '../../odn/odn_viewer.dart';
 import '../../services/export_saver.dart';
 import '../../services/file_drop.dart';
@@ -254,15 +255,75 @@ class _WorkspacePageState extends State<WorkspacePage> {
       st.endTopoLink();
       return;
     }
+    // P1-6：先无副作用地收集候选工程（startTopoLink 成功即进入拓扑模式，
+    // 不能拿它当探测器挨个试），多工程时弹框让用户选，不再静默进第一个。
+    final candidates = <CollectionMeta>[];
     for (final m in st.collections) {
-      final ok = await st.startTopoLink(m);
+      final ls = await st.store.loadCollection(m.id);
       if (!mounted) return;
-      if (ok) {
-        toast(context, '拓扑连线：点起点箱体 → 点终点箱体');
-        return;
-      }
+      if (ls.any((l) => l.type.isTopoLinkable)) candidates.add(m);
     }
-    toast(context, '没有含可连线箱体（光交/分纤盒/分光器箱/ONU/机房/基站/引上）的收藏工程');
+    if (candidates.isEmpty) {
+      toast(context,
+          '没有含可连线箱体（光交/分纤盒/分光器箱/ONU/机房/基站/引上）的收藏工程');
+      return;
+    }
+    CollectionMeta pick;
+    if (candidates.length == 1) {
+      // P1-6：只有一个候选时 toast 带工程名，不静默自动进。
+      pick = candidates.single;
+    } else {
+      final sel = await _pickTopoProject(context, candidates);
+      if (!mounted || sel == null) return;
+      pick = sel;
+    }
+    final ok = await st.startTopoLink(pick);
+    if (!mounted) return;
+    final pickName = pick.name.isEmpty ? '未命名' : pick.name;
+    toast(context,
+        ok ? '拓扑连线「$pickName」：点起点箱体 → 点终点箱体' : '进入拓扑连线失败');
+  }
+
+  /// P1-6：多个候选工程时，让用户选择进哪个工程做拓扑连线。
+  Future<CollectionMeta?> _pickTopoProject(
+      BuildContext context, List<CollectionMeta> candidates) async {
+    CollectionMeta? picked;
+    await showDarkDialog(
+      context,
+      title: '选择拓扑连线工程',
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('多个工程含可连线箱体，请选择要连线的工程：',
+              style: TextStyle(color: kTextSub, fontSize: 12)),
+          const SizedBox(height: 8),
+          Flexible(
+            child: ListView(shrinkWrap: true, children: [
+              for (final m in candidates)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.account_tree_outlined,
+                      color: kAccent, size: 20),
+                  title: Text(m.name.isEmpty ? '未命名' : m.name,
+                      style:
+                          const TextStyle(color: kTextMain, fontSize: 13.5)),
+                  subtitle: Text('${m.count} 点',
+                      style:
+                          const TextStyle(color: kTextSub, fontSize: 11)),
+                  onTap: () {
+                    picked = m;
+                    Navigator.pop(context);
+                  },
+                ),
+            ]),
+          ),
+        ]),
+      ),
+      actions: [
+        darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+      ],
+    );
+    return picked;
   }
 
   void _track() {
@@ -1399,13 +1460,16 @@ class _WorkspacePageState extends State<WorkspacePage> {
               : '$n 点（至少 3 点）',
         );
       case AppMode.topoLink:
+        // P1-11：分母只计箱体类点位（杆/井等非箱体不计入）。
+        final boxes =
+            st.topoColl.where((l) => l.type.isTopoLinkable).toList();
         final linked =
-            st.topoColl.where((l) => l.topoParentId.isNotEmpty).length;
+            boxes.where((l) => l.topoParentId.isNotEmpty).length;
         return (
           '拓扑连线',
           const Color(0xFFFFCC80),
           '点起点箱体 → 点终点箱体 · Backspace 退一条连线 · 完成 (Esc) 结束',
-          '已连 $linked / ${st.topoColl.length} 个箱体',
+          '已连 $linked / ${boxes.length} 个箱体',
         );
       case AppMode.boxSelect:
         return (

@@ -617,8 +617,9 @@ class TrashPage extends StatelessWidget {
   Future<void> _confirmEmpty(BuildContext context) async {
     final ok = await askConfirm(context,
         title: '清空回收站',
+        // P1-12：emptyTrash 实际走撤销栈（可撤销），去掉"无法恢复"类表述。
         content:
-            '将彻底删除回收站中的 ${trash.items.length} 项，无法恢复。确定？',
+            '将清空回收站中的 ${trash.items.length} 项（可撤销）。确定？',
         okText: '清空');
     if (ok && context.mounted) {
       await trash.emptyTrash();

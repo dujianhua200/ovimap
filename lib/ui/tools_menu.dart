@@ -44,14 +44,8 @@ Future<void> showToolsMenu(
             }
           }),
           sheetGroupTitle('专业工具'),
-          sheetTile(context, '采集设置（杆路自动编号）',
-              () => showCollectionSettings(context, st)),
-          sheetTile(context, '工程模板（架空/管道/箱体配线）',
-              () => showTemplateDialog(context, st)),
-          sheetTile(context, '杆路轨迹核查（查漏杆/错位）', onTrackCheck),
-          sheetTile(context, '拓扑连线指引', () => showTopoGuide(context)),
-          sheetTile(context, 'ODN 拓扑图', onOdnTopo),
-          sheetTile(context, '光缆拓扑编辑器（人工）', () {
+          // P1-2：人工拓扑提到专业工具组顶部，并改名与 ODN 拓扑连线区分。
+          sheetTile(context, '人工光缆拓扑（逐条连线）', () {
             final devices = topoLinkableDevices(st.labels);
             Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => TopoEditorPage(
@@ -63,6 +57,13 @@ Future<void> showToolsMenu(
               ),
             ));
           }),
+          sheetTile(context, '采集设置（杆路自动编号）',
+              () => showCollectionSettings(context, st)),
+          sheetTile(context, '工程模板（架空/管道/箱体配线）',
+              () => showTemplateDialog(context, st)),
+          sheetTile(context, '杆路轨迹核查（查漏杆/错位）', onTrackCheck),
+          sheetTile(context, '拓扑连线指引', () => showTopoGuide(context)),
+          sheetTile(context, 'ODN 拓扑连线（地图点选）', onOdnTopo),
         ],
       ),
     ),

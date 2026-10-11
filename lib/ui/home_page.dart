@@ -692,7 +692,7 @@ class _HomePageState extends State<HomePage> {
                         editing
                             ? '「${st.projectName}」的 ${st.labels.length} 个点将被清空，'
                                 '并同步写回收藏（误清可撤销）。'
-                            : '确定删除当前 ${st.labels.length} 个未保存的点？',
+                            : '将清空草稿 ${st.labels.length} 个点（可撤销）。',
                         style:
                             const TextStyle(color: kTextMain, fontSize: 13)),
                     actions: [
