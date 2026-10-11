@@ -27,7 +27,6 @@ void main() {
         includeSurroundings: true,
         basemap: buildSyntheticBasemap(),
         version: v,
-        straightenedWiring: true,
       );
       final text = gbk_bytes.decode(r.file.readAsBytesSync());
       final problems = DxfStructureValidator.validate(text, version: v);

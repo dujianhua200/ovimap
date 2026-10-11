@@ -142,7 +142,6 @@ Future<BatchExportSummary> runBatchExport({
         showStakes: opts.stakes,
         showLegend: opts.legend,
         completionRed: opts.redline,
-        straightenedWiring: opts.straightened,
         version: opts.version,
         rangeM: opts.rangeM,
         layerRoads: opts.layerRoads,
@@ -190,7 +189,6 @@ class _DxfBatchOptions {
     required this.stakes,
     required this.legend,
     required this.redline,
-    required this.straightened,
     required this.version,
     required this.rangeM,
     required this.corridor,
@@ -214,7 +212,6 @@ class _DxfBatchOptions {
   final bool stakes;
   final bool legend;
   final bool redline;
-  final bool straightened;
   final DxfVersion version;
   final double rangeM;
   final double corridor;
@@ -261,7 +258,6 @@ class _DxfBatchOptions {
       stakes: opt('dxfStakes', true),
       legend: opt('dxfLegend', true),
       redline: opt('dxfRedline', false),
-      straightened: opt('dxfStraightened', false),
       version: (prefs.getString('dxfVersion') ?? 'r12') == 'r2000'
           ? DxfVersion.r2000
           : DxfVersion.r12,

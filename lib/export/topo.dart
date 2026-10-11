@@ -1,4 +1,3 @@
-import '../models/label_type.dart';
 import '../models/map_label.dart';
 
 /// ODN 配线拓扑树节点。
@@ -202,6 +201,3 @@ class Topology {
     }
   }
 }
-
-/// LabelType 的拓扑前缀引用（避免循环依赖的便捷导出）。
-String topoPrefixOf(LabelType lt) => Topology.topoPrefix(lt.id);

@@ -10,10 +10,7 @@ class WiringNode {
   final double y;
   final String label;
 
-  /// 在路由链中的顺序（seq）。
-  final int routeIndex;
-
-  WiringNode(this.device, this.x, this.y, this.label, {this.routeIndex = -1});
+  WiringNode(this.device, this.x, this.y, this.label);
 }
 
 /// 配线图连线：两节点之间的光缆。
@@ -33,10 +30,7 @@ class WiringLayout {
   /// 折线路径点（整条路由按统一比例缩小，走向与路由一致），按顺序。
   final List<math.Point<double>> path;
 
-  final double width;
-  final double height;
-
-  WiringLayout(this.nodes, this.edges, this.path, this.width, this.height);
+  WiringLayout(this.nodes, this.edges, this.path);
 }
 
 /// 配线图自动排布：**整条路由整体缩小**，走向与路由完全一致。
@@ -59,7 +53,7 @@ WiringLayout layoutWiringDiagram(
   // 整图使用统一缩放系数，保留每段真实方向（不再做直角量化）。
   double uniformScale = 0.5,
 }) {
-  if (routeLabels.isEmpty) return WiringLayout([], [], [], 0, 0);
+  if (routeLabels.isEmpty) return WiringLayout([], [], []);
 
   final byId = {for (final d in devices) d.id: d};
 
@@ -118,7 +112,7 @@ WiringLayout layoutWiringDiagram(
       ny = y;
     }
     final label = d.name.isNotEmpty ? d.name : d.id.substring(0, 8);
-    final node = WiringNode(d, nx, ny, label, routeIndex: d.seq);
+    final node = WiringNode(d, nx, ny, label);
     nodeMap[d.id] = node;
     nodes.add(node);
   }
@@ -131,14 +125,5 @@ WiringLayout layoutWiringDiagram(
             nodeMap[l.fromDeviceId]!, nodeMap[l.toDeviceId]!, l),
   ];
 
-  double minX = 0, maxX = 0, minY = 0, maxY = 0;
-  for (final p in path) {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
-  }
-
-  return WiringLayout(
-      nodes, edges, path, maxX - minX + segLen, maxY - minY + segLen);
+  return WiringLayout(nodes, edges, path);
 }

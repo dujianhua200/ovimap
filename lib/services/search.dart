@@ -9,15 +9,6 @@ import 'tianditu.dart';
 // 保持向后兼容：`SearchResult` 仍可从 search.dart 导入。
 export 'tianditu.dart' show SearchResult, kBuiltinTiandituKey;
 
-/// 搜索结果 + 与参考点（通常为地图中心）的 haversine 距离（米）。
-class SearchHit {
-  final SearchResult result;
-
-  /// 与参考点的距离（米，WGS84 haversine）。
-  final double distM;
-  const SearchHit(this.result, this.distM);
-}
-
 /// 地名搜索（多源、国内优先）：
 /// 1. **高德 POI 搜索**（国内，覆盖与准确率最好，需用户自配 key）
 /// 2. 天地图 POI 搜索（国内，快且准，需在「更多→天地图 Key」里配置 key）

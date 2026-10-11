@@ -53,11 +53,6 @@ String? favDropCheckSync(
   return null;
 }
 
-/// 异步版投放预检（签名按 Phase 2 任务书；目前检查全是内存操作）。
-Future<String?> favDropCheck(
-        FavTreeController c, List<String> ids, String targetFolderId) async =>
-    favDropCheckSync(c, ids, targetFolderId);
-
 /// 执行投放：先预检，不通过 / 移动失败都弹 SnackBar 说明原因。
 Future<void> doFavDrop(BuildContext context, FavTreeController c,
     FavDragPayload payload, String targetFolderId) async {

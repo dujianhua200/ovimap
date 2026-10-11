@@ -10,6 +10,11 @@ import 'package:ovimap/models/map_label.dart';
 ///
 /// · 杆位：状态 moved（偏移 > 阈值）→ 红；偏移 = 阈值（边界）→ same，不红；
 /// · 段长：|Δ| > 阈值 → 红；= 阈值（边界）→ 不红。
+/// 杆位行是否超阈红显：[DiffStatus.moved]（偏移 > 阈值）才红；
+/// 偏移恰好 = 阈值（边界）时状态为 same，不红。
+///（原在 lib/models/diff_report.dart，生产代码无引用，移至测试内。）
+bool diffPoleOverThreshold(DiffPoleItem p) => p.status == DiffStatus.moved;
+
 void main() {
   MapLabel pole(String name, double lat, double lon, {String dist = ''}) =>
       MapLabel(

@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ovimap/models/device_category.dart';
 import 'package:ovimap/models/fiber_link.dart';
 import 'package:ovimap/models/map_label.dart';
-import 'package:ovimap/models/pole_segment.dart';
 import 'package:ovimap/models/topo_check.dart';
 
 void main() {
@@ -61,24 +60,6 @@ void main() {
       expect(nextDeviceNo('GX', {}), 'GX-01');
       expect(nextDeviceNo('GX', {'GX-01', 'GX-02'}), 'GX-03');
       expect(nextDeviceNo('FH', {'FH-01'}), 'FH-02');
-    });
-  });
-
-  group('PoleSegment', () {
-    test('JSON 往返', () {
-      final p = PoleSegment(
-        name: '杆路A-1段',
-        pointIds: ['p1', 'p2', 'p3'],
-        material: '水泥杆',
-        layMethod: 1,
-        buildYear: '2024',
-      );
-      final r = PoleSegment.fromJson(p.toJson());
-      expect(r.name, '杆路A-1段');
-      expect(r.pointIds, ['p1', 'p2', 'p3']);
-      expect(r.material, '水泥杆');
-      expect(r.buildYear, '2024');
-      expect(r.id, p.id);
     });
   });
 

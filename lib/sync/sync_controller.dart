@@ -548,113 +548,6 @@ class SyncController extends ChangeNotifier {
     }
   }
 
-  // ===================== 冲突处理 =====================
-
-  /// 构造冲突信息（供冲突框展示）。
-  ConflictInfo conflictInfoFor(String cid, PutConflict c) => ConflictInfo(
-        cid: cid,
-        localRev: _state[cid]?.rev ?? 0,
-        localUpdatedAt: _state[cid]?.updatedAt ?? 0,
-        localDeviceName: _state[cid]?.lastDeviceName ?? deviceName,
-        serverRev: c.serverRev,
-        serverUpdatedAt: c.serverUpdatedAt,
-        serverDeviceName: c.serverDeviceName,
-      );
-
-  /// 冲突三选一（架构文档 §4.6）。
-  Future<void> resolve(String cid, ConflictChoice choice) async {
-    final api = _api();
-    if (api == null) return;
-    try {
-      switch (choice) {
-        case ConflictChoice.keepCloud:
-          final snap = await api.fetchProject(cid);
-          if (snap != null) await _downloadApply(api, cid, snap.rev);
-          break;
-        case ConflictChoice.keepLocal:
-          await _forceUpload(api, cid);
-          break;
-        case ConflictChoice.saveCopy:
-          await _saveConflictCopy(api, cid);
-          break;
-      }
-    } catch (e) {
-      _lastError = '$e';
-    }
-    _queue.removeWhere((q) => q.cid == cid);
-    await _persistQueue();
-    await _persistState();
-    _recount();
-    notifyListeners();
-  }
-
-  /// 「保留本机」：用刚取的 serverRev 重传覆盖云端。
-  Future<void> _forceUpload(SyncApi api, String cid) async {
-    final snap = await api.fetchProject(cid);
-    final serverRev = snap?.rev ?? 0;
-    final body = await _buildPutBody(cid);
-    if (body == null) return;
-    final res = await api.putProject(
-      cid,
-      baseRev: serverRev,
-      name: body.name,
-      kind: body.kind,
-      folder: body.folder,
-      editMode: body.editMode,
-      count: body.count,
-      payload: body.payload,
-      updatedAt: body.updatedAt,
-    );
-    if (res is PutOk) {
-      _setStatus(cid, SyncStatus.synced,
-          rev: res.rev,
-          updatedAt: body.updatedAt,
-          lastDeviceId: _identity.deviceId,
-          lastDeviceName: _identity.deviceName);
-      await _writeSyncTag(cid, res.rev, body.updatedAt);
-    } else if (res is PutConflict) {
-      _setStatus(cid, SyncStatus.conflict, rev: res.serverRev);
-    }
-  }
-
-  /// 「另存冲突副本」（默认推荐）：本机改动另存为新工程，云端覆盖本工程。
-  ///
-  /// 返回新建副本的 `cid`（无本地内容时返回空串）。
-  Future<String> _saveConflictCopy(SyncApi api, String cid) async {
-    final local = await _store.loadCollection(cid);
-    if (local.isEmpty) {
-      // 没有可另存的内容 → 退化为「保留云端」。
-      final snap = await api.fetchProject(cid);
-      if (snap != null) await _downloadApply(api, cid, snap.rev);
-      return '';
-    }
-    final name = await _store.loadCollectionName(cid);
-    final kind = await _store.loadCollectionKind(cid);
-    final meta = await _localMeta(cid);
-    final stamp = _mmdd(DateTime.now());
-    final copyName = '${name.isEmpty ? '未命名' : name}'
-        '(本机-${_identity.deviceName} $stamp)';
-    final newCid = await _store.finishCollection(
-      existingId: '',
-      name: copyName,
-      kind: kind,
-      folderId: meta?.folder ?? '',
-      editMode: meta?.editMode ?? 'design',
-      labels: local
-          .map((e) => e.clone())
-          .toList(), // 克隆，避免与打开中的草稿共享引用
-      clearDraftNow: false,
-    );
-    _setStatus(newCid, SyncStatus.pendingUpload,
-        updatedAt: DateTime.now().millisecondsSinceEpoch);
-    _enqueue(newCid, SyncOp.upsert);
-    // 云端覆盖本工程
-    final snap = await api.fetchProject(cid);
-    if (snap != null) await _downloadApply(api, cid, snap.rev);
-    await _persistQueue();
-    return newCid;
-  }
-
   // ===================== 介质读写 =====================
 
   Future<CollectionMeta?> _localMeta(String cid) async {
@@ -787,11 +680,6 @@ class SyncController extends ChangeNotifier {
       if (test(q)) return q;
     }
     return null;
-  }
-
-  static String _mmdd(DateTime d) {
-    String p2(int v) => v.toString().padLeft(2, '0');
-    return '${p2(d.month)}-${p2(d.day)}';
   }
 
   void _startPingTimer() {

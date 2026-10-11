@@ -14,9 +14,3 @@
 /// `CLASSES` 段 + TABLES/BLOCKS 记录句柄。本仓库的 R2000 分支已按此补齐，
 /// 并由 `DxfStructureValidator` 与 `tool/validate_dxf.py`（ezdxf 严格打开）双重把关。
 enum DxfVersion { r12, r2000 }
-
-/// 版本 → HEADER `$ACADVER` 字符串。
-String acadVerOf(DxfVersion v) => switch (v) {
-      DxfVersion.r12 => 'AC1009',
-      DxfVersion.r2000 => 'AC1015',
-    };

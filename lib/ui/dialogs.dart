@@ -617,125 +617,6 @@ Future<void> _showPhotoViewer(BuildContext context, String relName) async {
   );
 }
 
-/// 竣工距离确认（竣工模式每落一点弹出）。
-/// 段距基准 = 同线组上的上一杆（previousChainLabel），
-/// 中间插的箱体/文字不会干扰段距计算。
-Future<void> showCompletionSegment(
-    BuildContext context, AppState st, MapLabel endPoint) async {
-  final prev = st.previousChainLabel(endPoint);
-  final calculated = prev == null
-      ? 0.0
-      : GeoUtil.haversine(prev.lat, prev.lon, endPoint.lat, endPoint.lon);
-  final prevName = prev == null
-      ? '（起点）'
-      : (prev.name.trim().isNotEmpty ? prev.name.trim() : prev.type.name);
-  final distCtl =
-      TextEditingController(text: calculated.toStringAsFixed(1));
-  final segLabelCtl =
-      TextEditingController(text: endPoint.distLabel.trim());
-  final slackCtl = TextEditingController(
-      text: endPoint.slackM > 0 ? _fmtSlack(endPoint.slackM) : '');
-  final nameCtl = TextEditingController();
-  final noteCtl = TextEditingController();
-  var segKind = endPoint.segKind;
-
-  await showDarkDialog(
-    context,
-    title: '竣工距离确认',
-    barrierDismissible: false,
-    content: StatefulBuilder(
-      builder: (ctx, setSt) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-        Text('$calculated 米',
-            style: const TextStyle(
-                color: Color(0xFF9CCC65),
-                fontSize: 30,
-                fontWeight: FontWeight.bold)),
-        Text('上一杆：$prevName · 上式为地图计算值，可改为钢尺/测距轮实测值',
-            style: const TextStyle(color: kTextSub, fontSize: 11)),
-        const SizedBox(height: 12),
-        TextField(
-            controller: distCtl,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(color: kTextMain, fontSize: 15),
-            decoration: dec('距离（米）')),
-        const SizedBox(height: 8),
-        TextField(
-            controller: segLabelCtl,
-            style: const TextStyle(color: kTextMain, fontSize: 14),
-            decoration: dec('本段标注（点下方快捷：埋42 / 吊38 / 钉25…）')),
-        const SizedBox(height: 6),
-        segPrefixChips(segLabelCtl, autoDist: prev == null ? null : calculated),
-        const SizedBox(height: 8),
-        TextField(
-            controller: slackCtl,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(color: kTextMain, fontSize: 14),
-            decoration: dec('本段接头盘留（米，结算用量=丈量+盘留）')),
-        const SizedBox(height: 8),
-        const Text('本段敷设方式（决定连线颜色）',
-            style: TextStyle(color: kTextSub, fontSize: 11)),
-        Row(
-          children: [
-            for (final kv in const {0: '默认', 1: '架空', 2: '埋地', 3: '管道'}.entries)
-              Expanded(
-                child: RadioListTile<int>(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(kv.value,
-                      style:
-                          const TextStyle(color: kTextMain, fontSize: 12)),
-                  value: kv.key,
-                  groupValue: segKind,
-                  activeColor: kAccent,
-                  onChanged: (v) => setSt(() => segKind = v ?? 0),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        TextField(
-            controller: nameCtl,
-            style: const TextStyle(color: kTextMain, fontSize: 14),
-            decoration: dec('终点名称（可选）')),
-        const SizedBox(height: 8),
-        TextField(
-            controller: noteCtl,
-            style: const TextStyle(color: kTextMain, fontSize: 14),
-            decoration: dec('终点备注（可选）')),
-      ],
-      ),
-    ),
-    ),
-    actions: [
-      darkTextBtn('删除终点', () {
-        st.removeLabel(endPoint);
-        Navigator.pop(context);
-      }, color: TokC.danger),
-      darkTextBtn('确定', () {
-        final v = double.tryParse(distCtl.text.trim());
-        if (v == null || v <= 0) {
-          toast(context, '请输入大于 0 的距离');
-          return;
-        }
-        endPoint.distanceM = v;
-        endPoint.distLabel = segLabelCtl.text.trim();
-        final sk = double.tryParse(slackCtl.text.trim());
-        endPoint.slackM = (sk != null && sk > 0) ? sk : 0;
-        endPoint.segKind = segKind;
-        endPoint.name = nameCtl.text.trim();
-        endPoint.note = noteCtl.text.trim();
-        Navigator.pop(context);
-        st.updateLabel(endPoint);
-      }),
-    ],
-  );
-}
-
 /// 文字标注落点后立即输入内容。
 Future<void> showTextPrompt(
     BuildContext context, AppState st, MapLabel label) async {
@@ -1055,26 +936,14 @@ Widget _exportTile(String title, VoidCallback onTap) => InkWell(
   return (manual: manual, odn: odn);
 }
 
-/// P1-5：新配线图（useNewWiring）是否会生效——与 dxf.dart 同口径：
-/// 人工连线非空，或 ODN 父子能合成至少一条有效连线（父 id 实际存在）。
-bool _newWiringWillRender(List<MapLabel> labels, List<FiberLink> fiberLinks) {
-  if (fiberLinks.isNotEmpty) return true;
-  final ids = {for (final l in labels) l.id};
-  for (final l in labels) {
-    if (l.topoParentId.isNotEmpty && ids.contains(l.topoParentId)) return true;
-  }
-  return false;
-}
-
 Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
     String name,
     {String segPrefix = '',
     List<FiberLink> fiberLinks = const [],
     // P1-1：与 showExportDialog 同口径的来源条（DXF 选项是第二层对话框，同样要写清来源）。
     String source = ''}) async {
-  // P1-4/P1-5：配线图数据源与新配线图生效判定（口径见上方 helper）。
+  // P1-4：配线图数据源判定（人工 / ODN）。
   final wiringSrc = _wiringSources(labels, fiberLinks);
-  final hasNewWiring = _newWiringWillRender(labels, fiberLinks);
   // 选项记忆：下次导出默认沿用上次勾选
   final prefs = await SharedPreferences.getInstance();
   bool opt(String k, bool def) => prefs.getBool(k) ?? def;
@@ -1083,7 +952,6 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   var stakes = opt('dxfStakes', true);
   var legend = opt('dxfLegend', true);
   var redline = opt('dxfRedline', false);
-  var straightened = opt('dxfStraightened', false);
   // —— 本次新增 ——
   // 默认 **R12**（已用 ezdxf 严格打开验证；最广兼容）。R2000 可选且同样结构合法。
   var version = (prefs.getString('dxfVersion') ?? 'r12') == 'r2000'
@@ -1327,22 +1195,6 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
               child: Text('⚠ 人工连线与 ODN 拓扑同时存在，导出以人工连线为准，ODN 拓扑连线将被忽略。',
                   style: TextStyle(color: TokC.warn, fontSize: 11.5)),
             ),
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('附加拉直沿线配线图（长杆路分幅）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            // P1-5：新配线图会生效时禁用（老拉直图此时走不到），并附注原因。
-            subtitle: hasNewWiring
-                ? const Text('已有拓扑配线图，此选项不生效',
-                    style: TextStyle(color: kTextSub, fontSize: 11))
-                : null,
-            value: straightened,
-            activeColor: kAccent,
-            onChanged: hasNewWiring
-                ? null
-                : (v) => setSt(() => straightened = v ?? false),
-          ),
           CheckboxListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
@@ -1700,7 +1552,6 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
         prefs.setBool('dxfStakes', stakes);
         prefs.setBool('dxfLegend', legend);
         prefs.setBool('dxfRedline', redline);
-        prefs.setBool('dxfStraightened', straightened);
         prefs.setString('dxfCorridor', corridorCtl.text.trim());
         prefs.setString(
             'dxfVersion', version == DxfVersion.r12 ? 'r12' : 'r2000');
@@ -1727,7 +1578,6 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             showStakes: stakes,
             showLegend: legend,
             completionRed: redline,
-            straightenedWiring: straightened,
             version: version,
             rangeM: rangeM,
             layerRoads: layerRoads,

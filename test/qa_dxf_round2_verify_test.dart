@@ -160,7 +160,6 @@ Future<String> _export(
   required List<MapLabel> labels,
   required BasemapData bm,
   DxfVersion v = DxfVersion.r2000,
-  bool straightened = false,
   bool buildingFill = false,
   String name = 'qa2',
 }) async {
@@ -171,7 +170,6 @@ Future<String> _export(
       includeSurroundings: true,
       basemap: bm,
       version: v,
-      straightenedWiring: straightened,
       buildingFill: buildingFill);
   return latin1.decode(r.file.readAsBytesSync());
 }
@@ -358,7 +356,7 @@ void main() {
 
     final noWire = await _export(dir, labels: noTopoLabels, bm: _stdBasemap(), name: 'nw');
     final withWire = await _export(
-        dir, labels: labels, bm: _stdBasemap(), straightened: true, name: 'ww');
+        dir, labels: labels, bm: _stdBasemap(), name: 'ww');
 
     final gNo = _bounds(_entities(noWire));
     final entsW = _entities(withWire);

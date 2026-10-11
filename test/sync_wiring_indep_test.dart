@@ -53,14 +53,10 @@ void main() {
   });
 
   group('T17 UI 接入（AOT 安全：可空快照）', () {
-    test('同步面板/冲突框存在且默认「另存副本」', () {
+    test('同步面板存在', () {
       final panel = read('lib/ui/sync/sync_panel.dart');
-      final conflict = read('lib/ui/sync/conflict_dialog.dart');
       expect(panel.contains('class SyncBadge'), isTrue);
       expect(panel.contains('showSyncSettingsDialog'), isTrue);
-      expect(conflict.contains('showConflictDialog'), isTrue);
-      expect(conflict.contains('var choice = ConflictChoice.saveCopy;'), isTrue,
-          reason: '默认选中「另存冲突副本」');
     });
 
     test('工具栏/状态栏/左栏/抽屉：以 SyncController? 可空接入', () {

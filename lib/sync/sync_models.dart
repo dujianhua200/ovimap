@@ -302,30 +302,6 @@ class PutConflict extends PutResult {
   });
 }
 
-/// 冲突信息（供冲突框展示：设备名 + 时间）。
-class ConflictInfo {
-  final String cid;
-  final int localRev;
-  final int localUpdatedAt;
-  final String localDeviceName;
-  final int serverRev;
-  final int serverUpdatedAt;
-  final String serverDeviceName;
-
-  const ConflictInfo({
-    required this.cid,
-    this.localRev = 0,
-    this.localUpdatedAt = 0,
-    this.localDeviceName = '',
-    this.serverRev = 0,
-    this.serverUpdatedAt = 0,
-    this.serverDeviceName = '',
-  });
-}
-
-/// 冲突三选一（**默认 `saveCopy`**，架构文档 §4.6 / §12.5）。
-enum ConflictChoice { keepCloud, keepLocal, saveCopy }
-
 // ===================== 纯服务端逻辑（与 Worker 对齐） =====================
 //
 // 以下两个纯函数把「Worker 的关键判定」以 Dart 复刻，便于零网络单测；

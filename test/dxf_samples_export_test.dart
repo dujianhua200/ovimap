@@ -40,7 +40,6 @@ void main() {
         includeSurroundings: e.value.withBm,
         basemap: e.value.withBm ? bm : null,
         version: e.value.v,
-        straightenedWiring: true,
         corridorWidth: 2, // 管廊双线
         buildingFill: e.value.fill, // 底图样本显式开填充：ezdxf 顺带严校 HATCH/SOLID 路径
       );
