@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/fav_node.dart';
-import '../../models/fiber_link.dart';
 import '../../models/map_label.dart';
 import '../../state/app_state.dart';
 import '../../state/fav_tree_controller.dart';
@@ -305,15 +304,14 @@ Future<void> _handleMenuAction(BuildContext context, FavTreeController c,
 
     case 'export': {
       if (!node.isProject || !context.mounted) return;
-      final labels = await c.labelsOf(node.id);
-      // 2026-10-08：导出带上纤拓扑，否则无配线图
-      final linkJsons = await c.store.loadCollectionFiberLinks(node.id);
-      final fiberLinks = [
-        for (final j in linkJsons) FiberLink.fromJson(j),
-      ];
+      // P0-5：走统一导出数据源（以磁盘为准，含 labels + fiberLinks），
+      // 替代 labelsOf + loadCollectionFiberLinks 两套口径。
+      final data = await st.resolveExportData(node.id);
       if (!context.mounted) return;
-      await showExportDialog(context, List.of(labels), node.name,
-          segPrefix: st.segPrefix, fiberLinks: fiberLinks, source: '收藏工程');
+      await showExportDialog(context, List.of(data.labels), node.name,
+          segPrefix: st.segPrefix,
+          fiberLinks: data.fiberLinks,
+          source: '收藏工程');
       break;
     }
 

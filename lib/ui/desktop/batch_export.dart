@@ -7,6 +7,7 @@ import '../../export/basemap.dart';
 import '../../export/dxf.dart';
 import '../../export/dxf_version.dart';
 import '../../export/local_basemap.dart';
+import '../../models/fiber_link.dart';
 import '../../services/app_paths.dart';
 import '../../services/export_saver.dart';
 import '../../services/store.dart';
@@ -125,6 +126,12 @@ Future<BatchExportSummary> runBatchExport({
         skipped.add(m.name.isEmpty ? '未命名' : m.name);
         continue;
       }
+      // P1-14：批量导出也要带上各工程的纤拓扑（配线图用），与收藏夹右键
+      // 导出 / ArchiveBookExporter.export 的自动加载同一口径。
+      final fiberLinks = [
+        for (final j in await store.loadCollectionFiberLinks(m.id))
+          FiberLink.fromJson(j),
+      ];
       await sub.create(recursive: true);
       final r = await DxfExporter.export(
         name: dirName,
@@ -145,13 +152,15 @@ Future<BatchExportSummary> runBatchExport({
         layerPlaces: opts.layerPlaces,
         segPrefix: segPrefix,
         placesTdtFallback: opts.tdtFallback,
-        useOnlineBuildings: true, // 批量导出默认开在线建筑
+        useOnlineBuildings: opts.useOnlineBuildings,
+        useBuildingFallback: opts.useBuildingFallback,
         tdtKey: opts.tdtKey,
         amapKey: opts.amapKey,
         overpassEndpoints: opts.overpassEndpoints,
         convertGcj: opts.convertGcj,
         refreshBasemap: false,
         localBasemap: opts.localBasemap,
+        fiberLinks: fiberLinks,
       );
       // DxfExporter 先落到 exportDir()/<name>.dxf；再拷进各自子目录。
       final dest = File('${sub.path}/$dirName.dxf');
@@ -191,6 +200,8 @@ class _DxfBatchOptions {
     required this.minorRoadNames,
     required this.layerPlaces,
     required this.tdtFallback,
+    required this.useOnlineBuildings,
+    required this.useBuildingFallback,
     required this.tdtKey,
     required this.amapKey,
     required this.overpassEndpoints,
@@ -213,6 +224,8 @@ class _DxfBatchOptions {
   final bool minorRoadNames;
   final bool layerPlaces;
   final bool tdtFallback;
+  final bool useOnlineBuildings;
+  final bool useBuildingFallback;
   final String tdtKey;
   final String amapKey;
   final String overpassEndpoints;
@@ -252,7 +265,7 @@ class _DxfBatchOptions {
       version: (prefs.getString('dxfVersion') ?? 'r12') == 'r2000'
           ? DxfVersion.r2000
           : DxfVersion.r12,
-      rangeM: prefs.getDouble('dxfRangeM') ?? 880,
+      rangeM: prefs.getDouble('dxfRangeM') ?? 50,
       corridor: double.tryParse(prefs.getString('dxfCorridor') ?? '0') ?? 0,
       layerRoads: opt('dxfLayerRoads', true),
       layerBldOutline: opt('dxfLayerBldOutline', true),
@@ -260,6 +273,10 @@ class _DxfBatchOptions {
       minorRoadNames: opt('dxfMinorRoadNames', false),
       layerPlaces: opt('dxfLayerPlaces', true),
       tdtFallback: opt('dxfTdtFallback', true),
+      // P1-13：在线建筑/建筑兜底包读用户实际偏好（与单工程导出同一批 prefs
+      // 键、同一默认值），不再硬编码 true；rangeM 默认值与单导出对齐（50）。
+      useOnlineBuildings: opt('dxfOnlineBuildings', true),
+      useBuildingFallback: opt('dxfBuildingFallback', true),
       tdtKey: tdtKey,
       amapKey: amapKey,
       overpassEndpoints: overpass,

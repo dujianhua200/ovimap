@@ -68,6 +68,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
   String? _baseProviderFor;
   String? _overlayProviderFor;
 
+  // P1-17：持久化异常提示轮询（store 层无 BuildContext，这里代为 toast）。
+  Timer? _persistWatch;
+
   bool _mapReady = false;
   MapCamera? _cam;
 
@@ -111,10 +114,18 @@ class _WorkspacePageState extends State<WorkspacePage> {
     // T21：注册 Windows 资源管理器文件拖放（WM_DROPFILES → MethodChannel）。
     // 非 Windows 平台该通道永不触发，注册无副作用。
     FileDrop.register(_onFilesDropped);
+    // P1-17：启动后若持久化层记了异常（启动加载/保存失败），toast 提醒用户。
+    _persistWatch = startPersistErrorWatch(
+      () => _st.persistErrors,
+      () {
+        if (mounted) toast(context, '保存可能失败，详见日志');
+      },
+    );
   }
 
   @override
   void dispose() {
+    _persistWatch?.cancel();
     _searchFocus.dispose();
     _mapSearchCtl.dispose();
     _mouseGeo.dispose();

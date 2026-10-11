@@ -59,6 +59,8 @@ class _HomePageState extends State<HomePage> {
   Timer? _recordTicker;
   int _recordElapsed = 0;
   bool _searching = false;
+  // P1-17：持久化异常提示轮询（store 层无 BuildContext，这里代为 toast）。
+  Timer? _persistWatch;
 
   /// R4：搜索结果的临时标记（页面态持有，不进草稿、不持久化；
   /// 一次只一个，新的替换旧的；点标记弹信息面板可加收藏/清除）。
@@ -69,6 +71,13 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     final st = context.read<AppState>();
     _setupLocation(st);
+    // P1-17：启动后若持久化层记了异常（启动加载/保存失败），toast 提醒用户。
+    _persistWatch = startPersistErrorWatch(
+      () => st.persistErrors,
+      () {
+        if (mounted) toast(context, '保存可能失败，详见日志');
+      },
+    );
   }
 
   void _setupLocation(AppState st) {
@@ -102,6 +111,7 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     LocService.instance.stop();
     _recordTicker?.cancel();
+    _persistWatch?.cancel();
     _searchCtl.dispose();
     super.dispose();
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -205,6 +206,30 @@ void toast(BuildContext context, String msg) {
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(24, 0, 24, 120),
     ));
+}
+
+/// P1-17：持久化异常 UI 提示轮询（store 层无 BuildContext，不能直接 toast）。
+///
+/// 在主界面壳（移动端 [HomePage]／桌面端 [WorkspacePage]）的 `initState` 里
+/// 启动，`dispose` 时 cancel：每 30 秒检查一次 [readErrors]（调用方传
+/// `() => st.persistErrors`），有新增条目时调 [onNewError]（调用方 toast
+/// 「保存可能失败，详见日志」）。无新增时完全静默，不打扰用户。
+Timer startPersistErrorWatch(
+  List<String> Function() readErrors,
+  void Function() onNewError,
+) {
+  var seenCount = 0;
+  var seenLast = '';
+  return Timer.periodic(const Duration(seconds: 30), (_) {
+    final errs = readErrors();
+    if (errs.isEmpty) return;
+    // 条数增长，或条数不变但末条变化（列表上限 20 条、旧条目被挤掉时）。
+    if (errs.length != seenCount || errs.last != seenLast) {
+      seenCount = errs.length;
+      seenLast = errs.last;
+      onNewError();
+    }
+  });
 }
 
 /// 盘留数字显示：整数不带小数点，否则保留 1 位。
@@ -862,9 +887,16 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
         st.projectName = nameCtl.text.trim();
         st.folderId = folder;
         Navigator.pop(context);
+        // P1-17：持久化异常不抛异常（记入 persistErrors），保存后检查有无新增。
+        final errsBefore = st.persistErrors.length;
         try {
           await st.finishCollection();
-          if (context.mounted) toast(context, '已保存到收藏');
+          if (!context.mounted) return;
+          toast(
+              context,
+              st.persistErrors.length > errsBefore
+                  ? '已保存到收藏，但保存可能失败，详见日志'
+                  : '已保存到收藏');
         } catch (e) {
           if (context.mounted) toast(context, '保存失败：$e');
         }

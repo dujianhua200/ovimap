@@ -152,6 +152,8 @@ Future<void> _archiveBook(
     final r = await ArchiveBookExporter.export(
       name: m.name.isEmpty ? '未命名项目' : m.name,
       labels: ls,
+      // P1-14：传 folderId，让成册内部按工程 id 自动加载纤拓扑（配线图用）。
+      folderId: m.id,
       pointCount: m.count,
       editMode: m.editMode,
       segPrefix: st.segPrefix,

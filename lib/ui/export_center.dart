@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../export/archive_book.dart';
 import '../export/csv.dart';
 import '../models/diff_report.dart';
+import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 import '../services/store.dart';
 import '../state/app_state.dart';
@@ -21,16 +22,38 @@ import 'design_tokens.dart';
 Future<void> openExportCenter(BuildContext context, AppState st) async {
   List<MapLabel> labels;
   String name;
+  // P0-5：导出数据源统一走 AppState.resolveExportData（以磁盘为准，含
+  // labels + fiberLinks），不再混用内存 st.labels/st.fiberLinks 两套口径。
+  List<FiberLink> fiberLinks = const [];
   // P1-1：来源条——按实际用的数据源如实显示，不硬编码。
   String source;
   if (st.mode == AppMode.topoLink) {
-    labels = st.topoColl;
-    final nm = await st.store.loadCollectionName(st.topoCid);
-    name = nm.isEmpty ? '配线' : nm;
+    if (st.topoCid.isNotEmpty) {
+      final data = await st.resolveExportData(st.topoCid);
+      labels = data.labels;
+      fiberLinks = data.fiberLinks;
+      name = data.name.isEmpty ? '配线' : data.name;
+    } else {
+      // 未落盘的拓扑集合（无 cid）：回退内存原逻辑。
+      labels = st.topoColl;
+      fiberLinks = st.fiberLinks;
+      final nm = await st.store.loadCollectionName(st.topoCid);
+      name = nm.isEmpty ? '配线' : nm;
+    }
     source = '拓扑连线集合';
   } else if (st.labels.isNotEmpty) {
-    labels = st.labels;
-    name = st.projectName.isEmpty ? '当前草稿' : st.projectName;
+    if (st.activeCollectionId.isNotEmpty) {
+      // 编辑的是已保存的收藏工程：以磁盘为准（_saveDraft 每次编辑都同步落盘）。
+      final data = await st.resolveExportData(st.activeCollectionId);
+      labels = data.labels;
+      fiberLinks = data.fiberLinks;
+      name = data.name.isEmpty ? '当前草稿' : data.name;
+    } else {
+      // 未保存的新草稿（无 cid）：仍走内存。
+      labels = st.labels;
+      fiberLinks = st.fiberLinks;
+      name = st.projectName.isEmpty ? '当前草稿' : st.projectName;
+    }
     // 编辑收藏工程时 st.labels 即该工程的点：来源记为收藏工程，而非草稿。
     source = st.activeCollectionId.isNotEmpty ? '收藏工程' : '当前草稿';
   } else {
@@ -39,7 +62,7 @@ Future<void> openExportCenter(BuildContext context, AppState st) async {
   }
   if (!context.mounted) return;
   await showExportDialog(context, labels, name,
-      segPrefix: st.segPrefix, fiberLinks: st.fiberLinks, source: source);
+      segPrefix: st.segPrefix, fiberLinks: fiberLinks, source: source);
 }
 
 /// 成册对象：当前草稿（[draft]=true）或某个收藏工程。
@@ -107,11 +130,17 @@ Future<void> _runArchiveBook(
   String name;
   var pointCount = 0;
   String editMode = st.editModeName;
+  // P1-14：成册要带纤拓扑（配线图用）。收藏工程传 folderId 让内部自动加载；
+  // 当前草稿无 cid，直接传内存的 fiberLinks。
+  var folderId = '';
+  List<FiberLink> fiberLinks = const [];
   if (o.draft) {
     labels = st.labels;
+    fiberLinks = st.fiberLinks;
     name = st.projectName.isEmpty ? '当前草稿' : st.projectName;
   } else {
     labels = await st.store.loadCollection(o.cid);
+    folderId = o.cid;
     final meta = st.collections.firstWhere(
       (m) => m.id == o.cid,
       orElse: () => CollectionMeta(id: o.cid),
@@ -130,6 +159,8 @@ Future<void> _runArchiveBook(
     final r = await ArchiveBookExporter.export(
       name: name,
       labels: labels,
+      folderId: folderId,
+      fiberLinks: fiberLinks,
       pointCount: pointCount,
       editMode: editMode,
       segPrefix: st.segPrefix,
