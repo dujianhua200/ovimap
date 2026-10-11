@@ -26,6 +26,13 @@ dependencies:
   # 固定 9.x：其 Android 端为纯 Java 实现，兼容本项目 AGP 9 + builtInKotlin=false；
   # 10.x/11.x 起 Android 端改为 Kotlin 且依赖 AGP9 内置 Kotlin，会编译失败。
   file_picker: ^9.2.3
+  # ---- 同步服务端（Windows 内嵌 HTTP 服务 + 账号配对 + 安全存储）----
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
+  shelf_web_socket: ^3.0.0
+  qr: ^4.0.0
+  mobile_scanner: ^7.4.2
+  flutter_secure_storage: ^11.2.0
 
 dev_dependencies:
   flutter_test:
@@ -40,6 +47,10 @@ dev_dependencies:
 # 以同时满足 file_picker(^2.0.22) 与 image_picker_android(^2.0.1)。未新增任何依赖。
 dependency_overrides:
   flutter_plugin_android_lifecycle: 2.0.22
+  # flutter_secure_storage（经 windows 实现）要求 win32 ^6.0.1，而 file_picker 9.x
+  # 钉在 ^5.9.0。file_picker 的 Windows 侧只用 win32 稳定 API
+  #（CoInitializeEx/SUCCEEDED/Utf16/calloc 等，6.x 均保留），故统一覆盖到 6.4.0。
+  win32: 6.4.0
 
 flutter:
   uses-material-design: true
