@@ -105,6 +105,10 @@ class AppPaths {
   /// `labels/`：工程数据（index/draft/folders/collection_*）所在目录。
   static Future<Directory> labelsDir() => _sub('labels');
 
+  /// `ovimap-sync/`：同步服务端数据根（账号清单/按天归档工程快照/照片）。
+  /// 仅 Windows 服务端使用（`lib/sync/server/`），三端目录结构不变。
+  static Future<Directory> syncServerDir() => _sub('ovimap-sync');
+
   /// `tiles/`：瓦片磁盘缓存。
   static Future<Directory> tilesDir() => _sub('tiles');
 

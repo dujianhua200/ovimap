@@ -1,11 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/device_identity.dart';
+import '../../services/platform_caps.dart';
 import '../../state/app_state.dart';
 import '../../sync/sync_controller.dart';
 import '../../sync/sync_models.dart';
 import '../dialogs.dart';
 import '../../ui/design_tokens.dart';
+import 'pairing_page.dart';
+import 'server_panel.dart';
+import '../../services/photos.dart';
+import '../../sync/client/photo_sync_queue.dart';
+import '../../models/map_label.dart';
+
+/// 「连上自动同步」开关的 prefs 键（默认关）。
+const String kPrefAutoSyncOnConnect = 'syncAutoOnConnect';
 
 /// 同步徽标（✓ 已同步 / ↑ 待上传 / ⚠ 有冲突 / ● 仅本地）。
 ///
@@ -33,12 +43,16 @@ class SyncBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(status.badge,
-                style: TextStyle(color: color, fontSize: 9.5, height: 1.2)),
+            Text(
+              status.badge,
+              style: TextStyle(color: color, fontSize: 9.5, height: 1.2),
+            ),
             if (!compact) ...[
               const SizedBox(width: 3),
-              Text(status.label,
-                  style: TextStyle(color: color, fontSize: 9.5, height: 1.2)),
+              Text(
+                status.label,
+                style: TextStyle(color: color, fontSize: 9.5, height: 1.2),
+              ),
             ],
           ],
         ),
@@ -58,17 +72,16 @@ Future<void> showSyncPanel(
   await showDarkDialog(
     context,
     title: '云同步',
-    content: _SyncPanelBody(sync: sync),
-    actions: [
-      darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub),
-    ],
+    content: _SyncPanelBody(sync: sync, st: st),
+    actions: [darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub)],
   );
 }
 
 class _SyncPanelBody extends StatefulWidget {
-  const _SyncPanelBody({required this.sync});
+  const _SyncPanelBody({required this.sync, required this.st});
 
   final SyncController? sync;
+  final AppState? st;
 
   @override
   State<_SyncPanelBody> createState() => _SyncPanelBodyState();
@@ -76,6 +89,12 @@ class _SyncPanelBody extends StatefulWidget {
 
 class _SyncPanelBodyState extends State<_SyncPanelBody> {
   bool _busy = false;
+
+  /// 「连上自动同步」开关（默认关，存 shared_preferences）。
+  bool _autoSync = false;
+
+  /// 照片同步进度文案（空 = 不显示）。
+  String _photoProgress = '';
 
   @override
   void initState() {
@@ -87,6 +106,35 @@ class _SyncPanelBodyState extends State<_SyncPanelBody> {
         if (mounted) setState(() {});
       });
     }
+    _loadAutoSyncPref();
+  }
+
+  Future<void> _loadAutoSyncPref() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final v = p.getBool(kPrefAutoSyncOnConnect) ?? false;
+      if (!mounted) return;
+      setState(() => _autoSync = v);
+      // 开关开着且当前已连通 → 自动执行一次同步（只做触发，不改控制器内部）。
+      if (v) _maybeAutoSync();
+    } catch (_) {}
+  }
+
+  /// 开关打开 / 面板打开时：若已连通服务器，自动触发一次同步。
+  Future<void> _maybeAutoSync() async {
+    final sc = widget.sync;
+    if (sc == null || _busy || !sc.configured) return;
+    if (!sc.online) return; // 离线不触发，等 ping 轮询恢复后再由用户手动同步
+    await _manualSync();
+  }
+
+  Future<void> _setAutoSync(bool v) async {
+    setState(() => _autoSync = v);
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(kPrefAutoSyncOnConnect, v);
+    } catch (_) {}
+    if (v) _maybeAutoSync();
   }
 
   @override
@@ -111,21 +159,50 @@ class _SyncPanelBodyState extends State<_SyncPanelBody> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _row(Icons.computer, '设备名', sc.deviceName),
-          _row(Icons.dns_outlined, '服务器',
-              sc.identity.serverBase.isEmpty ? '未配置' : sc.identity.serverBase),
-          _row(Icons.cloud_outlined, '状态',
-              '${st.label}${sc.online ? '' : ' · 离线'}'),
+          _serverRow(sc),
+          _row(
+            Icons.cloud_outlined,
+            '状态',
+            '${st.label}${sc.online ? '' : ' · 离线'}',
+          ),
           _row(Icons.schedule, '最后同步', sc.lastSyncText),
           _row(Icons.cloud_upload_outlined, '待上传', '${sc.pendingCount} 项'),
+          const SizedBox(height: 6),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              '连上自动同步',
+              style: TextStyle(color: kTextMain, fontSize: 13),
+            ),
+            subtitle: const Text(
+              'SyncController 启动且能连通服务器时自动同步一次',
+              style: TextStyle(color: kTextSub, fontSize: 11),
+            ),
+            value: _autoSync,
+            activeThumbColor: kAccent,
+            onChanged: _busy ? null : _setAutoSync,
+          ),
           if (!sc.configured) ...[
             const SizedBox(height: 8),
-            const Text('尚未配置同步令牌：请在「同步设置」里填入令牌与服务器地址。',
-                style: TextStyle(color: TokC.warn, fontSize: 12)),
+            const Text(
+              '尚未配置同步令牌：请在「同步设置」里填入令牌与服务器地址。',
+              style: TextStyle(color: TokC.warn, fontSize: 12),
+            ),
           ],
           if (sc.lastError.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text('最近错误：${sc.lastError}',
-                style: const TextStyle(color: TokC.danger, fontSize: 11.5)),
+            Text(
+              '最近错误：${sc.lastError}',
+              style: const TextStyle(color: TokC.danger, fontSize: 11.5),
+            ),
+          ],
+          if (_photoProgress.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              _photoProgress,
+              style: const TextStyle(color: kAccent, fontSize: 11.5),
+            ),
           ],
           const SizedBox(height: 14),
           Row(
@@ -137,10 +214,34 @@ class _SyncPanelBodyState extends State<_SyncPanelBody> {
               ),
               const SizedBox(width: 10),
               OutlinedButton.icon(
+                onPressed: !sc.configured || _busy ? null : _syncPhotos,
+                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                label: const Text('同步照片'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _openPairing,
+                icon: const Icon(Icons.qr_code_scanner, size: 18),
+                label: const Text('扫码配对'),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
                 onPressed: _busy ? null : _openSettings,
                 icon: const Icon(Icons.settings, size: 18),
                 label: const Text('同步设置'),
               ),
+              if (PlatformCaps.isWindows) ...[
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : () => showSyncServerPanel(context),
+                  icon: const Icon(Icons.dns, size: 18),
+                  label: const Text('服务端管理'),
+                ),
+              ],
             ],
           ),
         ],
@@ -156,6 +257,176 @@ class _SyncPanelBodyState extends State<_SyncPanelBody> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// 「同步照片」：遍历当前工程全部标记的 photoPaths，对服务端缺失的
+  /// 经 [PhotoSyncQueue] 分块上传（断点续传）。不经过 SyncController。
+  Future<void> _syncPhotos() async {
+    final sc = widget.sync;
+    final st = widget.st;
+    if (sc == null || !sc.configured) return;
+    final cid = st?.activeCollectionId ?? '';
+    if (cid.isEmpty) {
+      toast(context, '请先打开一个工程再同步照片');
+      return;
+    }
+    final rels = <String>[
+      for (final l in st?.labels ?? const <MapLabel>[]) ...l.photoPaths,
+    ];
+    if (rels.isEmpty) {
+      toast(context, '当前工程没有照片');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _photoProgress = '准备上传…';
+    });
+    try {
+      final r = await PhotoSyncQueue().syncAll(
+        baseUrl: sc.identity.serverBase,
+        token: sc.identity.token,
+        cid: cid,
+        photoRelNames: rels,
+        absPathOf: PhotoService.absPath,
+        onFileProgress: (rel, s, t) {
+          if (!mounted) return;
+          setState(
+            () => _photoProgress =
+                '上传 $rel：${(s / 1024).round()}/${(t / 1024).round()} KB',
+          );
+        },
+      );
+      if (!mounted) return;
+      toast(
+        context,
+        '照片同步完成：上传 ${r.uploaded} 张，跳过 ${r.skipped} 张${r.failed.isEmpty ? '' : '，失败 ${r.failed.length} 张'}',
+      );
+    } catch (e) {
+      if (mounted) toast(context, '照片同步失败：$e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _photoProgress = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _openPairing() async {
+    final sc = widget.sync;
+    if (!mounted) return;
+    final ok = await showPairingPage(context);
+    if (ok == true && mounted) {
+      // 配对成功后刷新身份显示（服务器地址已更新）。
+      await sc?.reloadIdentity();
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// 服务器地址行：点击切换「局域网 IP / Tunnel 域名」。
+  Widget _serverRow(SyncController sc) {
+    final value = sc.identity.serverBase.isEmpty
+        ? '未配置（点此设置）'
+        : sc.identity.serverBase;
+    return InkWell(
+      onTap: _busy ? null : () => _switchServerBase(sc),
+      borderRadius: BorderRadius.circular(4),
+      child: _row(Icons.dns_outlined, '服务器', value),
+    );
+  }
+
+  /// 服务器地址切换：局域网 IP / Tunnel 域名两个输入框，各自「使用」。
+  Future<void> _switchServerBase(SyncController sc) async {
+    final id = sc.identity;
+    final lanCtl = TextEditingController();
+    final remoteCtl = TextEditingController();
+    // 按当前地址形态预填到对应框。
+    final cur = id.serverBase;
+    if (cur.startsWith('http://')) {
+      lanCtl.text = cur;
+    } else if (cur.isNotEmpty) {
+      remoteCtl.text = cur;
+    }
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    await showDarkDialog(
+      context,
+      title: '切换服务器地址',
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '局域网地址（电脑端服务，如 http://192.168.1.x:47820）',
+              style: TextStyle(color: kTextSub, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: lanCtl,
+              keyboardType: TextInputType.url,
+              style: const TextStyle(color: kTextMain, fontSize: 13),
+              decoration: dec('http://192.168.1.x:47820'),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: lanCtl.text.trim().isEmpty
+                        ? null
+                        : () async {
+                            await id.saveConfig(serverBase: lanCtl.text.trim());
+                            navigator.pop();
+                            if (mounted) setState(() {});
+                          },
+                    child: const Text('使用局域网地址'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              '远程域名（Cloudflare Tunnel，如 https://sync.xxx.com）',
+              style: TextStyle(color: kTextSub, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: remoteCtl,
+              keyboardType: TextInputType.url,
+              style: const TextStyle(color: kTextMain, fontSize: 13),
+              decoration: dec('https://sync.你的域名'),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: remoteCtl.text.trim().isEmpty
+                        ? null
+                        : () async {
+                            await id.saveConfig(
+                              serverBase: remoteCtl.text.trim(),
+                            );
+                            navigator.pop();
+                            if (mounted) setState(() {});
+                          },
+                    child: const Text('使用远程域名'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+      ],
+    );
+    lanCtl.dispose();
+    remoteCtl.dispose();
+  }
+
   Future<void> _openSettings() async {
     final sc = widget.sync;
     if (!mounted) return;
@@ -164,25 +435,30 @@ class _SyncPanelBodyState extends State<_SyncPanelBody> {
   }
 
   Widget _row(IconData icon, String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 15, color: kTextSub),
-            const SizedBox(width: 8),
-            SizedBox(
-                width: 68,
-                child: Text(label,
-                    style: const TextStyle(color: kTextSub, fontSize: 12.5))),
-            Expanded(
-              child: Text(value,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: kTextMain, fontSize: 12.5)),
-            ),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: kTextSub),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 68,
+          child: Text(
+            label,
+            style: const TextStyle(color: kTextSub, fontSize: 12.5),
+          ),
         ),
-      );
+        Expanded(
+          child: Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: kTextMain, fontSize: 12.5),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// 同步设置对话框：同步令牌 + 服务器地址 + 设备名（v1 手动粘贴，扫码归 P2）。
@@ -208,8 +484,10 @@ Future<void> showSyncSettingsDialog(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('设备名（用于冲突提示，可自定义）',
-              style: TextStyle(color: kTextSub, fontSize: 12)),
+          const Text(
+            '设备名（用于冲突提示，可自定义）',
+            style: TextStyle(color: kTextSub, fontSize: 12),
+          ),
           const SizedBox(height: 6),
           TextField(
             controller: nameCtl,
@@ -217,8 +495,10 @@ Future<void> showSyncSettingsDialog(
             decoration: dec('如：电脑-信阳办公室'),
           ),
           const SizedBox(height: 12),
-          const Text('服务器地址（专属子域，如 https://sync.example.com）',
-              style: TextStyle(color: kTextSub, fontSize: 12)),
+          const Text(
+            '服务器地址（专属子域，如 https://sync.example.com）',
+            style: TextStyle(color: kTextSub, fontSize: 12),
+          ),
           const SizedBox(height: 6),
           TextField(
             controller: baseCtl,
@@ -227,8 +507,10 @@ Future<void> showSyncSettingsDialog(
             decoration: dec('https://sync.你的域名'),
           ),
           const SizedBox(height: 12),
-          const Text('同步令牌（与 Worker Secret SYNC_TOKEN 一致）',
-              style: TextStyle(color: kTextSub, fontSize: 12)),
+          const Text(
+            '同步令牌（与 Worker Secret SYNC_TOKEN 一致）',
+            style: TextStyle(color: kTextSub, fontSize: 12),
+          ),
           const SizedBox(height: 6),
           TextField(
             controller: tokenCtl,
@@ -236,8 +518,10 @@ Future<void> showSyncSettingsDialog(
             decoration: dec('粘贴同步令牌'),
           ),
           const SizedBox(height: 10),
-          const Text('提示：令牌错误时同步请求会被服务端拒绝（401）。',
-              style: TextStyle(color: kTextSub, fontSize: 11)),
+          const Text(
+            '提示：令牌错误时同步请求会被服务端拒绝（401）。',
+            style: TextStyle(color: kTextSub, fontSize: 11),
+          ),
         ],
       ),
     ),
@@ -346,11 +630,12 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
       context,
       title: '恢复历史版本',
       content: Text(
-          '确定恢复到 rev ${v.rev}（${v.deviceName.isEmpty ? '未知设备' : v.deviceName} · '
-          '${_fmtTs(v.updatedAt)} · ${v.labelCount} 点）？\n\n'
-          '当前云端内容将被该版本覆盖，并生成一个新的版本号（旧版本仍可再恢复）。'
-          '${hasPending ? '\n\n⚠️ 恢复将以所选版本为准，本机未上传的改动将丢失。' : ''}',
-          style: const TextStyle(color: kTextMain, fontSize: 13, height: 1.5)),
+        '确定恢复到 rev ${v.rev}（${v.deviceName.isEmpty ? '未知设备' : v.deviceName} · '
+        '${_fmtTs(v.updatedAt)} · ${v.labelCount} 点）？\n\n'
+        '当前云端内容将被该版本覆盖，并生成一个新的版本号（旧版本仍可再恢复）。'
+        '${hasPending ? '\n\n⚠️ 恢复将以所选版本为准，本机未上传的改动将丢失。' : ''}',
+        style: const TextStyle(color: kTextMain, fontSize: 13, height: 1.5),
+      ),
       actions: [
         darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
         darkTextBtn('恢复', () {
@@ -365,7 +650,10 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (navigator.mounted) navigator.pop(); // 关闭历史对话框
-    toast(context, ok ? '已恢复到 rev ${v.rev}，本地已刷新' : '恢复失败：${widget.sync.lastError}');
+    toast(
+      context,
+      ok ? '已恢复到 rev ${v.rev}，本地已刷新' : '恢复失败：${widget.sync.lastError}',
+    );
   }
 
   @override
@@ -384,9 +672,14 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(_error,
-                style: const TextStyle(
-                    color: TokC.warn, fontSize: 12.5, height: 1.5)),
+            Text(
+              _error,
+              style: const TextStyle(
+                color: TokC.warn,
+                fontSize: 12.5,
+                height: 1.5,
+              ),
+            ),
             const SizedBox(height: 10),
             TextButton(
               onPressed: _busy ? null : _load,
@@ -399,8 +692,10 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
     if (_versions.isEmpty) {
       return const SizedBox(
         width: 420,
-        child: Text('该工程还没有历史版本（首次上传后开始产生）。',
-            style: TextStyle(color: kTextSub, fontSize: 12.5, height: 1.5)),
+        child: Text(
+          '该工程还没有历史版本（首次上传后开始产生）。',
+          style: TextStyle(color: kTextSub, fontSize: 12.5, height: 1.5),
+        ),
       );
     }
     return SizedBox(
@@ -409,8 +704,10 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('共 ${_versions.length} 个版本（最新在前）',
-              style: const TextStyle(color: kTextSub, fontSize: 11.5)),
+          Text(
+            '共 ${_versions.length} 个版本（最新在前）',
+            style: const TextStyle(color: kTextSub, fontSize: 11.5),
+          ),
           const SizedBox(height: 6),
           Expanded(
             child: ListView.separated(
@@ -425,18 +722,25 @@ class _VersionHistoryBodyState extends State<_VersionHistoryBody> {
                   leading: CircleAvatar(
                     radius: 13,
                     backgroundColor: kAccent.withValues(alpha: 0.18),
-                    child: Text('${v.rev}',
-                        style: const TextStyle(color: kAccent, fontSize: 11)),
+                    child: Text(
+                      '${v.rev}',
+                      style: const TextStyle(color: kAccent, fontSize: 11),
+                    ),
                   ),
                   title: Text(
-                      '${v.deviceName.isEmpty ? '未知设备' : v.deviceName} · ${v.labelCount} 点',
-                      style: const TextStyle(color: kTextMain, fontSize: 13)),
-                  subtitle: Text(_fmtTs(v.updatedAt),
-                      style: const TextStyle(color: kTextSub, fontSize: 11)),
+                    '${v.deviceName.isEmpty ? '未知设备' : v.deviceName} · ${v.labelCount} 点',
+                    style: const TextStyle(color: kTextMain, fontSize: 13),
+                  ),
+                  subtitle: Text(
+                    _fmtTs(v.updatedAt),
+                    style: const TextStyle(color: kTextSub, fontSize: 11),
+                  ),
                   trailing: TextButton(
                     onPressed: _busy ? null : () => _confirmRestore(v),
-                    child: const Text('恢复',
-                        style: TextStyle(color: kAccent, fontSize: 12.5)),
+                    child: const Text(
+                      '恢复',
+                      style: TextStyle(color: kAccent, fontSize: 12.5),
+                    ),
                   ),
                 );
               },

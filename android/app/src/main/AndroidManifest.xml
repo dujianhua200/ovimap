@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 扫码配对（mobile_scanner） -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <application
         android:label="滑洲云图"
         android:name="${applicationName}"

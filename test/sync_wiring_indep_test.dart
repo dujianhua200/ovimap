@@ -129,13 +129,28 @@ void main() {
     });
   });
 
-  group('硬约束：零新增运行时依赖', () {
-    test('pubspec 未新增 crypto 等包', () {
+  group('硬约束：同步服务端依赖白名单', () {
+    // 2026-10-11 架构变更：Windows 内嵌同步服务端（shelf）替代纯 Worker 方案，
+    // "零新增依赖"旧约束作废，改为白名单制。白名单外新增运行时依赖需更新此测试。
+    test('pubspec 依赖在白名单内', () {
       final s = read('pubspec.yaml');
-      // 允许的既有依赖之外的哈希类包不得出现。
-      expect(RegExp(r'\n\s+crypto:').hasMatch(s), isFalse,
-          reason: '不得新增 crypto 依赖');
-      expect(RegExp(r'\n\s+uuid:').hasMatch(s), isFalse);
+      const allowed = {
+        'flutter', 'flutter_map', 'latlong2', 'provider', 'geolocator',
+        'flutter_compass', 'path_provider', 'shared_preferences', 'share_plus',
+        'http', 'intl', 'gbk_codec', 'image_picker', 'archive', 'file_picker',
+        // 同步服务端（2026-10-11 新增）
+        'shelf', 'shelf_router', 'shelf_web_socket', 'web_socket_channel',
+        'qr', 'mobile_scanner', 'flutter_secure_storage', 'crypto',
+      };
+      // 只取 dependencies: 段（dev_dependencies 之前）的一级 key
+      final afterDeps = s.split('\ndependencies:').last;
+      final depsSection = afterDeps.split('dev_dependencies:').first;
+      final found = RegExp(r'\n  ([a-z0-9_]+):', multiLine: true)
+          .allMatches(depsSection)
+          .map((m) => m.group(1)!)
+          .toSet();
+      final extra = found.difference(allowed);
+      expect(extra, isEmpty, reason: 'pubspec 出现白名单外的新依赖: $extra');
       expect(s.contains('http: ^1.2.0'), isTrue);
     });
   });

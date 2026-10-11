@@ -58,4 +58,11 @@ class PlatformCaps {
   /// 才允许写入，正是「另存为」的语义。
   static bool get supportsFileSaveDialog =>
       Platform.isWindows || Platform.isMacOS;
+
+  /// 是否 Windows。**仅用于 Windows 独有能力**（如同步服务端的
+  /// cloudflared sidecar、Windows Credential Manager 相关逻辑）。
+  ///
+  /// 其他平台判断一律仍用 [isDesktop] / [hasGps] 等语义化判据，
+  /// 不要因为本 getter 的存在就把通用逻辑改回 `Platform.isXxx` 散判。
+  static final bool isWindows = Platform.isWindows;
 }

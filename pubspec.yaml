@@ -18,6 +18,8 @@ dependencies:
   shared_preferences: ^2.2.0
   share_plus: ^10.0.0
   http: ^1.2.0
+  crypto: ^3.0.7 # 同步服务端照片 sha256 校验（此前为传递依赖，现提升为直接依赖）
+  web_socket_channel: ^3.0.3 # 同步服务端 WS 推送（此前为 shelf_web_socket 的传递依赖）
   intl: ^0.20.0
   gbk_codec: ^0.4.0
   image_picker: ^1.1.2
@@ -32,7 +34,10 @@ dependencies:
   shelf_web_socket: ^3.0.0
   qr: ^4.0.0
   mobile_scanner: ^7.4.2
-  flutter_secure_storage: ^11.2.0
+  # 钉 10.x：11.x 经 windows 实现要求 win32 ^6.0.1，与 file_picker 9.x（win32 ^5.9.0，
+  # 其 Windows FFI 调了 6.x 已改签名的 IShellItem.getDisplayName）冲突；
+  # 10.3.4 的 windows 实现用 win32 ^5.5.4，兼容。
+  flutter_secure_storage: ^10.3.4
 
 dev_dependencies:
   flutter_test:
@@ -47,10 +52,6 @@ dev_dependencies:
 # 以同时满足 file_picker(^2.0.22) 与 image_picker_android(^2.0.1)。未新增任何依赖。
 dependency_overrides:
   flutter_plugin_android_lifecycle: 2.0.22
-  # flutter_secure_storage（经 windows 实现）要求 win32 ^6.0.1，而 file_picker 9.x
-  # 钉在 ^5.9.0。file_picker 的 Windows 侧只用 win32 稳定 API
-  #（CoInitializeEx/SUCCEEDED/Utf16/calloc 等，6.x 均保留），故统一覆盖到 6.4.0。
-  win32: 6.4.0
 
 flutter:
   uses-material-design: true
