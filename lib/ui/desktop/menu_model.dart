@@ -81,7 +81,7 @@ const List<OviMenuGroupDef> oviMenuGroups = <OviMenuGroupDef>[
         keys: 'Ctrl+E',
         activator: SingleActivator(LogicalKeyboardKey.keyE, meta: true)),
     OviMenuItemDef('archive', '竣工资料一键成册'),
-    OviMenuItemDef('import_kml', '导入 KML 到当前项目'),
+    OviMenuItemDef('import_kml', '导入对象文件（KML/KMZ/奥维）'),
   ]),
   OviMenuGroupDef('编辑', <OviMenuItemDef>[
     OviMenuItemDef('undo', '撤销',
@@ -244,7 +244,7 @@ Future<void> dispatchOviMenuItem(
       await showArchiveBookDialog(context, st);
       break;
     case 'import_kml':
-      await showKmlImportDialog(context, st);
+      await showImportDialog(context, st);
       break;
 
     // ---- 编辑 ----

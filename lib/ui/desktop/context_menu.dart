@@ -81,7 +81,7 @@ Future<void> showMapContextMenu(
       PopupMenuItem<String>(
           value: 'paste_coord', child: _mi(Icons.paste, '粘贴坐标点')),
       PopupMenuItem<String>(
-          value: 'import_file', child: _mi(Icons.file_open, '导入文件到此')),
+          value: 'import_file', child: _mi(Icons.file_open, '导入对象文件（KML/KMZ/奥维）')),
     ]);
     if (st.hasFix) {
       items.add(PopupMenuItem<String>(
@@ -162,7 +162,7 @@ Future<void> showMapContextMenu(
       await _pasteCoord(context, st);
       break;
     case 'import_file':
-      await showKmlImportDialog(context, st);
+      await showImportDialog(context, st);
       break;
     case 'locate':
       onLocate?.call();

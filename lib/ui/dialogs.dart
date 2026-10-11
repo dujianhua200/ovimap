@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../export/basemap.dart';
@@ -23,6 +25,10 @@ import '../export/overpass.dart';
 import '../export/topo.dart';
 import '../export/topo_png.dart';
 import '../geo/geo_util.dart';
+import '../import/import_model.dart';
+import '../import/importer.dart';
+import '../import/ovobj_parser.dart';
+import '../import/tree_import.dart';
 import '../models/fiber_link.dart';
 import '../models/map_label.dart';
 import '../services/export_saver.dart';
@@ -30,6 +36,7 @@ import '../services/photos.dart';
 import '../services/platform_caps.dart';
 import '../services/tile_cache.dart';
 import '../state/app_state.dart';
+import '../state/fav_tree_controller.dart';
 import 'design_tokens.dart';
 import 'desktop/source_panel.dart';
 
@@ -2418,6 +2425,160 @@ Future<void> showKmlImportDialog(BuildContext context, AppState st) async {
         Navigator.pop(context);
         toast(context,
             summary == null ? '解析失败：未找到有效的 KML 要素' : '已导入 $summary（可点「撤销」回退）');
+      }),
+    ],
+  );
+}
+
+/// 导入对象文件（KML/KMZ/奥维）→ 收藏夹树（落点 B：保留文件夹层级）。
+///
+/// 两条入口最终都走**同一条新链路**：
+/// `Importer.parseFile`（>10MB 的文件在 isolate 里解析，避免阻塞 UI）
+/// → [importParsedResult]（整个树写入包成一条撤销命令）
+/// → toast 结果。`FormatException` / `OvobjUnsupportedException` 按具体原因 toast。
+///
+/// - 「从文件选择…」用系统文件选择器（`file_picker`，SAF，无需存储权限），
+///   用户取消静默返回；
+/// - 「粘贴/剪贴板」保留（小样本调试用），粘贴内容按 `.kml` 解析。
+///
+/// 老 [showKmlImportDialog] 保留（历史入口）；菜单统一走本函数。
+Future<void> showImportDialog(BuildContext context, AppState st) async {
+  final ctl = TextEditingController();
+
+  /// >10MB 在 isolate 里解析，否则当前 isolate 直接解析。
+  /// （async 包一层：无论 Importer.parseFile 是同步还是异步返回都能接住。）
+  Future<ImportParseResult?> parseImportBytes(
+      String fileName, Uint8List bytes) async {
+    if (bytes.length > 10 * 1024 * 1024) {
+      // bytes / fileName 均可跨 isolate 发送；Importer.parseFile 为静态入口。
+      return Isolate.run(() => Importer.parseFile(fileName, bytes));
+    }
+    return Importer.parseFile(fileName, bytes);
+  }
+
+  /// 新链路：解析 → 入树 → toast。解析异常按具体原因 toast。
+  Future<void> runImport(String fileName, Uint8List bytes) async {
+    final ImportParseResult? parsed;
+    try {
+      parsed = await parseImportBytes(fileName, bytes);
+    } on FormatException catch (e) {
+      if (context.mounted) toast(context, '导入失败：${e.message}');
+      return;
+    } on OvobjUnsupportedException catch (e) {
+      if (context.mounted) toast(context, '导入失败：$e');
+      return;
+    } catch (e) {
+      if (context.mounted) toast(context, '导入失败：$e');
+      return;
+    }
+    if (!context.mounted) return;
+    if (parsed == null || parsed.isEmpty) {
+      toast(context, '解析失败：未找到有效的要素');
+      return;
+    }
+    final FavTreeController tree;
+    try {
+      tree = Provider.of<FavTreeController>(context, listen: false);
+    } catch (e) {
+      toast(context, '导入失败：收藏夹控制器不可用（$e）');
+      return;
+    }
+    final r = await importParsedResult(tree, parsed,
+        parentId: tree.treeSelectedFolderId);
+    if (!context.mounted) return;
+    if (!r.ok) {
+      toast(context, '导入失败：写入收藏夹时出错');
+      return;
+    }
+    toast(context,
+        '已导入：${r.folderCount} 个文件夹 · ${r.projectCount} 个工程 · ${r.pointCount} 点 · ${r.lineCount} 线；可撤销回退');
+    for (final w in parsed.warnings) {
+      toast(context, w);
+    }
+  }
+
+  await showDarkDialog(
+    context,
+    title: '导入对象文件（KML/KMZ/奥维）',
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+            '支持 KML / KMZ（Google Earth）与奥维地图文件（.ovkml / .ovkmz / .ovjsn / .ovobj；'
+            'ovobj 仅可靠支持点要素）。导入到收藏夹树，保留文件夹层级；'
+            '整个导入为一条撤销命令，可一键回退。',
+            style: TextStyle(color: kTextSub, fontSize: 11)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: ctl,
+          maxLines: 6,
+          style: const TextStyle(
+              color: kTextMain, fontSize: 11, fontFamily: 'monospace'),
+          decoration: dec('粘贴 KML 全文，或点下方「读取剪贴板」（小样本调试用）；大文件请点「从文件选择…」'),
+        ),
+      ],
+    ),
+    actions: [
+      darkTextBtn('从文件选择…', () async {
+        // —— 系统文件选择器（SAF）：过滤导入格式，不申请任何存储权限 ——
+        FilePickerResult? picked;
+        try {
+          picked = await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: const [
+              'kml',
+              'kmz',
+              'ovkml',
+              'ovkmz',
+              'ovjsn',
+              'ovobj'
+            ],
+            // 只取路径（大文件避免 withData 在内存里多拷贝一层），下面按路径读字节。
+            withData: false,
+          );
+        } catch (e) {
+          if (context.mounted) toast(context, '打开文件选择器失败：$e');
+          return;
+        }
+        // 用户取消：picked == null → 静默返回，**不报错**。
+        if (picked == null || picked.files.isEmpty) return;
+        final f = picked.files.first;
+        final path = f.path;
+        if (path == null || path.isEmpty) {
+          if (context.mounted) toast(context, '读取失败：无法获取所选文件的内容');
+          return;
+        }
+        final Uint8List bytes;
+        try {
+          bytes = await File(path).readAsBytes();
+        } catch (e) {
+          if (context.mounted) toast(context, '读取失败：$e');
+          return;
+        }
+        if (context.mounted) Navigator.pop(context);
+        await runImport(f.name, bytes);
+      }, color: kGreen),
+      darkTextBtn('读取剪贴板', () async {
+        final data = await Clipboard.getData('text/plain');
+        final t = data?.text ?? '';
+        if (t.trim().isEmpty) {
+          if (context.mounted) toast(context, '剪贴板为空');
+          return;
+        }
+        ctl.text = t;
+        if (context.mounted) toast(context, '已读入剪贴板内容，点「解析并导入」');
+      }),
+      darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+      darkTextBtn('解析并导入', () async {
+        final raw = ctl.text.trim();
+        if (raw.isEmpty) {
+          toast(context, '请先粘贴 KML 文本');
+          return;
+        }
+        if (context.mounted) Navigator.pop(context);
+        // 粘贴内容按 .kml 解析。
+        await runImport('pasted.kml', Uint8List.fromList(utf8.encode(raw)));
       }),
     ],
   );
