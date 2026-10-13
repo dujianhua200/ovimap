@@ -1515,7 +1515,9 @@ class DxfExporter {
         rpList.add(r);
       }
       // 交叉口倒角腿长：纸面 1.5mm（45° 真倒角，视觉上明确可辨）。
-      final jres = RoadJunction.process(jroads, _mmOf(1.5, scale));
+      // 近miss容差 3m：兜底吸附后异名路口仍残留的小间隙。
+      final jres =
+          RoadJunction.process(jroads, _mmOf(1.5, scale), snapTol: 3.0);
       for (var i = 0; i < jroads.length; i++) {
         final rp = rpList[i];
         final halfW = jroads[i].halfW;

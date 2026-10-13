@@ -13,7 +13,10 @@ class RoadJunction {
 
   /// 输入道路（中心线已简化，笛卡尔米坐标）。
   /// [halfW] 为该路双线描边半宽（米）。
-  static JunctionResult process(List<JunctionRoad> roads, double chamferM) {
+  /// [snapTol]：近miss容差（米）。端点到对方线段距离 <= snapTol 且
+  /// 不近似平行时视为相交，兜底吸附后仍残留的小间隙（异名路路口）。
+  static JunctionResult process(List<JunctionRoad> roads, double chamferM,
+      {double snapTol = 3.0}) {
     final n = roads.length;
     final result = JunctionResult(
       List.generate(n, (_) => <List<List<double>>>[]),
@@ -46,15 +49,17 @@ class RoadJunction {
         }
         for (var ai = 0; ai < a.length - 1; ai++) {
           for (var bi = 0; bi < b.length - 1; bi++) {
-            final p = _segIntersect(a[ai], a[ai + 1], b[bi], b[bi + 1]);
+            var p = _segIntersect(a[ai], a[ai + 1], b[bi], b[bi + 1]);
+            // 近miss兜底：精确不交但端点距对方线段 <= snapTol 时视为相交。
+            p ??= _segNearMiss(a[ai], a[ai + 1], b[bi], b[bi + 1], snapTol);
             if (p == null) continue;
+            // 有符号投影：近miss 交点可能在线段外（s 为负或 >total），
+            // 用直线距离会误算成段内点，导致开口切错位置。
             final sa = cums[i][ai] +
-                _dist(a[ai], p) /
-                    math.max(_dist(a[ai], a[ai + 1]), 1e-9) *
+                _signedT(a[ai], a[ai + 1], p) *
                     (cums[i][ai + 1] - cums[i][ai]);
             final sb = cums[j][bi] +
-                _dist(b[bi], p) /
-                    math.max(_dist(b[bi], b[bi + 1]), 1e-9) *
+                _signedT(b[bi], b[bi + 1], p) *
                     (cums[j][bi + 1] - cums[j][bi]);
             // 共用端点（两条 way 首尾相接，多为同一条路的分段）不视为交叉口，
             // 否则会在连续道路中间打出缺口。仅「端点—中部」相接才算 T 型口。
@@ -73,11 +78,12 @@ class RoadJunction {
       if (pts.length < 2 || total < 1e-9) continue;
       final myRank = roads[i].grade.index;
 
-      // 交点按弧长排序、去重（同一交点可能被相邻两段各检出一次）
+      // 交点按弧长排序、去重：同一路口被多条路/相邻两段各检出一次时，
+      // 弧长差 < 3m 即视为同一路口，合并为一个 hit，避免重复开口/倒角。
       final hs = hits[i].toList()..sort((x, y) => x.s.compareTo(y.s));
       final uniq = <_Hit>[];
       for (final h in hs) {
-        if (uniq.isEmpty || (h.s - uniq.last.s).abs() > 1e-6) uniq.add(h);
+        if (uniq.isEmpty || (h.s - uniq.last.s).abs() > 3.0) uniq.add(h);
       }
 
       // 退让区间（仅当对方为 major）
@@ -161,7 +167,45 @@ class RoadJunction {
         }
       }
     }
-    return result;
+    // ---- 4. 倒角去重：同一路口多条路交点差 1–3m 时，同一逻辑倒角
+    // 会被重复生成多次（中点相近、方向相近）。按两端点均相近判重，
+    // 保留第一条，避免路口出现重叠的杂乱倒角。----
+    return JunctionResult(result.pieces, _dedupChamfers(result.chamfers));
+  }
+
+  /// 倒角去重：两条倒角中点相距 < 2m、方向近似平行（|cos| > 0.86），
+  /// 且中点偏移主要沿倒角方向（同线偏移，|dot| > 0.7）即判为同一倒角。
+  /// T 型口左右一对倒角的中点偏移垂直于倒角方向（并排），不会误杀；
+  /// 同一逻辑倒角重复生成时是同线偏移。
+  static List<List<List<double>>> _dedupChamfers(
+      List<List<List<double>>> chamfers) {
+    final out = <List<List<double>>>[];
+    for (final c in chamfers) {
+      final cmx = (c[0][0] + c[1][0]) / 2, cmy = (c[0][1] + c[1][1]) / 2;
+      final cdx = c[1][0] - c[0][0], cdy = c[1][1] - c[0][1];
+      final clen = math.sqrt(cdx * cdx + cdy * cdy);
+      var dup = false;
+      for (final o in out) {
+        final omx = (o[0][0] + o[1][0]) / 2, omy = (o[0][1] + o[1][1]) / 2;
+        final offx = cmx - omx, offy = cmy - omy;
+        final offLen = math.sqrt(offx * offx + offy * offy);
+        if (offLen > 2.0) continue;
+        final odx = o[1][0] - o[0][0], ody = o[1][1] - o[0][1];
+        final olen = math.sqrt(odx * odx + ody * ody);
+        if (clen < 1e-9 || olen < 1e-9 || offLen < 1e-9) continue;
+        // 方向平行？
+        final cosA = (cdx * odx + cdy * ody) / (clen * olen);
+        if (cosA.abs() <= 0.86) continue;
+        // 中点偏移是否主要沿倒角方向（同线偏移）？
+        final alongRatio = (offx * cdx + offy * cdy).abs() / (offLen * clen);
+        if (alongRatio > 0.7) {
+          dup = true;
+          break;
+        }
+      }
+      if (!dup) out.add(c);
+    }
+    return out;
   }
 
   // ---------- 几何原语 ----------
@@ -218,6 +262,66 @@ class RoadJunction {
     const eps = 1e-9;
     if (t < -eps || t > 1 + eps || u < -eps || u > 1 + eps) return null;
     return [a1[0] + rX * t.clamp(0.0, 1.0), a1[1] + rY * t.clamp(0.0, 1.0)];
+  }
+
+  /// 近miss检测：精确不交时，端点到对方线段距离 <= tol 视为相交。
+  ///
+  /// 返回交点（端点在对方线段上的投影）。近似平行（夹角 < ~14°）
+  /// 时返回 null，避免把双向车道、平行辅路误判为交叉口。
+  static List<double>? _segNearMiss(
+      List<double> a1, List<double> a2,
+      List<double> b1, List<double> b2, double tol) {
+    if (tol <= 0) return null;
+    // 平行判定：方向余弦 |cos| 接近 1 = 平行，不视为交叉
+    final rX = a2[0] - a1[0], rY = a2[1] - a1[1];
+    final sX = b2[0] - b1[0], sY = b2[1] - b1[1];
+    final rLen = math.sqrt(rX * rX + rY * rY);
+    final sLen = math.sqrt(sX * sX + sY * sY);
+    if (rLen < 1e-9 || sLen < 1e-9) return null;
+    final cosA = (rX * sX + rY * sY) / (rLen * sLen);
+    if (cosA.abs() > 0.97) return null;
+
+    // 端点到对方线段的最近距离
+    var best = double.infinity;
+    List<double>? bestP;
+    for (final ap in [a1, a2]) {
+      final proj = _nearestOnSeg(ap, b1, b2);
+      final d = _dist(ap, proj);
+      if (d < best) {
+        best = d;
+        bestP = proj;
+      }
+    }
+    for (final bp in [b1, b2]) {
+      final proj = _nearestOnSeg(bp, a1, a2);
+      final d = _dist(bp, proj);
+      if (d < best) {
+        best = d;
+        bestP = proj;
+      }
+    }
+    if (best <= tol) return bestP;
+    return null;
+  }
+
+  /// 有符号投影参数：点 p 在线段 a→b 方向上的参数。
+  /// 0 = a，1 = b；<0 表示在 a 之前，>1 表示在 b 之后。
+  static double _signedT(List<double> a, List<double> b, List<double> p) {
+    final dx = b[0] - a[0], dy = b[1] - a[1];
+    final len2 = dx * dx + dy * dy;
+    if (len2 < 1e-18) return 0.0;
+    return ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+  }
+
+  /// 点到线段的最近点。
+  static List<double> _nearestOnSeg(
+      List<double> p, List<double> a, List<double> b) {
+    final dx = b[0] - a[0], dy = b[1] - a[1];
+    final len2 = dx * dx + dy * dy;
+    if (len2 < 1e-18) return a;
+    var t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+    t = t.clamp(0.0, 1.0);
+    return [a[0] + dx * t, a[1] + dy * t];
   }
 
   /// 弧长 s 处的点与切向（s  clamp 进 [0, total]）。

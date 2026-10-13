@@ -1,4 +1,6 @@
 // 道路交叉口处理（开口+倒角）单测：RoadJunction 纯几何模块。
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ovimap/export/basemap.dart';
 import 'package:ovimap/export/road_junction.dart';
@@ -177,6 +179,122 @@ void main() {
       ], 0.3);
       expect(r.pieces[0], isEmpty);
       expect(r.chamfers, isEmpty);
+    });
+
+    test('近miss容差：T 型口 2m 间隙仍识别为交叉口', () {
+      const trunkHW = 0.9, chamfer = 0.3;
+      final roads = [
+        _road([
+          [-100, 0],
+          [100, 0]
+        ], RoadGrade.trunk, trunkHW),
+        // 次路端点 (0,2) 距主路 2m（间隙），snapTol=3 应抓住
+        _road([
+          [0, 2],
+          [0, 100]
+        ], RoadGrade.residential, 0.36),
+      ];
+      final r = RoadJunction.process(roads, chamfer, snapTol: 3.0);
+      // 次路起点在 trim 区外（2m > 1.2m），不被切断，但应有倒角连到主路边线
+      expect(r.pieces[1].length, 1);
+      expect(r.pieces[1][0].first, [0, 2]);
+      expect(r.chamfers.length, 2);
+    });
+
+    test('近miss容差：间隙超容差不识别', () {
+      const trunkHW = 0.9, chamfer = 0.3;
+      final roads = [
+        _road([
+          [-100, 0],
+          [100, 0]
+        ], RoadGrade.trunk, trunkHW),
+        // 次路端点 (0,5) 距主路 5m，snapTol=3 抓不住
+        _road([
+          [0, 5],
+          [0, 100]
+        ], RoadGrade.residential, 0.36),
+      ];
+      final r = RoadJunction.process(roads, chamfer, snapTol: 3.0);
+      // 次路保持完整，无开口、无倒角
+      expect(r.pieces[1].length, 1);
+      expect(r.chamfers, isEmpty);
+    });
+
+    test('近miss容差：平行路 1m 间距不误判（即使在容差内）', () {
+      final roads = [
+        _road([
+          [0, 0],
+          [100, 0]
+        ], RoadGrade.trunk, 0.9),
+        _road([
+          [0, 1.0],
+          [100, 1.0]
+        ], RoadGrade.trunk, 0.9),
+      ];
+      final r = RoadJunction.process(roads, 0.3, snapTol: 3.0);
+      expect(r.pieces[0].length, 1);
+      expect(r.pieces[1].length, 1);
+      expect(r.chamfers, isEmpty);
+    });
+
+    test('近miss容差：snapTol=0 时不兜底', () {
+      const trunkHW = 0.9, chamfer = 0.3;
+      final roads = [
+        _road([
+          [-100, 0],
+          [100, 0]
+        ], RoadGrade.trunk, trunkHW),
+        _road([
+          [0, 2],
+          [0, 100]
+        ], RoadGrade.residential, 0.36),
+      ];
+      final r = RoadJunction.process(roads, chamfer, snapTol: 0);
+      expect(r.pieces[1].length, 1);
+      expect(r.chamfers, isEmpty);
+    });
+
+    test('倒角去重：同一路口双次路近端点不产生重复倒角', () {
+      // 主路东西向，两条次路南北向，次路与主路交点相差 1.5m
+      // （同一路口的两个检测点），去重后倒角不应成对重复
+      const trunkHW = 0.9, chamfer = 0.3;
+      final roads = [
+        _road([
+          [-100, 0],
+          [100, 0]
+        ], RoadGrade.trunk, trunkHW),
+        _road([
+          [0, 100],
+          [0, 0]
+        ], RoadGrade.residential, 0.36),
+        _road([
+          [1.5, 100],
+          [1.5, 0]
+        ], RoadGrade.residential, 0.36),
+      ];
+      final r = RoadJunction.process(roads, chamfer, snapTol: 3.0);
+      // 任意两条倒角不应近似重合（中点 < 2m、方向平行、且中点偏移沿倒角方向）
+      for (var i = 0; i < r.chamfers.length; i++) {
+        for (var j = i + 1; j < r.chamfers.length; j++) {
+          final c1 = r.chamfers[i], c2 = r.chamfers[j];
+          final m1x = (c1[0][0] + c1[1][0]) / 2,
+              m1y = (c1[0][1] + c1[1][1]) / 2;
+          final m2x = (c2[0][0] + c2[1][0]) / 2,
+              m2y = (c2[0][1] + c2[1][1]) / 2;
+          final offx = m1x - m2x, offy = m1y - m2y;
+          final offLen = math.sqrt(offx * offx + offy * offy);
+          final d1x = c1[1][0] - c1[0][0], d1y = c1[1][1] - c1[0][1];
+          final d2x = c2[1][0] - c2[0][0], d2y = c2[1][1] - c2[0][1];
+          final l1 = math.sqrt(d1x * d1x + d1y * d1y);
+          final l2 = math.sqrt(d2x * d2x + d2y * d2y);
+          final cosA = (d1x * d2x + d1y * d2y) / (l1 * l2);
+          final alongRatio =
+              (offx * d1x + offy * d1y).abs() / (offLen * l1);
+          final isDup =
+              offLen < 2.0 && cosA.abs() > 0.86 && alongRatio > 0.7;
+          expect(isDup, isFalse, reason: '倒角 $i 与 $j 重复');
+        }
+      }
     });
   });
 }

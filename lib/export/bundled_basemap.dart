@@ -7,6 +7,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/services.dart' show rootBundle;
 
@@ -60,6 +61,7 @@ class BundledBasemap {
       final roadText =
           utf8.decode(gzip.decode(roadData.buffer.asUint8List()));
       final roadJson = jsonDecode(roadText) as Map<String, dynamic>;
+      final loaded = <RoadPoly>[];
       for (final f in (roadJson['features'] as List)) {
         final fm = f as Map<String, dynamic>;
         final props = fm['properties'] as Map<String, dynamic>;
@@ -69,12 +71,14 @@ class BundledBasemap {
             .toList();
         if (coords.length < 2) continue;
         final hw = (props['highway'] as String?) ?? '';
-        _roads.add(RoadPoly(
+        loaded.add(RoadPoly(
           coords,
           OverpassClient.gradeOf(hw),
           (props['name'] as String?) ?? '',
         ));
       }
+      // 拓扑修复：删零长度段 + 同名端点吸附（加载时做一次）。
+      _roads.addAll(cleanRoads(loaded));
     } catch (_) {}
 
     try {
@@ -145,12 +149,187 @@ class BundledBasemap {
         .toList();
   }
 
+  /// 道路拓扑修复：删除零长度段 + 同名路端点吸附。
+  ///
+  /// 加载时调用一次。修的是 OSM 原始数据的拓扑错误：
+  /// - 零长度/极短段（<2m，含 0 米退化段）直接删除；
+  /// - 同名路端点在 15m 内的间隙自动吸合，补上碎段间的断口。
+  ///
+  /// 不是美化数据：同名路直接吸合；异名路仅交叉角才吸合，
+  /// 平行路/辅路不碰；吸附后交叉口识别才能正常工作
+  /// （RoadJunction 依赖线段精确相交，同一路口多点会重复生成倒角）。
+  static List<RoadPoly> cleanRoads(List<RoadPoly> roads) {
+    // 1. 删零长度段（总长 < 2m）
+    final kept = <RoadPoly>[];
+    for (final r in roads) {
+      if (r.pts.length >= 2 && _polylineLengthM(r.pts) >= 2.0) {
+        kept.add(r);
+      }
+    }
+    // 2. 端点吸附（15m，同名）
+    return _snapEndpoints(kept, 15.0);
+  }
+
+  /// 折线总长（米），pts 为 [lat, lon]。
+  static double _polylineLengthM(List<List<double>> pts) {
+    var total = 0.0;
+    for (var i = 1; i < pts.length; i++) {
+      total += _distM(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+    }
+    return total;
+  }
+
+  /// 两点间距离（米），近似平面投影。
+  static double _distM(double lat1, double lon1, double lat2, double lon2) {
+    final dLat = (lat2 - lat1) * 110540.0;
+    final dLon = (lon2 - lon1) *
+        111320.0 *
+        math.cos((lat1 + lat2) * 0.5 * math.pi / 180.0);
+    return math.sqrt(dLat * dLat + dLon * dLon);
+  }
+
+  /// 同名路端点吸附：15m 内的同名端点用并查集合并到质心。
+  ///
+  /// 吸附规则：
+  /// - 同名（非空）路端点：直接吸合（同路碎段）；
+  /// - 异名路端点：仅当两路在端点处呈交叉角（非平行，|cos| < 0.97，
+  ///   夹角 > ~14°）时吸合——同一路口多条路的端点应汇到一点，
+  ///   否则 RoadJunction 会把同一路口识别成多个点、重复生成倒角；
+  /// - 平行路（双向车道、平行辅路）不吸合；无名路不吸附。
+  static List<RoadPoly> _snapEndpoints(List<RoadPoly> roads, double tolM) {
+    final n = roads.length;
+    // 端点列表
+    final endpoints = <_RoadEndpoint>[];
+    for (var i = 0; i < n; i++) {
+      final pts = roads[i].pts;
+      if (pts.length < 2) continue;
+      endpoints.add(_RoadEndpoint(i, true, pts.first[0], pts.first[1]));
+      endpoints.add(_RoadEndpoint(i, false, pts.last[0], pts.last[1]));
+    }
+    if (endpoints.isEmpty) return roads;
+
+    // 并查集
+    final parent = List<int>.generate(endpoints.length, (i) => i);
+    int find(int x) {
+      while (parent[x] != x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+      }
+      return x;
+    }
+
+    void union(int a, int b) {
+      final ra = find(a), rb = find(b);
+      if (ra != rb) parent[ra] = rb;
+    }
+
+    // 网格索引加速：cell 取 tolM/90000 度（纬向/经向均大于 tolM）。
+    final cellDeg = tolM / 90000.0;
+    final grid = <String, List<int>>{};
+    for (var i = 0; i < endpoints.length; i++) {
+      final e = endpoints[i];
+      final key =
+          '${(e.lat / cellDeg).floor()}_${(e.lon / cellDeg).floor()}';
+      (grid[key] ??= []).add(i);
+    }
+
+    // 相邻 3x3 网格内找近端点，合并
+    for (var i = 0; i < endpoints.length; i++) {
+      final e = endpoints[i];
+      final name = roads[e.roadIdx].name;
+      if (name.isEmpty) continue;
+      final gx = (e.lat / cellDeg).floor();
+      final gy = (e.lon / cellDeg).floor();
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          for (final j in grid['${gx + dx}_${gy + dy}'] ?? const <int>[]) {
+            if (j <= i) continue;
+            final e2 = endpoints[j];
+            final name2 = roads[e2.roadIdx].name;
+            if (name2.isEmpty) continue;
+            if (_distM(e.lat, e.lon, e2.lat, e2.lon) > tolM) continue;
+            if (name == name2) {
+              union(i, j);
+            } else {
+              // 异名：仅交叉角才吸合（平行路不吸）
+              if (!_parallelAtEndpoint(roads, e, e2)) union(i, j);
+            }
+          }
+        }
+      }
+    }
+
+    // 每组求质心
+    final groups = <int, List<int>>{};
+    for (var i = 0; i < endpoints.length; i++) {
+      (groups[find(i)] ??= []).add(i);
+    }
+
+    // 复制点列，应用吸附
+    final newPts = <int, List<List<double>>>{};
+    for (final group in groups.values) {
+      if (group.length < 2) continue;
+      var sumLat = 0.0, sumLon = 0.0;
+      for (final idx in group) {
+        sumLat += endpoints[idx].lat;
+        sumLon += endpoints[idx].lon;
+      }
+      final cLat = sumLat / group.length;
+      final cLon = sumLon / group.length;
+      for (final idx in group) {
+        final e = endpoints[idx];
+        final pts = newPts[e.roadIdx] ??=
+            roads[e.roadIdx].pts.map((p) => List<double>.from(p)).toList();
+        if (e.isFirst) {
+          pts.first[0] = cLat;
+          pts.first[1] = cLon;
+        } else {
+          pts.last[0] = cLat;
+          pts.last[1] = cLon;
+        }
+      }
+    }
+
+    // 重建
+    final out = <RoadPoly>[];
+    for (var i = 0; i < n; i++) {
+      final pts = newPts[i] ?? roads[i].pts;
+      out.add(RoadPoly(pts, roads[i].grade, roads[i].name));
+    }
+    return out;
+  }
+
+  /// 两端点处道路是否近似平行（夹角 < ~14°，|cos| > 0.97）。
+  /// 方向取端点处指向路内的单位向量。
+  static bool _parallelAtEndpoint(
+      List<RoadPoly> roads, _RoadEndpoint a, _RoadEndpoint b) {
+    List<double> dir(_RoadEndpoint e) {
+      final pts = roads[e.roadIdx].pts;
+      if (e.isFirst) {
+        return [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]];
+      } else {
+        return [
+          pts[pts.length - 1][0] - pts[pts.length - 2][0],
+          pts[pts.length - 1][1] - pts[pts.length - 2][1]
+        ];
+      }
+    }
+
+    final d1 = dir(a), d2 = dir(b);
+    final l1 = math.sqrt(d1[0] * d1[0] + d1[1] * d1[1]);
+    final l2 = math.sqrt(d2[0] * d2[0] + d2[1] * d2[1]);
+    if (l1 < 1e-12 || l2 < 1e-12) return true; // 退化段视为平行，不吸
+    final cosA = (d1[0] * d2[0] + d1[1] * d2[1]) / (l1 * l2);
+    return cosA.abs() > 0.97;
+  }
+
   /// 合并内置与实时数据：直接拼接，不做几何去重（用户要求"抓取什么样子就什么样子"）。
   ///
   /// 只去掉完全相同的（同名+首尾点完全一致），不做"留最宽的"处理。
+  /// 合并后走一次拓扑修复（删零长度段 + 同名端点吸附），实时路同样受益。
   static List<RoadPoly> mergeRoads(List<RoadPoly> bundled, List<RoadPoly> live) {
-    if (bundled.isEmpty) return live;
-    if (live.isEmpty) return bundled;
+    if (bundled.isEmpty) return cleanRoads(live);
+    if (live.isEmpty) return cleanRoads(bundled);
     final seen = <String>{};
     for (final r in bundled) {
       seen.add(_roadKey(r));
@@ -159,7 +338,7 @@ class BundledBasemap {
     for (final r in live) {
       if (seen.add(_roadKey(r))) out.add(r);
     }
-    return out;
+    return cleanRoads(out);
   }
 
   /// 简单去重键：名称+首尾点（精确匹配才算重复）。
@@ -189,4 +368,13 @@ class BundledBasemap {
     // 名称 + 位置（约 100m 网格）
     return '${p.name}|${(p.lat * 1000).round()}|${(p.lon * 1000).round()}';
   }
+}
+
+/// 道路端点（吸附用）：roadIdx + 是否起点 + 位置。
+class _RoadEndpoint {
+  final int roadIdx;
+  final bool isFirst;
+  final double lat;
+  final double lon;
+  _RoadEndpoint(this.roadIdx, this.isFirst, this.lat, this.lon);
 }
