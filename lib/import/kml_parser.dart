@@ -81,9 +81,7 @@ class KmlParser {
           folderPath: b.folderPath,
           name: b.displayName,
           labels: b.labels,
-          description: b.descriptions.isEmpty
-              ? null
-              : b.descriptions.join('\n'),
+          description: _cappedDescription(b.descriptions),
         ),
       );
     }
@@ -187,8 +185,8 @@ class KmlParser {
       return _UnitBuilder(folderPath);
     });
     b.labels.addAll(labels);
-    if (desc.isNotEmpty && !b.descriptions.contains(desc)) {
-      b.descriptions.add(desc);
+    if (desc.isNotEmpty) {
+      b.descriptions.add(desc); // Set 去重 O(1)；原 List.contains 是 O(n²)
     }
     return isGcj;
   }
@@ -247,7 +245,7 @@ class KmlParser {
 class _UnitBuilder {
   final FolderPath folderPath;
   final List<MapLabel> labels = [];
-  final List<String> descriptions = [];
+  final Set<String> descriptions = {};
 
   _UnitBuilder(this.folderPath);
 
@@ -257,4 +255,17 @@ class _UnitBuilder {
     final last = folderPath.last;
     return last.isEmpty ? '未命名' : last;
   }
+}
+
+/// 描述汇总：去重后最多取 8 条、总长截断到 8000 字符（按 rune 安全截断，
+/// 不切散 UTF-16 代理对）。
+///
+/// ImportUnit.description 目前无消费方（仅作提示，不随导入写盘）；不截断时
+/// 万级 Placemark 各带长描述会 join 出几十 MB 的无用字符串（实测 18000 点
+/// 单 Folder 达 2.4MB），且与去重一起放大内存/CPU。
+String? _cappedDescription(Set<String> descriptions) {
+  if (descriptions.isEmpty) return null;
+  final joined = descriptions.take(8).join('\n');
+  if (joined.length <= 8000) return joined;
+  return String.fromCharCodes(joined.runes.take(8000));
 }

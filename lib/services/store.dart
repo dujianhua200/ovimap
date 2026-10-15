@@ -258,6 +258,27 @@ class LabelStore {
     return folder;
   }
 
+  /// 批量建文件夹：一次读、一次写（大文件导入用）。
+  ///
+  /// 逐个 [addFolder] 每次都要全量读+写 folders.json，F 个文件夹就是
+  /// O(F²) 磁盘 IO + JSON 编解码——1800 个文件夹实测超时 30 秒。
+  /// 调用方负责分配 id（[Folder.id] 须非空）；空名按 [addFolder] 同规则
+  /// 归一为“文件夹”。空列表直接返回，不碰磁盘。返回实际写盘的 Folder
+  /// （含归一化后的名，供调用方建路径→id 映射）。
+  Future<List<Folder>> addFolders(List<Folder> folders) async {
+    if (folders.isEmpty) return const [];
+    final normalized = [
+      for (final f in folders)
+        f.name.trim().isEmpty
+            ? Folder(f.id, '文件夹', f.parentId)
+            : Folder(f.id, f.name.trim(), f.parentId),
+    ];
+    final list = await loadFolders();
+    list.addAll(normalized);
+    await _saveFolders(list);
+    return normalized;
+  }
+
   Future<void> renameFolder(String fid, String newName) async {
     final nm = newName.trim();
     if (nm.isEmpty) return;
@@ -330,6 +351,59 @@ class LabelStore {
       if (moved > 0) await _saveIndexItems(items);
     } catch (e) {
       _reportPersistError('deleteFolder', e);
+    }
+    return (doomed.length, moved);
+  }
+
+  /// 批量删文件夹：一次文件夹读写 + 最多一次索引写（大文件导入撤销用）。
+  ///
+  /// 语义与逐个 [deleteFolder] 相同：每个 fid 的整棵子树一起删，子树内
+  /// 工程上移到各自最外层被删目录的父级。多个 fid 有祖先/后代重叠时按
+  /// 最外层算（工程上移目标 = 沿 parent 链上溯到的首个未删文件夹）。
+  Future<(int, int)> deleteFolders(List<String> fids) async {
+    if (fids.isEmpty) return (0, 0);
+    final list = await loadFolders();
+    final parentOf = <String, String>{};
+    for (final f in list) {
+      if (fids.contains(f.id)) parentOf[f.id] = f.parentId;
+    }
+
+    // 收集所有子树 id（含自己）。
+    final doomed = <String>{...fids};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final f in list) {
+        if (f.id.isNotEmpty && doomed.contains(f.parentId) && doomed.add(f.id)) {
+          grew = true;
+        }
+      }
+    }
+
+    await _saveFolders([for (final f in list) if (!doomed.contains(f.id)) f]);
+
+    // 子树内工程上移（导入撤销时工程已先删完，moved 为 0；保留通用语义）。
+    var moved = 0;
+    try {
+      final items = await _loadIndexItems();
+      final parentMap = {for (final f in list) f.id: f.parentId};
+      for (final o in items) {
+        final itemFolder =
+            (o['folder'] as String?) ?? (o['folderId'] as String?) ?? '';
+        if (!doomed.contains(itemFolder)) continue;
+        var p = itemFolder;
+        var guard = 0;
+        while (doomed.contains(p) && guard++ < list.length + 2) {
+          p = parentOf[p] ?? parentMap[p] ?? '';
+          if (p.isEmpty) break;
+        }
+        o['folder'] = p;
+        o['folderId'] = p;
+        moved++;
+      }
+      if (moved > 0) await _saveIndexItems(items);
+    } catch (e) {
+      _reportPersistError('deleteFolders', e);
     }
     return (doomed.length, moved);
   }
@@ -476,6 +550,26 @@ await robustWriteAsString(
       await _saveIndexItems(out);
     } catch (e) {
       _reportPersistError('deleteCollection', e);
+    }
+  }
+
+  /// 批量删工程：逐个删文件 + 一次索引读写（大文件导入撤销用，
+  /// 避免逐个 [deleteCollection] 的 O(P²) 索引读写）。
+  Future<void> deleteCollections(List<String> cids) async {
+    if (cids.isEmpty) return;
+    try {
+      final dir = await labelsDir();
+      final dead = cids.toSet();
+      for (final cid in dead) {
+        final f = File('${dir.path}/collection_$cid.json');
+        if (f.existsSync()) f.deleteSync();
+      }
+      final items = await _loadIndexItems();
+      final out =
+          items.where((m) => !dead.contains(m['id'] as String?)).toList();
+      await _saveIndexItems(out);
+    } catch (e) {
+      _reportPersistError('deleteCollections', e);
     }
   }
 
@@ -671,6 +765,62 @@ await robustWriteAsString(
     bool clearDraftNow = true,
   }) async {
     final cid = existingId.isEmpty ? MapLabel().id : existingId;
+    await _writeCollectionFile(
+      cid: cid,
+      name: name,
+      kind: kind,
+      folderId: folderId,
+      editMode: editMode,
+      labels: labels,
+      fiberLinks: fiberLinks,
+    );
+    await _upsertIndexEntries([
+      _indexEntry(cid, name, kind, labels.length, folderId, editMode),
+    ]);
+    if (clearDraftNow) await clearDraft();
+    return cid;
+  }
+
+  /// 批量保存收藏：逐个写工程文件 + 一次索引读写（大文件导入用）。
+  ///
+  /// 逐个 [finishCollection] 每次都要全量读+写 index.json，P 个工程就是
+  /// O(P²)——1800 个工程实测占导入耗时的大头。不清草稿（导入调用方传
+  /// clearDraftNow: false 的等价语义；需清草稿时调用方自行调 [clearDraft]）。
+  /// 返回按入参顺序的 cid 列表。
+  Future<List<String>> finishCollections(List<CollectionWrite> specs) async {
+    if (specs.isEmpty) return const [];
+    final cids = <String>[];
+    final entries = <Map<String, dynamic>>[];
+    for (final s in specs) {
+      final cid = s.existingId.isEmpty ? MapLabel().id : s.existingId;
+      cids.add(cid);
+      await _writeCollectionFile(
+        cid: cid,
+        name: s.name,
+        kind: s.kind,
+        folderId: s.folderId,
+        editMode: s.editMode,
+        labels: s.labels,
+        fiberLinks: s.fiberLinks,
+      );
+      entries.add(
+        _indexEntry(cid, s.name, s.kind, s.labels.length, s.folderId, s.editMode),
+      );
+    }
+    await _upsertIndexEntries(entries);
+    return cids;
+  }
+
+  /// 写单个工程文件（`collection_<cid>.json`），不碰索引。
+  Future<void> _writeCollectionFile({
+    required String cid,
+    required String name,
+    required String kind,
+    required String folderId,
+    required String editMode,
+    required List<MapLabel> labels,
+    required List<Map<String, dynamic>> fiberLinks,
+  }) async {
     final o = <String, dynamic>{
       'id': cid,
       'name': name,
@@ -694,23 +844,38 @@ await robustWriteAsString(
       o['distances'] = segs;
     }
     final dir = await labelsDir();
-    await robustWriteAsString(File('${dir.path}/collection_$cid.json'), jsonEncode(o));
+    await robustWriteAsString(
+        File('${dir.path}/collection_$cid.json'), jsonEncode(o));
+  }
 
+  /// 单条索引条目（与原 [finishCollection] 的 CollectionMeta 构造一致；
+  /// 更新时 createdAt 同原行为取 now，不保留旧值）。
+  Map<String, dynamic> _indexEntry(
+    String cid,
+    String name,
+    String kind,
+    int count,
+    String folderId,
+    String editMode,
+  ) =>
+      CollectionMeta(
+        id: cid,
+        name: name,
+        kind: kind,
+        count: count,
+        folder: folderId,
+        editMode: editMode,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ).toJson();
+
+  /// 索引 upsert：一次读+写，替换同 cid 旧条目、追加新条目。
+  Future<void> _upsertIndexEntries(List<Map<String, dynamic>> entries) async {
     final items = await _loadIndexItems();
+    final ids = {for (final e in entries) e['id'] as String?};
     final updated =
-        items.where((old) => cid != (old['id'] as String?)).toList();
-    updated.add(CollectionMeta(
-      id: cid,
-      name: name,
-      kind: kind,
-      count: labels.length,
-      folder: folderId,
-      editMode: editMode,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
-    ).toJson());
+        items.where((old) => !ids.contains(old['id'] as String?)).toList()
+          ..addAll(entries);
     await _saveIndexItems(updated);
-    if (clearDraftNow) await clearDraft();
-    return cid;
   }
 
   static double haversineQuick(double la1, double lo1, double la2, double lo2) {
@@ -725,6 +890,28 @@ await robustWriteAsString(
   }
 }
 
+
+/// [LabelStore.finishCollections] 的单条写规格（参数与 [LabelStore.finishCollection] 一一对应）。
+class CollectionWrite {
+  const CollectionWrite({
+    this.existingId = '',
+    required this.name,
+    required this.kind,
+    required this.folderId,
+    required this.editMode,
+    required this.labels,
+    this.fiberLinks = const [],
+  });
+
+  /// 为空时自动分配新 id；非空时覆盖同 id 工程（与 finishCollection 一致）。
+  final String existingId;
+  final String name;
+  final String kind;
+  final String folderId;
+  final String editMode;
+  final List<MapLabel> labels;
+  final List<Map<String, dynamic>> fiberLinks;
+}
 
 /// 健壮写文件：目标文件可能属主异常（旧版本/文件管理器创建，root:644）
 /// 导致覆盖写 Permission denied。此时删除重建（目录可写即可）。
