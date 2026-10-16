@@ -9,6 +9,8 @@ import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
 import 'package:ovimap/state/fav_tree_controller.dart';
 
+import 'test_helpers.dart';
+
 /// D3 visible 双源统一。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +30,7 @@ void main() {
   });
 
   tearDown(() async {
-    if (tmp.existsSync()) await tmp.delete(recursive: true);
+    await deleteTempDir(tmp);
   });
 
   Future<String> mkProject(String name) => store.finishCollection(

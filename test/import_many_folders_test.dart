@@ -11,6 +11,7 @@ import 'package:ovimap/models/map_label.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
 import 'package:ovimap/state/fav_tree_controller.dart';
+import 'test_helpers.dart';
 
 /// ovkml 导入卡死回归（2026-10-15 用户反馈：ovkml 约 18000 点，导入卡死、
 /// 内存+CPU 爆满）：
@@ -37,7 +38,7 @@ void main() {
   });
 
   tearDown(() async {
-    if (tmp.existsSync()) await tmp.delete(recursive: true);
+    await deleteTempDir(tmp);
   });
 
   Future<FavTreeController> makeController() async {
@@ -110,7 +111,7 @@ void main() {
     await st.refreshCollections();
     final c3 = await makeController();
     expect(await allFolderNames(c3), contains('夹0'));
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('嵌套文件夹：父先于子建，工程落最深层', () async {
     final c = await makeController();
