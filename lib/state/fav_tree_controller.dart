@@ -83,7 +83,21 @@ class FavTreeController extends ChangeNotifier {
 
   /// 点位真相源缓存：cid → labels。
   /// 只走 `store.loadCollection`，与 overlayLabels（地图渲染层）完全隔离。
+  ///
+  /// 容量上限（2026-10-18 导入后 3.6GB 卡死修复配套）：无界缓存会在大树
+  /// 全量 countOf/childrenOf 后持有全部工程点位（14643 点）。上限 100 个
+  /// 工程，超限时按插入顺序（Dart Map 保序）淘汰最旧条目（FIFO 近似 LRU）。
+  /// 被淘汰的工程下次按需重读磁盘，正确性不受影响。
   final Map<String, List<MapLabel>> _labelCache = {};
+
+  static const int _labelCacheMaxEntries = 100;
+
+  void _labelCachePut(String cid, List<MapLabel> labels) {
+    _labelCache[cid] = labels;
+    while (_labelCache.length > _labelCacheMaxEntries) {
+      _labelCache.remove(_labelCache.keys.first);
+    }
+  }
 
   void _onAppState() {
     // 点位真相源只认磁盘：updateLabel/removeLabel 等只 notify 不 refresh，
@@ -140,7 +154,7 @@ class FavTreeController extends ChangeNotifier {
     var hit = _labelCache[cid];
     if (hit == null) {
       hit = await _store.loadCollection(cid);
-      _labelCache[cid] = hit;
+      _labelCachePut(cid, hit);
     }
     return hit;
   }

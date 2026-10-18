@@ -28,6 +28,16 @@ import 'tree_menus.dart';
 /// - [menuExtra]（加法）节点菜单的追加项（桌面：「把当前画布收藏到此」；
 ///   移动：`favMobileProjectExtra()` 的 7 个工程操作）。
 ///
+/// 大树默认收起（2026-10-18 导入后 3.6GB 卡死修复）：
+/// 树用 SingleChildScrollView + Column 全量布局（零虚拟化），全部文件夹
+/// 默认展开时，导入 1003 文件夹 / 861 工程 / 14643 点后要同步构建
+/// 16500+ 行 × ~10 Widget = 16.5 万 Widget，直接卡死 UI 线程
+/// （Widget 测试实测：跑 4 分钟无输出）。
+/// 因此节点总数 > [_largeTreeThreshold] 时，未手动展开的节点默认收起，
+/// 首帧只建顶层行；用户点开哪个文件夹才加载哪棵子树。搜索仍走控制器
+/// 全量遍历（不依赖 Widget 展开状态），不受影响。
+/// 小树（≤阈值）保持原有"默认展开"行为，不动现有手感。
+///
 /// 平台差异（`PlatformCaps.isDesktop` 分支）：
 /// - 拖拽：桌面行用 [Draggable]（鼠标即拖）；移动端用 [LongPressDraggable]，
 ///   行上竖滑留给滚动（P0）；
@@ -167,8 +177,50 @@ Color favKindColor(FavNode node) {
 class _FavTreeState extends State<FavTree> {
   FavTreeController get c => widget.controller;
 
+  /// 大树阈值：folder + project 节点数超过此值时默认收起全部节点。
+  /// 1003 文件夹 + 861 工程 = 1864 >> 200，导入后首帧只建顶层行。
+  static const int _largeTreeThreshold = 200;
+
+  /// 是否大树（节点数 > 阈值）：大树默认收起，避免 Column 全量布局卡死。
+  bool get _largeTree =>
+      (c.roots.length + c.folders.length + c.projects.length) >
+      _largeTreeThreshold;
+
+  /// 节点是否展开。
+  ///
+  /// 小树：未在 _collapsed 里 = 展开（原有行为，新建文件夹天然展开）。
+  /// 大树：仅在 _manuallyExpanded 里 = 展开（默认收起，点开才展开）。
+  bool _isExpanded(String nodeId) {
+    if (_largeTree) return _manuallyExpanded.contains(nodeId);
+    return !_collapsed.contains(nodeId);
+  }
+
+  /// 切换节点展开/收起（+/- 图标点按用）。
+  void _toggleExpanded(String nodeId) {
+    if (_largeTree) {
+      if (!_manuallyExpanded.remove(nodeId)) {
+        _manuallyExpanded.add(nodeId);
+      }
+    } else {
+      if (!_collapsed.remove(nodeId)) {
+        _collapsed.add(nodeId);
+      }
+    }
+  }
+
+  /// 展开节点（拖拽悬停展开用）。返回是否发生了变化。
+  bool _expandNode(String nodeId) {
+    if (_largeTree) return _manuallyExpanded.add(nodeId);
+    return _collapsed.remove(nodeId);
+  }
+
   /// 手动收起的节点 id；未记录 = 展开（新建文件夹天然展开）。
+  /// 大树时反向语义：未记录 = 收起（见 [_isExpanded]），手动点开才展开。
   final Set<String> _collapsed = <String>{};
+
+  /// 大树时手动展开的节点 id（与 _collapsed 互斥：点开时从 _collapsed 移除、
+  /// 加入本集；收起时反向）。
+  final Set<String> _manuallyExpanded = <String>{};
   final ScrollController _scroll = ScrollController();
 
   final Map<String, Future<List<FavNode>>> _kidsFutures = {};
@@ -325,7 +377,7 @@ class _FavTreeState extends State<FavTree> {
 
   Widget _nodeRow(FavNode node, int depth) {
     _order.add(node.id);
-    final expanded = !_collapsed.contains(node.id);
+    final expanded = _isExpanded(node.id);
     final canExpand = node.isFolder || node.isProject || node.isChain;
 
     Widget row = _rowBody(node, depth, canExpand, expanded);
@@ -350,7 +402,7 @@ class _FavTreeState extends State<FavTree> {
         controller: c,
         folderId: node.id,
         onHoverExpand: () {
-          if (_collapsed.remove(node.id) && mounted) setState(() {});
+          if (_expandNode(node.id) && mounted) setState(() {});
         },
         child: row,
       );
@@ -424,9 +476,7 @@ class _FavTreeState extends State<FavTree> {
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () => setState(() {
-                  if (!_collapsed.remove(node.id)) {
-                    _collapsed.add(node.id);
-                  }
+                  _toggleExpanded(node.id);
                 }),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
