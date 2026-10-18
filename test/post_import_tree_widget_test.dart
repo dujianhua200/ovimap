@@ -5,8 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:ovimap/import/importer.dart';
-import 'package:ovimap/import/tree_import.dart';
 import 'package:ovimap/models/map_label.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
@@ -20,6 +18,12 @@ import 'test_helpers.dart';
 /// 默认展开，导入 1003 文件夹 / 861 工程后要同步构建 16500+ 行，
 /// Widget 测试实测跑 4 分钟无输出（卡死）。
 /// 修复：节点数 > 200 时默认收起全部节点，首帧只建顶层行。
+///
+/// 注意：本测试**不依赖任何仓库外文件**。2026-10-18 曾用
+/// `../user/files/upload.ovkml`（用户上传的真实文件，不在仓库里），
+/// CI 里文件不存在导致 Windows/macOS 构建失败。现改用程序化生成
+/// 合成大树数据（1000 文件夹 + 800 工程），完全覆盖"大树首帧只建
+/// 顶层行"的验证目标。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -42,22 +46,45 @@ void main() {
   });
 
   testWidgets('大树导入后首帧只建顶层行，不卡死', (tester) async {
-    // 注意：testWidgets 的 fake async 区不处理真实文件 IO，
-    // 文件读 + 解析 + 入树必须包在 tester.runAsync 里，否则 hang。
+    // 合成大树数据（程序化生成，不依赖外部文件）：
+    // 100 顶层文件夹 × 每文件夹 9 个子文件夹 = 1000 文件夹，
+    // 800 工程均匀分布在各文件夹内。节点总数 1800 > 200，
+    // 触发大树默认收起路径。
     late FavTreeController c;
     await tester.runAsync(() async {
-      final bytes = await File(
-        '${Directory.current.path}/../user/files/upload.ovkml',
-      ).readAsBytes();
-      final parsed = Importer.parseFile('upload.ovkml', bytes)!;
+      // 1. 批量建文件夹：100 顶层 + 900 子文件夹。
+      final folders = <Folder>[];
+      for (var t = 0; t < 100; t++) {
+        final topId = 'top_$t';
+        folders.add(Folder(topId, '文件夹$t'));
+        for (var s = 0; s < 9; s++) {
+          folders.add(Folder('sub_${t}_$s', '子文件夹$s', topId));
+        }
+      }
+      await store.addFolders(folders);
+
+      // 2. 批量建工程：800 个，每工程 1 点，均匀分布在 1000 个文件夹内。
+      final specs = <CollectionWrite>[];
+      for (var i = 0; i < 800; i++) {
+        final folderId = folders[i % folders.length].id;
+        specs.add(CollectionWrite(
+          name: '工程$i',
+          kind: 'design',
+          folderId: folderId,
+          editMode: 'design',
+          labels: [
+            MapLabel(typeId: 'pipe', lat: 32.0, lon: 114.0, name: '杆$i'),
+          ],
+        ));
+      }
+      await store.finishCollections(specs);
+
+      // 3. 刷新 AppState，建控制器。
+      await st.refreshCollections();
       c = FavTreeController(st);
       await c.ready;
-      final r = await importParsedResult(c, parsed);
-      expect(r.ok, isTrue);
-      expect(r.folderCount, 1003);
-      expect(r.projectCount, 861);
-      print('导入完成: roots=${c.roots.length}, folders=${c.folders.length}, '
-          'projects=${c.projects.length}');
+      print('合成大树完成: roots=${c.roots.length}, '
+          'folders=${c.folders.length}, projects=${c.projects.length}');
     });
 
     // 2. 泵入 FavTree：修复前这里会卡死（4 分钟无输出）。
@@ -89,12 +116,12 @@ void main() {
     sw.stop();
     print('大树首帧构建: ${sw.elapsedMilliseconds}ms');
 
-    // 3. 首帧只应有少量行（根行 + 顶层节点），远少于 16500。
+    // 3. 首帧只应有少量行（根行 + 顶层节点），远少于全量行数。
     //    用 Text 数估算：每行约 1-2 个 Text（标题 + 计数）。
     final textCount = tester.widgetList(find.byType(Text)).length;
     print('首帧 Text 数=$textCount');
     expect(textCount, lessThan(500),
-        reason: '大树首帧应只建顶层行，Text 数应远小于全量 16500 行');
+        reason: '大树首帧应只建顶层行，Text 数应远小于全量行数');
 
     // 4. 首帧构建必须快（< 30 秒，实测应 < 5 秒）。
     expect(sw.elapsedMilliseconds, lessThan(30000));
