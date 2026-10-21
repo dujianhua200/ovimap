@@ -2,8 +2,28 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../models/label_type.dart';
 import '../models/map_label.dart';
+
+/// 标签最终生效的符号样式：个体覆盖（`symColor` / `symShape` / `symText`）
+/// 优先，缺省回退类型预置。无覆盖时与历史渲染逐项一致。
+///
+/// 口径（勿改）：覆盖只改「本来就画出来的符号」的颜色 / 形状 / 字。
+/// - `track` / `none`：本来就不画符号，覆盖不凭空画出符号；
+/// - `text`：画的是文字内容本身，维持原逻辑；
+/// - `area`：顶点圆点维持原形态，仅颜色可被 `symColor` 覆盖。
+/// 样式覆盖仅 App 内显示，不进 DXF（图纸符号仍按类型出图）。
+(Color color, String shape, String symbol) effectiveSymbolStyle(
+    MapLabel label) {
+  final lt = label.type;
+  final color = label.symColor != 0 ? Color(label.symColor) : lt.color;
+  final shape = label.symShape.isNotEmpty ? label.symShape : lt.shape;
+  final symbol = label.symText.isNotEmpty
+      ? label.symText
+      : (label.name.trim().isNotEmpty
+          ? label.name.trim()
+          : (lt.symbol.isNotEmpty ? lt.symbol : lt.name));
+  return (color, shape, symbol);
+}
 
 /// 地图标签符号（按图例形状绘制）。
 ///
@@ -31,11 +51,12 @@ class LabelSymbol extends StatelessWidget {
     // 轨迹/无标签：不画符号，仅连线与距离
     if (lt.id == 'none' || lt.id == 'track') return const SizedBox.shrink();
 
-    // 区域顶点：小圆点
+    // 区域顶点：小圆点（形态不变，仅颜色可被 symColor 覆盖）
     if (lt.id == 'area') {
       return CustomPaint(
         size: Size(8 * scale, 8 * scale),
-        painter: _DotPainter(color: lt.color, selected: selected),
+        painter: _DotPainter(
+            color: effectiveSymbolStyle(label).$1, selected: selected),
       );
     }
 
@@ -46,9 +67,7 @@ class LabelSymbol extends StatelessWidget {
       return _OutlinedText(txt, 12 * scale);
     }
 
-    final disp = label.name.trim().isNotEmpty
-        ? label.name.trim()
-        : (lt.symbol.isNotEmpty ? lt.symbol : lt.name);
+    final eff = effectiveSymbolStyle(label);
 
     return SizedBox(
       width: symbolSize * scale,
@@ -60,8 +79,9 @@ class LabelSymbol extends StatelessWidget {
           CustomPaint(
             size: Size(symbolSize * scale, symbolSize * scale),
             painter: _ShapePainter(
-              type: lt,
-              symbol: disp,
+              color: eff.$1,
+              shape: eff.$2,
+              symbol: eff.$3,
               selected: selected,
             ),
           ),
@@ -108,12 +128,16 @@ class _DotPainter extends CustomPainter {
 }
 
 class _ShapePainter extends CustomPainter {
-  final LabelType type;
+  final Color color;
+  final String shape;
   final String symbol;
   final bool selected;
 
   _ShapePainter(
-      {required this.type, required this.symbol, required this.selected});
+      {required this.color,
+      required this.shape,
+      required this.symbol,
+      required this.selected});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -127,13 +151,13 @@ class _ShapePainter extends CustomPainter {
     canvas.drawCircle(Offset(c.dx + 0.8, c.dy + 1.2), w / 2 - 2,
         Paint()..color = const Color(0x55000000));
 
-    final fill = Paint()..color = type.color;
+    final fill = Paint()..color = color;
     final stroke = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.8
       ..color = Colors.white;
 
-    switch (type.shape) {
+    switch (shape) {
       case 'oval':
         final r = Rect.fromCenter(center: c, width: w * 0.92, height: w * 0.62);
         canvas.drawOval(r, fill);
@@ -154,6 +178,11 @@ class _ShapePainter extends CustomPainter {
           ..close();
         canvas.drawPath(p, fill);
         canvas.drawPath(p, stroke);
+        break;
+      case 'dot':
+        // 实心圆 + 白描边（与 area 顶点圆点同款画法，符号尺寸）。
+        canvas.drawCircle(c, w / 2 - 3, fill);
+        canvas.drawCircle(c, w / 2 - 3, stroke);
         break;
       default: // pin：圆形 + 尖角
         final tail = Path()
@@ -185,7 +214,7 @@ class _ShapePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ShapePainter old) =>
-      old.type != type || old.symbol != symbol || old.selected != selected;
+      old.color != color || old.shape != shape || old.symbol != symbol || old.selected != selected;
 }
 
 /// 白字黑边文本（地图标注）。

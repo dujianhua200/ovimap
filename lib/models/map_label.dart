@@ -63,6 +63,18 @@ class MapLabel {
   /// 纯加法：老数据 fromJson 默认为 0（原有）。
   int reno;
 
+  /// 个体符号颜色覆盖（ARGB）；0 = 跟随类型色。仅 App 内显示，不进 DXF。
+  /// 纯加法：toJson 仅非 0 写出；老数据 fromJson 缺省 0。
+  int symColor;
+
+  /// 个体符号形状覆盖：'' = 跟随类型形状；可选 pin|oval|box|tri|dot。
+  /// 纯加法：toJson 仅非空写出；老数据 fromJson 缺省 ''。
+  String symShape;
+
+  /// 个体符号字覆盖：'' = 跟随类型符号字；1–2 字。
+  /// 纯加法：toJson 仅非空写出；老数据 fromJson 缺省 ''。
+  String symText;
+
   /// 现场取证照片（相对文件名列表，存于应用文档目录 photos/ 下）。
   /// 竣工结算常用：杆位/箱体/隐患点拍照挂接，随点导出可溯源。
   List<String> photoPaths;
@@ -97,6 +109,9 @@ class MapLabel {
     this.cableSpec = '',
     this.cableCores = 0,
     this.reno = 0,
+    this.symColor = 0,
+    this.symShape = '',
+    this.symText = '',
     List<String>? photoPaths,
     Map<String, dynamic>? extra,
   })  : id = id ?? _uuid(),
@@ -156,6 +171,9 @@ class MapLabel {
         cableSpec: cableSpec,
         cableCores: cableCores,
         reno: reno,
+        symColor: symColor,
+        symShape: symShape,
+        symText: symText,
         photoPaths: List<String>.from(photoPaths),
         extra: _deepCopyExtra(extra),
       );
@@ -185,6 +203,9 @@ class MapLabel {
     if (distanceM != null) m['distanceM'] = distanceM;
     if (slackM > 0) m['slackM'] = slackM;
     if (reno != 0) m['reno'] = reno;
+    if (symColor != 0) m['symColor'] = symColor;
+    if (symShape.isNotEmpty) m['symShape'] = symShape;
+    if (symText.isNotEmpty) m['symText'] = symText;
     if (photoPaths.isNotEmpty) m['photoPaths'] = photoPaths;
     if (extra != null && extra!.isNotEmpty) m['extra'] = extra;
     return m;
@@ -211,6 +232,9 @@ class MapLabel {
       cableSpec: (jo['cableSpec'] as String?) ?? '',
       cableCores: (jo['cableCores'] as num?)?.toInt() ?? 0,
       reno: (jo['reno'] as num?)?.toInt() ?? 0,
+      symColor: (jo['symColor'] as num?)?.toInt() ?? 0,
+      symShape: (jo['symShape'] as String?) ?? '',
+      symText: (jo['symText'] as String?) ?? '',
       distanceM: jo.containsKey('distanceM')
           ? (jo['distanceM'] as num?)?.toDouble()
           : null,

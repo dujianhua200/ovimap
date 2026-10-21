@@ -14,8 +14,34 @@ import '../../services/tile_cache.dart';
 import '../../state/app_state.dart';
 import '../dialogs.dart';
 import '../label_marker.dart';
+import '../label_quick_edit.dart';
 import '../../ui/design_tokens.dart';
 import '../device_library.dart';
+
+/// 两段式点选的动作判定结果（见 [resolveTapAction]）。
+enum LabelTapAction {
+  /// 选中该点（记录命中键，照常走 onSelect）。
+  select,
+
+  /// 弹快速编辑小框（弹出后清零命中键，防三连点重复弹）。
+  popup,
+
+  /// 点空地：清零命中键并取消选中。
+  clear,
+}
+
+/// 标签命中键：草稿点用自身 id；叠加点带收藏 id 前缀，避免跨工程撞 id。
+String labelHitKey(MapLabel label, String sourceCid) =>
+    sourceCid.isEmpty ? label.id : '$sourceCid:${label.id}';
+
+/// 两段式点选判定（纯函数，供单测）：
+/// 点空地（[hitKey] 为 null）→ [LabelTapAction.clear]；
+/// 命中键与上次相同 → [LabelTapAction.popup]；否则 → [LabelTapAction.select]。
+LabelTapAction resolveTapAction(String? lastKey, String? hitKey) {
+  if (hitKey == null) return LabelTapAction.clear;
+  if (hitKey == lastKey) return LabelTapAction.popup;
+  return LabelTapAction.select;
+}
 
 /// 共享地图核心（从 `home_page` 抽出，供移动壳 / 桌面壳复用）。
 ///
@@ -67,8 +93,10 @@ class MapCanvas extends StatefulWidget {
   final double heading;
   final bool hasHeading;
 
-  /// 点选时是否**直接**弹详情对话框。
-  /// 移动端 true（现状）；桌面端 false——改由右栏展示所选点属性。
+  /// 点选交互口径（三端统一的两段式状态机）：
+  /// 第一次点中标签 = 选中（桌面经 [onSelect] 交右栏展示）；
+  /// 第二次点中同一标签 = 弹快速编辑小框 [showLabelQuickEdit]；长按仍弹完整属性框。
+  /// 本字段为历史开关，保留仅作壳层 API 兼容，点选逻辑不再据此分支。
   final bool openDetailOnTap;
 
   /// 点选回调（桌面右栏用）：命中点或空白（null）。移动端可不传。
@@ -104,6 +132,10 @@ class _MapCanvasState extends State<MapCanvas> {
   /// 会抛异常（`value.camera ?? throw`），首帧必崩（ErrorWidget，地图渲染不出来）。
   MapCamera? _cam;
   Timer? _camSaveTimer;
+
+  /// 两段式点选状态：上次点中的标签命中键（见 [labelHitKey]）。
+  /// 再次点中同键 → 弹小框；点空地 / 换点 → 重置。见 [resolveTapAction]。
+  String? _lastHitKey;
 
   AppState get st => widget.st;
   MapController get _mc => widget.controller;
@@ -181,10 +213,11 @@ class _MapCanvasState extends State<MapCanvas> {
     }
     switch (st.mode) {
       case AppMode.edit:
-        // 待定编辑优先处理：拖动点位（奥维顶点编辑式）
+        // 待定编辑优先处理：拖动点位（奥维顶点编辑式）——拖动态优先于命中判定。
         if (st.draggingLabelId != null) {
           final l = st.labelById(st.draggingLabelId!);
           st.draggingLabelId = null;
+          _lastHitKey = null;
           if (l != null) {
             final w = st.toWgs(point.latitude, point.longitude);
             st.moveLabelToWgs(l, w[0], w[1]);
@@ -193,17 +226,34 @@ class _MapCanvasState extends State<MapCanvas> {
           }
           return;
         }
+        // 点中已有草稿标签：走两段式（选中 / 再点弹小框），**不再新增点**。
+        // （此前编辑模式点哪儿都落新点，点到已有标签会叠出一个重复点，
+        // 且无从改距离——竣工模式「点第二次弹框改距离」即由此修复。）
+        final hitDraft = _hitTestGeo(st.labels, point);
+        if (hitDraft != null) {
+          final action = resolveTapAction(_lastHitKey, hitDraft.id);
+          widget.onSelect?.call(hitDraft, '');
+          if (action == LabelTapAction.popup) {
+            _lastHitKey = null;
+            showLabelQuickEdit(context, st, hitDraft);
+          } else {
+            _lastHitKey = hitDraft.id;
+          }
+          break;
+        }
+        _lastHitKey = null;
         final l = st.addLabelAtDisp(point.latitude, point.longitude);
         widget.onSelect?.call(l, '');
         if (l.typeId == 'text') {
           // 文字符号必须先输入内容才有意义，保留提示框。
           showTextPrompt(context, st, l);
         }
-        // 竣工模式不再逐点弹属性/段属性框（用户反馈「点击打点时属性对话框
-        // 老蹦出来影响体验」）：连续打点是高频动作，弹窗打断节奏。补属性走
-        // 右键「编辑属性」或右栏属性面板，语义不变、入口不丢。
+        // 竣工模式打点不再逐点弹属性/段属性框（用户反馈「点击打点时属性对话框
+        // 老蹦出来影响体验」）：连续打点是高频动作，弹窗打断节奏。改既有点的
+        // 属性走两段式小框（点中→再点）/ 长按完整框 / 右键「编辑属性」。
         break;
       case AppMode.topoLink:
+        _lastHitKey = null;
         final target = _hitTestGeo(
             st.topoColl.where((l) => l.type.isTopoLinkable).toList(), point);
         if (target == null) return;
@@ -215,22 +265,31 @@ class _MapCanvasState extends State<MapCanvas> {
         break;
       case AppMode.measureDist:
       case AppMode.measureArea:
+        _lastHitKey = null;
         st.addMeasurePoint(point.latitude, point.longitude);
         break;
       case AppMode.boxSelect:
         // 框选由覆盖层 _MarqueeLayer 处理；地图点击不落点。
         break;
       case AppMode.view:
-        // 普通模式点选：先草稿、再可见收藏工程。
-        // 移动端 true 时点中即弹详情；桌面端 false 时仅回调选中（右栏展示）。
+        // 普通模式点选：先草稿、再可见收藏工程，走两段式状态机——
+        // 点中选中（回调 onSelect），再点同一标签弹快速编辑小框，点空地清零。
         final hit = _hitTestAny(point);
-        widget.onSelect?.call(hit?.$1, hit?.$2 ?? '');
-        if (hit != null && widget.openDetailOnTap) {
-          showLabelProperties(context, st, hit.$1,
-              sourceCid: hit.$2,
-              title: hit.$1.name.trim().isNotEmpty
-                  ? hit.$1.name.trim()
-                  : hit.$1.type.name);
+        final hitKey = hit == null ? null : labelHitKey(hit.$1, hit.$2);
+        final action = resolveTapAction(_lastHitKey, hitKey);
+        if (action == LabelTapAction.clear) {
+          _lastHitKey = null;
+          widget.onSelect?.call(null, '');
+        } else {
+          // select / popup 时 hit 必非空（hitKey 非空才可能走到这里）。
+          final h = hit!;
+          widget.onSelect?.call(h.$1, h.$2);
+          if (action == LabelTapAction.popup) {
+            _lastHitKey = null;
+            showLabelQuickEdit(context, st, h.$1, sourceCid: h.$2);
+          } else {
+            _lastHitKey = hitKey;
+          }
         }
         break;
     }
