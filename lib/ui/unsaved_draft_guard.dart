@@ -54,6 +54,12 @@ Future<bool> confirmReplaceUnsavedDraft(
   return action == 'discard';
 }
 
+/// 这组外部文件里是否包含 `.ovimap`（导入它会替换当前草稿）。
+///
+/// 拖放、左栏导入、Ctrl+O 三个入口都用它判断是否需要先弹草稿护栏。
+bool containsProjectFile(List<String> paths) =>
+    paths.any((p) => p.toLowerCase().endsWith('.ovimap'));
+
 /// 自动保存未命名草稿时的默认工程名。
 String _timestampDraftName([DateTime? now]) {
   final d = now ?? DateTime.now();

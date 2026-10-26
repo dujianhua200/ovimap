@@ -530,6 +530,10 @@ class _LeftPanelState extends State<LeftPanel> {
       if (mounted) toast(context, '无法获取所选文件的内容');
       return;
     }
+    if (containsProjectFile(<String>[p]) &&
+        !await confirmReplaceUnsavedDraft(context, st)) {
+      return;
+    }
     final msg = await st.openExternalFiles(<String>[p]);
     if (mounted) toast(context, msg);
   }
@@ -542,6 +546,10 @@ class _LeftPanelState extends State<LeftPanel> {
         onAcceptWithDetails: (details) async {
           final raw = details.data;
           final path = raw is String ? raw : '$raw';
+          if (containsProjectFile(<String>[path]) &&
+              !await confirmReplaceUnsavedDraft(context, st)) {
+            return;
+          }
           final msg = await st.openExternalFiles(<String>[path]);
           if (context.mounted) toast(context, msg);
         },

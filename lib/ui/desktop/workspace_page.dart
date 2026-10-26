@@ -142,6 +142,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   Future<void> _handleExternalFiles(List<String> paths) async {
     final st = _st;
+    // 拖入 .ovimap 会替换当前草稿：与菜单打开走同一道护栏。
+    if (containsProjectFile(paths) &&
+        !await confirmReplaceUnsavedDraft(context, st)) {
+      return;
+    }
     final msg = await st.openExternalFiles(paths);
     if (!mounted) return;
     toast(context, msg);

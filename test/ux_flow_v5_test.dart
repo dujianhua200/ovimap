@@ -14,6 +14,7 @@ import 'package:ovimap/models/project_template.dart';
 import 'package:ovimap/services/app_paths.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
+import 'package:ovimap/ui/unsaved_draft_guard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '_fs_cleanup.dart';
@@ -216,6 +217,13 @@ void main() {
           reason: '已存成工程，草稿已被接管，不再算"未保存"');
       expect(st.activeCollectionId, isEmpty);
       await _settle();
+    });
+
+    test('只有 .ovimap 会触发草稿替换护栏', () {
+      expect(containsProjectFile(<String>['/tmp/a.ovimap']), isTrue);
+      expect(containsProjectFile(<String>['/tmp/A.OVIMAP']), isTrue);
+      expect(containsProjectFile(<String>['/tmp/a.geojson', '/tmp/b.json']),
+          isFalse);
     });
   });
 
