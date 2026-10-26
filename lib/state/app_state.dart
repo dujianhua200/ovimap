@@ -535,8 +535,36 @@ class AppState extends ChangeNotifier {
   /// 不连线、自动保存、符号来自符号库）。
   bool markMode = false;
 
+  /// 清理一次性的交互状态：任何"换工程 / 清空 / 换工具"都必须调用。
+  ///
+  /// 这些状态（标记模式、拓扑工程、选择集、待放置点）都属于"当前这一次操作"，
+  /// 跨工程残留会让下一次点击落到错误的对象上（例如刚打开 A 却还在改 B 的拓扑）。
+  void _resetTransientModes() {
+    markMode = false;
+    draggingLabelId = null;
+    selectedIds.clear();
+    if (topoCid.isNotEmpty) {
+      topoCid = '';
+      topoColl = [];
+      topoSelId = null;
+    }
+  }
+
   void toggleMarkMode() {
     markMode = !markMode;
+    if (markMode) {
+      // 标记优先于任何工具模式：先退回浏览，避免标记完一次后
+      // 自动落回"打点/测量"状态，下一次点击又加一个点。
+      mode = AppMode.view;
+      measurePts = [];
+      draggingLabelId = null;
+      selectedIds.clear();
+      if (topoCid.isNotEmpty) {
+        topoCid = '';
+        topoColl = [];
+        topoSelId = null;
+      }
+    }
     notifyListeners();
   }
 
@@ -559,8 +587,9 @@ class AppState extends ChangeNotifier {
     l.lineGroupId = ''; // 只标记不连线
     _markCount++;
     final cid = await _appendToMarkBook(l);
-    // 用户指定：标记一次即自动退出标记模式，随后点击回到正常打点。
+    // 用户指定：标记一次即自动退出；显式回到浏览态，避免下一次点击继续落点。
     markMode = false;
+    mode = AppMode.view;
     notifyListeners();
     return (label: l, cid: cid);
   }
@@ -707,6 +736,11 @@ class AppState extends ChangeNotifier {
     return cid;
   }
 
+  /// 当前草稿是否"有点但还没存成工程"。
+  ///
+  /// 打开/新建其它工程会覆盖草稿；UI 在替换前用它决定是否弹保存护栏。
+  bool get hasUnsavedDraft => labels.isNotEmpty && activeCollectionId.isEmpty;
+
   /// 启动时扫描已有「标记」收藏，把 _markCount 对齐到最大编号，
   /// 避免重启后「标记N」重名。
   Future<void> _initMarkCount() async {
@@ -819,6 +853,8 @@ class AppState extends ChangeNotifier {
     labels.clear();
     // P0-1：清空草稿时连线一并清空，否则旧连线残留并随下一次 _saveDraft 落盘。
     fiberLinks = [];
+    // 选择集/标记/拓扑都是"上一次操作"的残留，清空时必须一起退场。
+    _resetTransientModes();
     _saveDraft();
     notifyListeners();
   }
@@ -865,12 +901,27 @@ class AppState extends ChangeNotifier {
 
   void setType(LabelType t) {
     curType = t;
-    if (mode != AppMode.edit) mode = AppMode.edit;
-    notifyListeners();
+    // 标记模式下换符号只是"换要放的符号"，不能把模式改回普通打点；
+    // 其余模式选符号即进入打点（走 setMode，顺带清理拓扑/测量残留）。
+    if (!markMode && mode != AppMode.edit) {
+      setMode(AppMode.edit);
+    } else {
+      notifyListeners();
+    }
   }
 
+  /// 切换工具模式。任何切换都会取消标记模式；离开拓扑模式会清掉拓扑工程。
   void setMode(AppMode m) {
-    if (m == mode) return;
+    final prev = mode;
+    final wasMark = markMode;
+    final hadTopo = topoCid.isNotEmpty;
+    markMode = false;
+    if (m != AppMode.topoLink && hadTopo) {
+      topoCid = '';
+      topoColl = [];
+      topoSelId = null;
+    }
+    if (m == prev && !wasMark && !(hadTopo && m != AppMode.topoLink)) return;
     if (m != AppMode.measureDist && m != AppMode.measureArea) {
       measurePts = [];
     }
@@ -974,6 +1025,26 @@ class AppState extends ChangeNotifier {
     projectName = '';
     folderId = '';
     _saveDraft();
+  }
+
+  /// 新建工程引导：一次设定名称、场景模板、自动编号，然后直接进入打点。
+  ///
+  /// 把原来分散在「新建工程 / 工程模板 / 采集设置」三处的必填项合并，
+  /// 避免用户新建后忘了设模板与编号前缀，打了一半才发现编号不对。
+  void beginNewProject({
+    required String name,
+    ProjectTemplate? template,
+    bool autoNumber = true,
+    String prefix = '',
+  }) {
+    startNewDraft();
+    projectName = name.trim();
+    editModeName = 'design';
+    if (template != null) applyTemplate(template);
+    setAutoNumber(autoNumber, prefix);
+    setMode(AppMode.edit);
+    _saveDraft();
+    notifyListeners();
   }
 
   void updateLabel(MapLabel l) {
@@ -1456,13 +1527,16 @@ class AppState extends ChangeNotifier {
     activeCollectionId = meta.id;
     _openedForEdit = true;
     _chainBroken = true; // 打开收藏：新打的第一笔绝不接在收藏末端
+    _resetTransientModes();
     // P0-1：打开工程必须加载它自己的连线，否则内存里还是上一个工程的，
     // 随后一次 _saveDraft 会把 A 的连线写进 B 的文件（跨工程泄漏）。
     fiberLinks = [
       for (final j in await store.loadCollectionFiberLinks(meta.id))
         FiberLink.fromJson(j)
     ];
-    mode = AppMode.edit;
+    // 打开工程默认「浏览」而不是直接进入打点：避免用户只是查看时，
+    // 一次误点就把新点写回收藏（编辑需显式点工具栏「打点」）。
+    mode = AppMode.view;
     // 收藏打开即作为草稿继续编辑（保存时覆盖原收藏）
     await store.saveDraft(labels, projectName, folderId, editModeName,
         [for (final l in fiberLinks) l.toJson()]);
@@ -1496,6 +1570,7 @@ class AppState extends ChangeNotifier {
     labels = [];
     // P0-1：内存连线随工程一起复位，否则打开下一个工程时仍是这批连线。
     fiberLinks = [];
+    _resetTransientModes();
     mode = AppMode.view;
     await refreshCollections();
     if (updating) {

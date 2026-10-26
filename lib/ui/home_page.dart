@@ -520,12 +520,14 @@ class _HomePageState extends State<HomePage> {
                         st.setMode(st.mode == AppMode.edit
                             ? AppMode.view
                             : AppMode.edit);
-                      }, active: st.mode == AppMode.edit, label: '打点'),
-                      // 独立标记（奥维式）：点地图落点→输名称/备注→自动存根目录「标记」
+                      },
+                          active: st.mode == AppMode.edit,
+                          label: st.mode == AppMode.edit ? '完成' : '打点'),
+                      // 单点标记：落一个独立标记并自动存根目录「标记」，放完自动退出。
                       _railBtn('◉', () {
                         st.toggleMarkMode();
                         if (st.markMode) {
-                          toast(context, '独立标记：点地图落点');
+                          toast(context, '单点标记：点地图放置一个标记（自动保存后退出）');
                         }
                       }, active: st.markMode, label: '标记'),
                       _railBtn('⌖', () => _measureMenu(st), label: '测量'),
@@ -768,6 +770,11 @@ class _HomePageState extends State<HomePage> {
               Expanded(
                 child: _modeChip('保存收藏',
                     color: kGreen, onTap: () => showFinishDialog(context, st)),
+              ),
+              Expanded(
+                child: _modeChip('完成',
+                    color: kAccent,
+                    onTap: () => st.setMode(AppMode.view)),
               ),
             ],
           ),

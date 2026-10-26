@@ -83,19 +83,21 @@ class Toolbar extends StatelessWidget {
         children: [
           const SizedBox(width: 6),
           _btn(Icons.pan_tool_alt,
-              tooltip: st.mode == AppMode.edit ? '退出打点' : '打点（标记）',
+              tooltip: st.mode == AppMode.edit
+                  ? '结束打点（Esc）'
+                  : '打点：连续落点并自动连线',
               active: st.mode == AppMode.edit,
               onTap: () => st.setMode(
                   st.mode == AppMode.edit ? AppMode.view : AppMode.edit)),
           _symbolBtn(context),
           _modeBtn(context),
           _btn(Icons.push_pin_outlined,
-              tooltip: '标记模式：点地图只放独立符号（不连线），每点一次自动存到收藏夹根目录「标记」',
+              tooltip: '单点标记：点地图放一个独立标记并自动保存到收藏夹「标记」，放完自动退出',
               active: st.markMode,
               onTap: () {
                 st.toggleMarkMode();
                 toast(context,
-                    st.markMode ? '标记模式：点地图即标记并自动保存；再点一次退出' : '已退出标记模式');
+                    st.markMode ? '单点标记：点地图放置一个标记（自动保存后退出）' : '已退出标记模式');
               }),
           _sep(),
           _btn(Icons.account_tree_outlined,

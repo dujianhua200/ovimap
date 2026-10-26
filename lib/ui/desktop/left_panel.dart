@@ -25,6 +25,7 @@ import '../favorites/trash.dart';
 import '../favorites/tree_keys.dart';
 import '../favorites/tree_menus.dart';
 import '../sync/sync_panel.dart';
+import '../unsaved_draft_guard.dart';
 import 'batch_export.dart';
 
 /// 桌面左栏（Phase 2 收尾：树体换共享 [FavTree]，旧 1460 行自绘实现退役）。
@@ -350,9 +351,13 @@ class _LeftPanelState extends State<LeftPanel> {
   Future<void> _onOpenProject(FavNode node) async {
     final m = node.project;
     if (m == null) return;
+    // 打开会覆盖当前草稿：有未保存点位时先让用户决定保存/放弃。
+    if (!await confirmReplaceUnsavedDraft(context, st)) return;
     await st.openCollection(m);
     if (!mounted) return;
-    toast(context, '已打开「${m.name}」，可继续编辑');
+    // 打开后直接缩放到该工程范围：否则地图可能还停在上一个工程/世界视图。
+    if (st.labels.isNotEmpty) widget.onLocateGroup?.call(st.labels);
+    toast(context, '已打开「${m.name}」（浏览模式，点工具栏「打点」开始编辑）');
   }
 
   // ---------- 新建文件夹（审计问题 7：建在当前树选中层） ----------

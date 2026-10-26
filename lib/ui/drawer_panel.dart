@@ -17,7 +17,9 @@ import 'favorites/fav_tree.dart';
 import 'favorites/select_bar.dart';
 import 'favorites/trash.dart';
 import 'favorites/tree_keys.dart';
+import 'new_project_dialog.dart';
 import 'sync/sync_panel.dart';
+import 'unsaved_draft_guard.dart';
 
 /// 收藏夹抽屉（移动端）：奥维式收藏树。
 ///
@@ -193,6 +195,16 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
           }),
           IconButton(
             visualDensity: VisualDensity.compact,
+            tooltip: '新建工程',
+            onPressed: () async {
+              final created = await showNewProjectDialog(context, st);
+              if (created && context.mounted) Navigator.pop(context);
+            },
+            icon: const Icon(Icons.note_add_outlined,
+                color: kAccent, size: 20),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
             tooltip: '新建文件夹（建在当前选中层）',
             onPressed: () => _addFolder(context, c),
             icon: const Icon(Icons.create_new_folder_outlined,
@@ -326,12 +338,16 @@ class _FavoritesDrawerState extends State<FavoritesDrawer> {
     widget.onLocateGroup?.call(labels);
   }
 
-  void _onOpenProject(FavNode node) {
+  Future<void> _onOpenProject(FavNode node) async {
     final m = node.project;
     if (m == null) return;
+    // 打开会覆盖当前草稿；先让用户决定保存/放弃，取消则抽屉保持打开。
+    if (!await confirmReplaceUnsavedDraft(context, st)) return;
+    if (!mounted) return;
     Navigator.pop(context); // 关抽屉
-    st.openCollection(m).then((_) {
-      if (mounted) toast(context, '已打开「${m.name}」，可继续编辑');
-    });
+    await st.openCollection(m);
+    if (!mounted) return;
+    if (st.labels.isNotEmpty) widget.onLocateGroup?.call(st.labels);
+    toast(context, '已打开「${m.name}」（浏览模式，点「打点」开始编辑）');
   }
 }

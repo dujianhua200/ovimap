@@ -27,7 +27,9 @@ import '../dialogs.dart';
 import '../export_center.dart';
 import '../favorites/tree_keys.dart';
 import '../map/map_canvas.dart';
+import '../new_project_dialog.dart';
 import '../sync/sync_panel.dart';
+import '../unsaved_draft_guard.dart';
 import 'app_menu_bar.dart';
 import 'app_platform_menu_bar.dart';
 import 'context_menu.dart';
@@ -164,6 +166,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
       if (mounted) toast(context, '无法获取所选文件的内容');
       return;
     }
+    // 导入会替换当前草稿：有未保存点位时先让用户决定保存/放弃。
+    if (!mounted || !await confirmReplaceUnsavedDraft(context, _st)) return;
     final msg = await _st.openExternalFiles(<String>[p]);
     if (mounted) toast(context, msg);
   }
@@ -190,17 +194,17 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   AppState get _st => context.read<AppState>();
 
-  void _newProject() {
+  Future<void> _newProject() async {
     final st = _st;
-    // startNewDraft 内部先脱离收藏再清草稿——顺序反了会把空列表写回收藏文件。
-    st.startNewDraft();
-    st.setMode(AppMode.edit);
+    final created = await showNewProjectDialog(context, st);
+    if (!created || !mounted) return;
     setState(() {
       _selLabel = null;
       _selCid = '';
     });
     st.refreshUi();
-    toast(context, '已新建空白工程：直接在地图上打点，Ctrl+S 保存到收藏夹根目录');
+    toast(context,
+        '已新建「${st.projectName}」：直接在地图上打点，Ctrl+S 保存到收藏夹根目录');
   }
 
   void _save() => showFinishDialog(context, _st);
@@ -454,6 +458,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
         st.endTopoLink();
         toast(context, '已结束拓扑连线');
       case AppMode.edit:
+        // 打点也要能"完成"：其它工具都是 Esc 结束，只有采集需要再点一次按钮
+        // 会让人以为 Esc 坏了。退出只切模式，草稿原样保留。
+        st.setMode(AppMode.view);
+        toast(context, '已结束打点（草稿保留，Ctrl+S 保存到收藏夹）');
       case AppMode.view:
         toast(context, '当前没有可取消的操作（Esc 可退出测量/连线/框选、取消待定点位）');
     }
@@ -1447,7 +1455,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         return (
           '采集中·${st.curType.name}',
           kAccent,
-          '左键落点 · Backspace 退点 · Ctrl+Z 撤销 · Delete 删除选中 · Ctrl+S 保存',
+          '左键落点 · Esc 结束打点 · Backspace 退点 · Ctrl+Z 撤销 · Ctrl+S 保存',
           '${st.labels.length} 点'
               '${seg > 0 ? ' · 已连 ${_fmtChainLen(total)} / $seg 段' : ''}',
         );

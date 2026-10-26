@@ -4,6 +4,7 @@ import '../state/app_state.dart';
 import '../export/asbuilt_reports.dart';
 import 'dialogs.dart';
 import 'export_center.dart';
+import 'new_project_dialog.dart';
 import 'route_tools.dart';
 import 'topo_editor.dart';
 
@@ -25,6 +26,11 @@ Future<void> showToolsMenu(
       child: ListView(
         shrinkWrap: true,
         children: [
+          // 移动端此前没有"新建工程"入口，只能清空草稿后直接画；
+          // 统一走与桌面同一个引导（名称/模板/编号一次设完）。
+          sheetGroupTitle('工程'),
+          sheetTile(context, '新建工程（名称 / 模板 / 编号）',
+              () => showNewProjectDialog(context, st)),
           sheetGroupTitle('成果与资料'),
           sheetTile(context, '导出成果（当前草稿 / 配线）',
               () => openExportCenter(context, st)),
