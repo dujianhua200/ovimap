@@ -82,7 +82,7 @@ class Toolbar extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 6),
-          _btn(Icons.pan_tool_alt,
+          _btn(Icons.add_location_alt_outlined,
               tooltip: st.mode == AppMode.edit
                   ? '结束打点（Esc）'
                   : '打点：连续落点并自动连线',

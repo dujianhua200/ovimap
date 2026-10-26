@@ -188,10 +188,14 @@ void main() {
       await _settle();
     });
 
-    test('空白模板沿用当前符号，前缀回落到 GK', () async {
+    test('空白模板沿用当前符号，前缀回落到 GK，并清掉上次模板标记', () async {
       final st = await makeState();
+      st.applyTemplate(ProjectTemplate.byId('aerial')!);
+      expect(st.templateId, 'aerial');
+
       st.beginNewProject(name: '空白工程', template: null, prefix: '');
-      expect(st.templateId, isNot('aerial'));
+
+      expect(st.templateId, isNull, reason: '选空白后下次新建不应再预选架空模板');
       expect(st.numPrefix, 'GK');
       expect(st.mode, AppMode.edit);
     });

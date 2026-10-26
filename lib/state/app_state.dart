@@ -1040,7 +1040,14 @@ class AppState extends ChangeNotifier {
     startNewDraft();
     projectName = name.trim();
     editModeName = 'design';
-    if (template != null) applyTemplate(template);
+    if (template != null) {
+      applyTemplate(template);
+    } else {
+      // 空白工程：清掉模板标记，下次新建仍从空白开始；
+      // 当前符号/敷设方式沿用，符合对话框里"沿用当前"的说明。
+      templateId = null;
+      prefs.remove(prefTplId);
+    }
     setAutoNumber(autoNumber, prefix);
     setMode(AppMode.edit);
     _saveDraft();
