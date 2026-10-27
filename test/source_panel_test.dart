@@ -47,42 +47,51 @@ void main() {
 
   /// 取「对话框可见面板」的尺寸。
   ///
-  /// 不能用 `find.byType(AlertDialog)` —— AlertDialog 的 render box 是**整屏**
-  /// （其内部是 AnimatedPadding，会吃满视口），量出来恒等于视口宽度，断言失效。
-  /// 真正代表可见面板的是 AlertDialog 下第一个 Material（对话框底色面）。
+  /// 定宽对话框现在用自绘 `Dialog`（AlertDialog 在定宽+高内容时下半区点不中），
+  /// 所以两种类型都要认。真正代表可见面板的是对话框下第一个 Material（底色面）。
   Size dialogSurfaceSize(WidgetTester tester) {
+    final dialog = find.byWidgetPredicate(
+      (w) => w is AlertDialog || w is Dialog,
+    );
     final surface = find
-        .descendant(
-            of: find.byType(AlertDialog), matching: find.byType(Material))
+        .descendant(of: dialog, matching: find.byType(Material))
         .evaluate()
         .first;
     return (surface.renderObject as RenderBox).size;
   }
 
-  testWidgets('对话框不再占满窗口：面板定宽 480，且不超过视口 40%',
-      (tester) async {
+  testWidgets('对话框不再占满窗口：面板定宽 480，且不超过视口 40%', (tester) async {
     await openDialog(tester);
     final size = dialogSurfaceSize(tester);
     // 旧实现是 width: double.maxFinite → 面板宽度 ≈ 视口宽度（1440）。
-    expect(size.width, equals(480),
-        reason: '定宽后可见面板应恰为 480（kPanelWidth）');
-    expect(size.width, lessThan(1440 * 0.4),
-        reason: '不应超过视口宽度的 40%（旧实现在此会 >98%）');
+    expect(size.width, equals(480), reason: '定宽后可见面板应恰为 480（kPanelWidth）');
+    expect(
+      size.width,
+      lessThan(1440 * 0.4),
+      reason: '不应超过视口宽度的 40%（旧实现在此会 >98%）',
+    );
     // 高度受 maxHeightFactor 约束：900 × 0.7 = 630。
-    expect(size.height, lessThanOrEqualTo(900 * 0.7 + 0.5),
-        reason: '面板高度应受视口 70% 约束，避免长列表把对话框拉到出屏');
+    expect(
+      size.height,
+      lessThanOrEqualTo(900 * 0.7 + 0.5),
+      reason: '面板高度应受视口 70% 约束，避免长列表把对话框拉到出屏',
+    );
   });
 
   testWidgets('主图源卡片数量 == 非叠加源数量', (tester) async {
     await openDialog(tester);
     final expected = st.allSources.where((s) => !s.overlay).length;
     // 只统计主图源卡片：叠加层 RadioListTile 内部也用 InkWell，需用专属 key 区分。
-    final cards = tester.widgetList(find.byWidgetPredicate(
-      (w) =>
-          w is InkWell &&
-          w.key is ValueKey<String> &&
-          (w.key as ValueKey<String>).value.startsWith('srcCard-'),
-    )).length;
+    final cards = tester
+        .widgetList(
+          find.byWidgetPredicate(
+            (w) =>
+                w is InkWell &&
+                w.key is ValueKey<String> &&
+                (w.key as ValueKey<String>).value.startsWith('srcCard-'),
+          ),
+        )
+        .length;
     expect(cards, expected);
   });
 
@@ -100,8 +109,9 @@ void main() {
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
   });
 
-  testWidgets('叠加层是互斥单选：存在 RadioListTile 且不存在 CheckboxListTile',
-      (tester) async {
+  testWidgets('叠加层是互斥单选：存在 RadioListTile 且不存在 CheckboxListTile', (
+    tester,
+  ) async {
     await openDialog(tester);
     // 注意：find.byType 是**精确** runtimeType 匹配，`RadioListTile<String>`
     // 不会被 `find.byType(RadioListTile)`（= `<dynamic>`）命中，必须用谓词。

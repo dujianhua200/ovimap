@@ -128,7 +128,10 @@ void main() {
       // 保存写回。
       await tester.tap(find.text('保存'));
       await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        find.byWidgetPredicate((w) => w is AlertDialog || w is Dialog),
+        findsNothing,
+      );
       expect(l2.distanceM, 50);
       expect(l2.distLabel, '架50');
       expect(l2.slackM, 5);

@@ -88,18 +88,27 @@ void main() {
     await tester.tapAt(pos);
     await tester.pump(const Duration(milliseconds: 300));
     expect(st.labels.length, 1, reason: '点中已有标签不得新增点');
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      find.byWidgetPredicate((w) => w is AlertDialog || w is Dialog),
+      findsNothing,
+    );
 
     // 第二次点中同一标签：弹快速编辑小框。
     await tester.tapAt(pos);
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((w) => w is AlertDialog || w is Dialog),
+      findsOneWidget,
+    );
     expect(find.text('保存'), findsOneWidget);
 
     // 关掉小框，点数仍为 1。
     await tester.tap(find.text('取消'));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      find.byWidgetPredicate((w) => w is AlertDialog || w is Dialog),
+      findsNothing,
+    );
     expect(st.labels.length, 1);
   });
 
@@ -119,11 +128,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(selectCalls, 1);
     expect(selected?.id, seed.id);
-    expect(find.byType(AlertDialog), findsNothing, reason: '查看模式第一次点中只选中，不弹窗');
+    expect(
+      find.byWidgetPredicate((w) => w is AlertDialog || w is Dialog),
+      findsNothing,
+      reason: '查看模式第一次点中只选中，不弹窗',
+    );
 
     await tester.tapAt(pos);
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((w) => w is AlertDialog || w is Dialog),
+      findsOneWidget,
+    );
     expect(find.text('保存'), findsOneWidget);
   });
 }
