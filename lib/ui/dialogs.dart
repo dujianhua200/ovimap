@@ -139,21 +139,29 @@ Future<void> showDarkDialog(
                 title,
                 style: const TextStyle(color: kTextMain, fontSize: 16),
               ),
-              // 操作按钮放在标题下方而不是对话框最底部：实机走查发现
-              // 定宽对话框的底部按钮会落在可命中区之外（能看见但点不动），
-              // 放到标题下与文字同一区域后稳定可点。
-              if (actions != null && actions.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Wrap(
-                  alignment: WrapAlignment.end,
-                  spacing: 4,
-                  children: actions,
-                ),
-              ],
               const SizedBox(height: 8),
-              // 内容自己决定是否滚动（多数定宽面板本来就带 SingleChildScrollView）。
-              // 这里只给一个有界高度，避免嵌套滚动视图拿到无界约束。
-              Flexible(child: content ?? const SizedBox.shrink()),
+              // 操作按钮必须和内容在同一个 Flexible 子树里：实机走查发现
+              // 放在 Flexible 外（哪怕移到标题下）按钮仍会“看得见但点不中”；
+              // 与单选框/复选框同处内容命中区后稳定可点。
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (actions != null && actions.isNotEmpty) ...[
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 4,
+                        children: actions,
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    // 内容自己决定是否滚动（多数定宽面板本来就带
+                    // SingleChildScrollView）；这里只给有界高度。
+                    Flexible(child: content ?? const SizedBox.shrink()),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
