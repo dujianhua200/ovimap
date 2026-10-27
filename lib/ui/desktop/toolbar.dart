@@ -172,9 +172,19 @@ class Toolbar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(
                     t.shape == 'box' ? 3 : 999),
               ),
-              child: Text(glyph,
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: TokFs.small, height: 1.1)),
+              // 水泥杆等 dot 类型：中间只画一个白点（纯圆圈），不塞“水/电”字。
+              child: t.shape == 'dot' && t.symbol.isEmpty
+                  ? Container(
+                      width: 9,
+                      height: 9,
+                      decoration: const BoxDecoration(
+                          color: Colors.white, shape: BoxShape.circle),
+                    )
+                  : Text(glyph,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: TokFs.small,
+                          height: 1.1)),
             ),
           ),
         ),
@@ -188,7 +198,7 @@ class Toolbar extends StatelessWidget {
     final color = completion ? TokC.warn : kAccent;
     return Tooltip(
       message: completion
-          ? '当前：竣工模式（落点会弹竣工距离确认）— 点击切回设计模式'
+          ? '当前：竣工模式（点第二次已有点可录入实测距离）— 点击切回设计模式'
           : '当前：设计模式 — 点击切到竣工模式',
       child: InkWell(
         onTap: () => st.chooseEditMode(completion ? 'design' : 'completion'),

@@ -679,8 +679,9 @@ class FavTreeController extends ChangeNotifier {
       // 合并不应改变目标工程样式。
       await _writeCollectionWithMeta(toMeta.first, toLabels);
     }
-    await _store.deleteCollection(fromCid);
-    await _st.refreshCollections();
+    // 走统一删除入口：合并后源工程若仍在地图上显示，会留下"删了还在"的残影。
+    // deleteCollection 会同时清理 visibleCids / overlayLabels 并落盘可见集合。
+    await _st.deleteCollection(fromCid);
     return fromLabels.length;
   }
 

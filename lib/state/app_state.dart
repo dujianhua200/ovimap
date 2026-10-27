@@ -254,6 +254,7 @@ class AppState extends ChangeNotifier {
     projectName = meta.projectName;
     folderId = meta.folderId;
     editModeName = meta.editMode;
+    final restoredCid = meta.activeCid;
     labels = await store.loadDraft();
     fiberLinks = [
       for (final j in await store.loadFiberLinks()) FiberLink.fromJson(j)
@@ -264,6 +265,19 @@ class AppState extends ChangeNotifier {
     if (tpl != null) _applyTemplateSilently(tpl);
 
     await refreshCollections();
+    // 恢复"正在编辑的已保存工程"。工程已被删除时保留草稿点（不丢现场数据），
+    // 但清掉归属，避免下次保存写回一个不存在的 cid。
+    if (restoredCid.isNotEmpty) {
+      if (collections.any((m) => m.id == restoredCid)) {
+        activeCollectionId = restoredCid;
+        _openedForEdit = true;
+        _chainBroken = true;
+      } else {
+        activeCollectionId = '';
+        _openedForEdit = false;
+        _saveDraft();
+      }
+    }
     await _loadVisibleOverlays();
     await _initMarkCount(); // 标记编号续接已有最大值，防重启重名
 
@@ -490,15 +504,12 @@ class AppState extends ChangeNotifier {
     // Ctrl+Z 一次只回退一个点；栈深由 [_undoLimit] 兜底。
     pushUndoSnapshot();
     labels.add(l);
-    // 自动编号（杆类点）
+    // 自动编号（杆类点）：按已有最大号 +1，而不是按数量计数。
+    // 按数量会在删掉中间点后复用编号（G-1/G-3 存在时新点又出 G-3），
+    // 现场按杆号核对时会直接对错杆。
     if (autoNumber && !isText && !lineType) {
       final prefix = numPrefix;
-      var n = 1;
-      for (final e in labels) {
-        if (identical(e, l)) continue;
-        if (e.name.startsWith(prefix)) n++;
-      }
-      l.name = '$prefix-$n';
+      l.name = '$prefix-${_nextNumberForPrefix(prefix)}';
     }
     _saveDraft();
     notifyListeners();
@@ -991,11 +1002,16 @@ class AppState extends ChangeNotifier {
 
   Future<void> _doSaveDraft() async {
     await store.saveDraft(labels, projectName, folderId, editModeName,
-        [for (final l in fiberLinks) l.toJson()]);
+        [for (final l in fiberLinks) l.toJson()], activeCollectionId);
     if (activeCollectionId.isNotEmpty && topoCid.isEmpty) {
       // 2026-10-08：收藏工程同步存纤拓扑，导出才有配线图
       await store.saveCollectionLabels(activeCollectionId, labels,
           fiberLinks: [for (final l in fiberLinks) l.toJson()]);
+      // 叠加层缓存同步更新：切换到别的工程/退出编辑后，这个工程重新作为
+      // 背景层渲染时必须是最新数据，不能还是打开时的旧副本（幽灵点/旧线）。
+      if (visibleCids.contains(activeCollectionId)) {
+        overlayLabels[activeCollectionId] = List<MapLabel>.from(labels);
+      }
     }
   }
 
@@ -1397,6 +1413,20 @@ class AppState extends ChangeNotifier {
 
   /// 常用档距自动布杆：两点直线等距落杆（含起点与终点），结果可一次撤销。
   /// 命名接续现有自动编号口径（`前缀-n`），落点可后续拖动微调。返回杆数。
+  /// 某前缀的下一个可用编号（已有最大号 +1）。
+  ///
+  /// 手点、自动布杆、沿路径布杆共用这一处口径；按数量计数会在删点后重号。
+  int _nextNumberForPrefix(String prefix) {
+    final head = '$prefix-';
+    var maxN = 0;
+    for (final e in labels) {
+      if (!e.name.startsWith(head)) continue;
+      final n = int.tryParse(e.name.substring(head.length));
+      if (n != null && n > maxN) maxN = n;
+    }
+    return maxN + 1;
+  }
+
   int autoPlacePoles({
     required double sLat,
     required double sLon,
@@ -1414,15 +1444,27 @@ class AppState extends ChangeNotifier {
       // 防御 NaN / Infinity / 非正档距，兜底为默认 50m。
       spacingM: (spacingM.isFinite && spacingM > 0) ? spacingM : 50,
     );
+    return _appendAutoPoles(pts, typeId: typeId, prefix: prefix);
+  }
+
+  /// 沿已画线组（折线）等距布杆：L 形/折返线路不切角，杆位落在路径上。
+  int autoPlacePolesAlongPath({
+    required List<List<double>> path,
+    required double spacingM,
+    required String typeId,
+    required String prefix,
+  }) {
+    final pts = RouteLayout.autoPolesAlongPath(path, spacingM);
+    return _appendAutoPoles(pts, typeId: typeId, prefix: prefix);
+  }
+
+  int _appendAutoPoles(List<List<double>> pts,
+      {required String typeId, required String prefix}) {
     if (pts.isEmpty) return 0;
     pushUndoSnapshot(); // 布杆 = 破坏性操作，先压快照（一次撤销）
     final gid = MapLabel().id; // 本次布杆独立成一条新线组
     final pfx = prefix.trim().isEmpty ? numPrefix : prefix.trim();
-    // 接续现有同名编号
-    var startNo = 1;
-    for (final e in labels) {
-      if (e.name.startsWith(pfx)) startNo++;
-    }
+    final startNo = _nextNumberForPrefix(pfx);
     final base = labels.length;
     for (var i = 0; i < pts.length; i++) {
       final l = MapLabel(
@@ -1454,14 +1496,40 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadVisibleOverlays() async {
+    // 清理历史遗留：工程已被删除但 cid 还留在 prefs 里的情况。
+    // 不清理会在每次启动时尝试加载一个不存在的工程，并让显隐状态永远对不上。
+    final existing = {for (final m in collections) m.id};
+    var pruned = false;
     for (final cid in visibleCids.toList()) {
+      if (!existing.contains(cid)) {
+        visibleCids.remove(cid);
+        pruned = true;
+        continue;
+      }
       if (!overlayLabels.containsKey(cid)) {
         overlayLabels[cid] = await store.loadCollection(cid);
       }
     }
+    if (pruned) prefs.setString(prefVisible, visibleCids.join(','));
     for (final cid in overlayLabels.keys.toList()) {
       if (!visibleCids.contains(cid)) overlayLabels.remove(cid);
     }
+  }
+
+  /// 叠加层是否应作为背景渲染：可见，且不是当前正在编辑的工程。
+  ///
+  /// 编辑中的工程由草稿层渲染；否则同一份点会画两遍，删掉/移动后旧副本
+  /// 还留在地图上，甚至还能被点中（"删了还在"的另一条根因）。
+  bool isOverlayVisible(String cid) =>
+      visibleCids.contains(cid) && cid != activeCollectionId;
+
+  /// 把工程显示到地图（幂等）。供「还原回收站」等需要恢复可见状态的流程使用。
+  Future<void> showCollectionOnMap(String cid) async {
+    visibleCids.add(cid);
+    overlayLabels[cid] = await store.loadCollection(cid);
+    prefs.setString(prefVisible, visibleCids.join(','));
+    unawaited(FavTreeController.persistProjectVisible(store, cid, true));
+    notifyListeners();
   }
 
   void toggleVisible(String cid) {
@@ -1544,9 +1612,10 @@ class AppState extends ChangeNotifier {
     // 打开工程默认「浏览」而不是直接进入打点：避免用户只是查看时，
     // 一次误点就把新点写回收藏（编辑需显式点工具栏「打点」）。
     mode = AppMode.view;
-    // 收藏打开即作为草稿继续编辑（保存时覆盖原收藏）
+    // 收藏打开即作为草稿继续编辑（保存时覆盖原收藏）；同时把归属 cid
+    // 写进草稿，重启后才能恢复"正在编辑哪个工程"。
     await store.saveDraft(labels, projectName, folderId, editModeName,
-        [for (final l in fiberLinks) l.toJson()]);
+        [for (final l in fiberLinks) l.toJson()], meta.id);
     notifyListeners();
     // 打开工程时拉取该工程最新（若服务端 rev 更新，落盘后经 onRemoteApplied 重载）。
     unawaited(syncController?.pullProject(meta.id) ?? Future<void>.value());
@@ -1607,11 +1676,64 @@ class AppState extends ChangeNotifier {
   /// 与直接调用 `store.deleteCollection` 相比，额外：清理可见集合、刷新列表、
   /// 通知同步器（服务端软删除 rev+1）。业务语义不变，仅集中收口。
   Future<void> deleteCollection(String cid) async {
+    // 1) 如果要删的正是编辑器里打开的工程，先脱离并清空草稿。
+    //    否则地图仍渲染草稿里的点（看起来"删了还在"），下一次保存还会把点
+    //    写回这个已删除的 cid，相当于把工程又"复活"了。
+    final wasOpen = activeCollectionId == cid;
+    if (wasOpen) {
+      activeCollectionId = '';
+      _openedForEdit = false;
+      labels = [];
+      fiberLinks = [];
+      projectName = '';
+      folderId = '';
+      _chainBroken = true;
+      _resetTransientModes();
+      mode = AppMode.view;
+      _saveDraft(); // 此时 activeCollectionId 已空，只会清 draft.json
+    } else if (topoCid == cid) {
+      // 没打开但正在拓扑编辑这个工程：一并退出，避免 topoCid 指向已删工程。
+      topoCid = '';
+      topoColl = [];
+      topoSelId = null;
+    }
+
     await store.deleteCollection(cid);
     visibleCids.remove(cid);
     overlayLabels.remove(cid);
+    // 可见集合必须落盘：否则重启后还会尝试加载已删除的工程。
+    prefs.setString(prefVisible, visibleCids.join(','));
     await refreshCollections();
     syncController?.onLocalDeleted(cid);
+    notifyListeners();
+  }
+
+  /// 批量删除文件后的状态清理（导入撤销等批量路径用；不负责删文件）。
+  ///
+  /// 与 [deleteCollection] 同一口径：清可见集合、地图叠加层、当前草稿/拓扑，
+  /// 防止"批量撤销导入后地图上还留着一片点"。
+  void forgetDeletedCollections(Iterable<String> ids) {
+    final set = ids.toSet();
+    if (set.isEmpty) return;
+    if (set.contains(activeCollectionId)) {
+      activeCollectionId = '';
+      _openedForEdit = false;
+      labels = [];
+      fiberLinks = [];
+      projectName = '';
+      folderId = '';
+      _chainBroken = true;
+      _resetTransientModes();
+      mode = AppMode.view;
+      _saveDraft();
+    } else if (set.contains(topoCid)) {
+      topoCid = '';
+      topoColl = [];
+      topoSelId = null;
+    }
+    visibleCids.removeAll(set);
+    overlayLabels.removeWhere((cid, _) => set.contains(cid));
+    prefs.setString(prefVisible, visibleCids.join(','));
     notifyListeners();
   }
 
@@ -1829,7 +1951,8 @@ class AppState extends ChangeNotifier {
     // 若目标工程正打开在编辑器中，同步刷新草稿
     if (activeCollectionId == targetCid) {
       labels = merged.map((e) => e.clone()).toList();
-      await store.saveDraft(labels, projectName, folderId, editModeName);
+      await store.saveDraft(
+          labels, projectName, folderId, editModeName, null, targetCid);
     }
     await refreshCollections();
     notifyListeners();

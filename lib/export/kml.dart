@@ -64,8 +64,9 @@ class KmlExporter {
     if (filter != tracksOnly) {
       for (final l in labels) {
         if (_isTrackPoint(l)) continue;
-        final sym =
-            l.name.trim().isNotEmpty ? l.name.trim() : l.type.symbol;
+        // 无名点用类型名（水泥杆/人孔…），不要用符号字；否则去字后
+        // 水泥杆无名点会得到空串并被下面直接跳过。
+        final sym = l.name.trim().isNotEmpty ? l.name.trim() : l.type.name;
         if (sym.isEmpty) continue;
         sb.write('  <Placemark>\n');
         sb.write('    <name>${_xmlEscape(sym)}</name>\n');

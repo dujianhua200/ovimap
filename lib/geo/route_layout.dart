@@ -94,6 +94,66 @@ class RouteLayout {
     return out;
   }
 
+  /// 折线总长（米），各段大圆距离累加。
+  static double pathLengthM(List<List<double>> path) {
+    var total = 0.0;
+    for (var i = 1; i < path.length; i++) {
+      final a = path[i - 1];
+      final b = path[i];
+      if (a.length < 2 || b.length < 2) continue;
+      total += haversineM(a[0], a[1], b[0], b[1]);
+    }
+    return total;
+  }
+
+  /// 沿折线等距布杆：按累计里程在每一段上插值，**含起点与终点**。
+  ///
+  /// 与 [autoPoles] 的区别：L 形/折返线路不会被首尾直线"切角"，
+  /// 杆位始终落在已画路径上。总长按各段大圆距离累加。
+  static List<List<double>> autoPolesAlongPath(
+      List<List<double>> path, double spacingM) {
+    if (!spacingM.isFinite || spacingM <= 0) spacingM = 50.0;
+    final pts = <List<double>>[
+      for (final p in path)
+        if (p.length >= 2 && p[0].isFinite && p[1].isFinite) [p[0], p[1]],
+    ];
+    if (pts.isEmpty) return const [];
+    if (pts.length == 1) return [pts.first];
+
+    final segLen = <double>[];
+    var total = 0.0;
+    for (var i = 1; i < pts.length; i++) {
+      final d = haversineM(
+          pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+      segLen.add(d);
+      total += d;
+    }
+    if (total < 1e-6) return [pts.first];
+
+    final count = (total / spacingM).ceil() + 1;
+    final out = <List<double>>[];
+    var seg = 0;
+    var segStartCum = 0.0;
+    for (var i = 0; i < count; i++) {
+      if (i == count - 1) {
+        out.add([pts.last[0], pts.last[1]]);
+        break;
+      }
+      final d = i * spacingM;
+      // 跳过已经走过的整段（零长度段也能跳过）。
+      while (seg < segLen.length - 1 && segStartCum + segLen[seg] < d) {
+        segStartCum += segLen[seg];
+        seg++;
+      }
+      final remain = d - segStartCum;
+      final a = pts[seg];
+      final b = pts[seg + 1];
+      final brg = bearingDeg(a[0], a[1], b[0], b[1]);
+      out.add(destination(a[0], a[1], brg, remain));
+    }
+    return out;
+  }
+
   /// 两点大圆距离（米），与 `GeoUtil.haversine` 口径一致。
   static double haversineM(
       double la1, double lo1, double la2, double lo2) {

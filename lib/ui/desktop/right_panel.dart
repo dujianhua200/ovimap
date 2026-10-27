@@ -247,7 +247,10 @@ class _RightPanelState extends State<RightPanel> {
           decoration: dec('符号样式'),
           items: [
             for (final t in LabelType.all)
-              DropdownMenuItem(value: t.id, child: Text('${t.symbol} ${t.name}')),
+              DropdownMenuItem(
+                  value: t.id,
+                  child: Text(
+                      t.symbol.isEmpty ? t.name : '${t.symbol} ${t.name}')),
           ],
           onChanged: (v) {
             if (v == null || v == l.typeId) return;

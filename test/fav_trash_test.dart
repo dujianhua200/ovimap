@@ -31,7 +31,8 @@ void main() {
     await st.refreshCollections();
     c = FavTreeController(st);
     await c.ready;
-    trash = TrashStore(onChanged: () => st.refreshCollections());
+    trash = TrashStore(
+        onChanged: () => st.refreshCollections(), appState: st);
     await trash.load();
   });
 
@@ -98,6 +99,29 @@ void main() {
     expect(metas.firstWhere((m) => m.id == cid).name, '杆路A');
     final labels = await store.loadCollection(cid);
     expect(labels.map((l) => l.name), containsAll(['G001', 'G002']));
+  });
+
+  test('还原可见工程后自动重新显示到地图', () async {
+    final cid = await mkProject('可见工程', '', [mk('G1')]);
+    await st.refreshCollections();
+    c.dispose();
+    c = FavTreeController(st);
+    await c.ready;
+
+    st.visibleCids.add(cid);
+    st.overlayLabels[cid] = await store.loadCollection(cid);
+    final node = c.find(cid)!;
+
+    await trash.trashNode(c, node);
+    expect(st.visibleCids.contains(cid), isFalse,
+        reason: '删除时必须从地图移除');
+
+    await trash.restore(trash.items.first.trashId);
+
+    expect(st.visibleCids.contains(cid), isTrue,
+        reason: '还原后应恢复删除前的显隐，不能只回到收藏树');
+    expect(st.overlayLabels[cid], isNotNull);
+    expect((await store.loadCollection(cid)).length, 1);
   });
 
   test('文件夹进回收站：整棵子树（子文件夹+多工程）删除并还原', () async {

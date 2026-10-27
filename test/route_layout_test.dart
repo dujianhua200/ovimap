@@ -36,6 +36,36 @@ void main() {
     }
   });
 
+  test('autoPolesAlongPath：L 形路径不切角，首尾与间距正确', () {
+    final path = <List<double>>[
+      [0.0, 0.0],
+      [0.0, 0.01],
+      [0.01, 0.01],
+    ];
+    final poles = RouteLayout.autoPolesAlongPath(path, 50);
+    final total = RouteLayout.pathLengthM(path);
+
+    expect(poles.length, (total / 50).ceil() + 1);
+    expect(poles.first, [0.0, 0.0]);
+    expect(poles.last[0], closeTo(0.01, 1e-9));
+    expect(poles.last[1], closeTo(0.01, 1e-9));
+
+    for (final p in poles) {
+      final onFirstLeg = p[0].abs() < 1e-7;
+      final onSecondLeg = (p[1] - 0.01).abs() < 1e-7;
+      expect(onFirstLeg || onSecondLeg, isTrue,
+          reason: '杆位 $p 必须落在 L 形路径上（不能被首尾直线切角）');
+    }
+    // 沿路径档距恒为 50m；跨转角时两杆的直线弦长会小于 50m，
+    // 所以这里只约束"不超过档距且不重合"，精确 50m 由直线路径用例保证。
+    for (var i = 1; i < poles.length - 1; i++) {
+      final d = RouteLayout.haversineM(
+          poles[i - 1][0], poles[i - 1][1], poles[i][0], poles[i][1]);
+      expect(d, lessThanOrEqualTo(51.0), reason: '第 $i 档直线距离不应超过档距');
+      expect(d, greaterThan(1.0), reason: '第 $i 档两杆不应重合');
+    }
+  });
+
   test('destination/bearing：按方位角前进的距离与目标一致', () {
     final b = RouteLayout.bearingDeg(32.10, 114.00, 32.11, 114.02);
     final p = RouteLayout.destination(32.10, 114.00, b, 1000);

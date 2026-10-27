@@ -153,7 +153,11 @@ Future<ImportTreeResult> importParsedResult(
     // 先删工程，再删文件夹（批量：各一次索引/文件夹读写）。
     if (createdProjectIds.isNotEmpty) {
       try {
-        await store.deleteCollections(createdProjectIds);
+        final ids = List<String>.of(createdProjectIds);
+        await store.deleteCollections(ids);
+        // 批量删文件后同步清状态：否则导入期间显示到地图的工程/正在编辑的草稿
+        // 会继续留在地图上（与单个删除的"删了还在"同类）。
+        st.forgetDeletedCollections(ids);
       } catch (_) {}
     }
     if (createdFolderIds.isNotEmpty) {

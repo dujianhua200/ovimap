@@ -757,6 +757,10 @@ class _HomePageState extends State<HomePage> {
           Row(
             children: [
               Expanded(child: _modeChip('我在这', onTap: () {
+                if (st.curLat == null || st.curLon == null) {
+                  toast(context, '尚未定位：请先点右侧「定位」获取位置，或直接在地图上打点');
+                  return;
+                }
                 st.markHere();
                 toast(context, '已在当前位置添加 ${st.curType.name}');
               })),

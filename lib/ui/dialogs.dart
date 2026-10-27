@@ -2491,7 +2491,8 @@ Future<void> showImportDialog(BuildContext context, AppState st) async {
       return;
     }
     toast(context,
-        '已导入：${r.folderCount} 个文件夹 · ${r.projectCount} 个工程 · ${r.pointCount} 点 · ${r.lineCount} 线；可撤销回退');
+        '已导入：${r.folderCount} 个文件夹 · ${r.projectCount} 个工程 · ${r.pointCount} 点 · '
+        '${r.lineCount} 线；在收藏夹点条目右侧眼睛可显示到地图（可撤销回退）');
     for (final w in parsed.warnings) {
       toast(context, w);
     }

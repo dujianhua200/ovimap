@@ -93,9 +93,16 @@ class SymbolTile extends StatelessWidget {
         color: type.color.withValues(alpha: 0.85),
         borderRadius: radius,
       ),
-      child: Text(type.symbol.isNotEmpty ? type.symbol : glyph,
-          style: const TextStyle(
-              color: Colors.white, fontSize: 12, height: 1.1)),
+      child: type.shape == 'dot' && type.symbol.isEmpty
+          ? Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                  color: Colors.white, shape: BoxShape.circle),
+            )
+          : Text(type.symbol.isNotEmpty ? type.symbol : glyph,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 12, height: 1.1)),
     );
   }
 }

@@ -258,7 +258,7 @@ _Seg? _hitSegment(AppState st, MapController controller, LatLng point) {
 
   scan(st.labels, true, '');
   for (final e in st.overlayLabels.entries) {
-    if (st.visibleCids.contains(e.key)) scan(e.value, false, e.key);
+    if (st.isOverlayVisible(e.key)) scan(e.value, false, e.key);
   }
   return best;
 }

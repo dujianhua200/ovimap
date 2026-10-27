@@ -5,6 +5,7 @@
 //   2. 标记模式与其它工具互斥，标记完回到浏览，不会继续连线；
 //   3. 切换/清空工程时，标记、拓扑、选择集等一次性状态一起退场；
 //   4. 新建工程一次设定名称/模板/编号，直接进入打点。
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +15,7 @@ import 'package:ovimap/models/project_template.dart';
 import 'package:ovimap/services/app_paths.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
+import 'package:ovimap/ui/label_marker.dart';
 import 'package:ovimap/ui/unsaved_draft_guard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -224,6 +226,206 @@ void main() {
       expect(containsProjectFile(<String>['/tmp/A.OVIMAP']), isTrue);
       expect(containsProjectFile(<String>['/tmp/a.geojson', '/tmp/b.json']),
           isFalse);
+    });
+  });
+
+  group('删除工程', () {
+    test('外部导入的工程删除后，草稿与地图数据一起清掉', () async {
+      final label =
+          MapLabel(typeId: 'concrete', seq: 1, lat: 32.0, lon: 114.0, name: 'G-1');
+      final file = File('${dir.path}/外部导入.ovimap');
+      await file.writeAsString(jsonEncode({
+        'id': 'imported',
+        'name': '外部导入',
+        'kind': 'label',
+        'editMode': 'design',
+        'labels': [label.toJson()],
+      }));
+
+      final st = await makeState();
+      final msg = await st.importProjectFile(file.path);
+      expect(msg, contains('已导入并打开'));
+      expect(st.labels.length, 1, reason: '导入后点会进入草稿，供继续编辑');
+
+      final cid = st.activeCollectionId;
+      expect(cid, isNotEmpty);
+      // 模拟地图上的可见叠加层（导入后通常同时可见）。
+      st.visibleCids.add(cid);
+      st.overlayLabels[cid] = await st.store.loadCollection(cid);
+
+      await st.deleteCollection(cid);
+
+      expect(st.labels, isEmpty,
+          reason: '删除当前打开的工程必须同时关闭草稿，否则地图仍显示这些点');
+      expect(st.activeCollectionId, isEmpty,
+          reason: '删除后不能继续把编辑写回已删除的工程');
+      expect(st.overlayLabels.containsKey(cid), isFalse);
+      expect(st.visibleCids.contains(cid), isFalse);
+      expect(st.mode, AppMode.view);
+      expect(st.prefs.getString(AppState.prefVisible) ?? '', isNot(contains(cid)),
+          reason: '可见集合要落盘，重启后不能再加载已删除工程');
+      await _settle();
+    });
+  });
+
+  group('符号', () {
+    test('水泥杆是无字圆圈（dot），圆内不再挤点名/电字', () {
+      expect(LabelType.concrete.symbol, isEmpty);
+      expect(LabelType.concrete.shape, 'dot');
+
+      final named = MapLabel(typeId: 'concrete', name: 'G-1');
+      expect(effectiveSymbolStyle(named).$3, isEmpty,
+          reason: '点名画在圆下方，圆内保持纯圆圈');
+
+      final overridden = MapLabel(typeId: 'concrete', symText: 'G');
+      expect(effectiveSymbolStyle(overridden).$3, 'G',
+          reason: '用户显式设置的符号字仍然生效');
+
+      final pipe = MapLabel(typeId: 'pipe', name: 'P1');
+      expect(effectiveSymbolStyle(pipe).$3, 'P1',
+          reason: '其它杆/管类型维持原口径（名称优先）');
+    });
+  });
+
+  group('重启后的工程归属', () {
+    test('编辑已保存工程后重启：仍归属原工程，保存不产生重复工程', () async {
+      final cid = await store.finishCollection(
+        name: '编辑中工程',
+        kind: 'label',
+        folderId: '',
+        editMode: 'design',
+        labels: labelsN(1),
+      );
+      final st1 = await makeState();
+      await st1.refreshCollections();
+      await st1.openCollection(
+          st1.collections.firstWhere((m) => m.id == cid));
+      st1.addLabelAtWgs(32.5, 114.5);
+      await _settle();
+
+      // 模拟重启。
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final st2 = AppState();
+      st2.setPrefsForTest(await SharedPreferences.getInstance());
+      await st2.init();
+
+      expect(st2.activeCollectionId, cid, reason: '重启后应恢复正在编辑哪个工程');
+      expect(st2.labels.length, 2);
+      expect(st2.mode, AppMode.view, reason: '重启后仍是浏览态，点「打点」才继续');
+
+      await st2.finishCollection();
+
+      final metas = await store.loadIndex();
+      expect(metas.where((m) => m.id == cid).length, 1,
+          reason: '保存应覆盖原工程，不能新增一个同名重复工程');
+      expect((await store.loadCollection(cid)).length, 2);
+    });
+
+    test('重启时原工程已被删除：保留点位作为未保存草稿，不写回旧 cid', () async {
+      final cid = await store.finishCollection(
+        name: '将被删除的工程',
+        kind: 'label',
+        folderId: '',
+        editMode: 'design',
+        labels: labelsN(1),
+      );
+      final st1 = await makeState();
+      await st1.refreshCollections();
+      await st1.openCollection(
+          st1.collections.firstWhere((m) => m.id == cid));
+      st1.addLabelAtWgs(32.5, 114.5);
+      await _settle();
+      // 模拟"应用关闭期间工程被删"（直接删文件/索引，不走 AppState）。
+      await store.deleteCollection(cid);
+      await _settle();
+
+      final st2 = AppState();
+      st2.setPrefsForTest(await SharedPreferences.getInstance());
+      await st2.init();
+
+      expect(st2.activeCollectionId, isEmpty);
+      expect(st2.labels.length, 2, reason: '现场点位不能因为工程被删就丢掉');
+      expect(st2.hasUnsavedDraft, isTrue);
+    });
+  });
+
+  group('编辑中的工程不重复渲染', () {
+    test('打开中的工程不算叠加层；删点后叠加缓存同步', () async {
+      final cid = await store.finishCollection(
+        name: '工程A',
+        kind: 'label',
+        folderId: '',
+        editMode: 'design',
+        labels: labelsN(2),
+      );
+      final st = await makeState();
+      await st.refreshCollections();
+      await st.openCollection(st.collections.firstWhere((m) => m.id == cid));
+      st.visibleCids.add(cid);
+      st.overlayLabels[cid] = await st.store.loadCollection(cid);
+
+      expect(st.isOverlayVisible(cid), isFalse,
+          reason: '编辑中的工程由草稿层渲染，叠加层不应再画一份');
+      expect(st.isOverlayVisible('other'), isFalse);
+      st.visibleCids.add('other');
+      expect(st.isOverlayVisible('other'), isTrue);
+
+      // 删掉草稿里的一个点：叠加层缓存也要变 1，切走后不会留下旧点。
+      st.removeLabel(st.labels.first);
+      await _settle();
+      expect(st.overlayLabels[cid]!.length, 1);
+    });
+  });
+
+  group('自动编号', () {
+    test('沿折线自动布杆：杆位落在路径上，编号接最大号', () async {
+      final st = await makeState();
+      st.labels.addAll([
+        MapLabel(
+            typeId: 'concrete', name: 'G-1', lat: 32.0, lon: 114.0, seq: 1),
+        MapLabel(
+            typeId: 'concrete', name: 'G-5', lat: 32.0, lon: 114.001, seq: 2),
+      ]);
+      final path = <List<double>>[
+        [32.0, 114.0],
+        [32.0, 114.01],
+        [32.01, 114.01],
+      ];
+
+      final n = st.autoPlacePolesAlongPath(
+          path: path, spacingM: 50, typeId: 'concrete', prefix: 'G');
+
+      expect(n, greaterThan(2));
+      final added = st.labels.sublist(2);
+      expect(added.length, n);
+      expect(added.first.name, 'G-6', reason: '接已有最大号 G-5，而不是按数量');
+      expect(added.first.lat, closeTo(32.0, 1e-9));
+      expect(added.first.lon, closeTo(114.0, 1e-9));
+      expect(added.last.lat, closeTo(32.01, 1e-9));
+      expect(added.last.lon, closeTo(114.01, 1e-9));
+      for (final l in added) {
+        final onFirst = (l.lat - 32.0).abs() < 1e-7;
+        final onSecond = (l.lon - 114.01).abs() < 1e-7;
+        expect(onFirst || onSecond, isTrue,
+            reason: '自动布杆点必须落在已画折线上');
+      }
+    });
+
+    test('用已有最大号 +1，删掉中间点后不复用编号', () async {
+      final st = await makeState();
+      st.setAutoNumber(true, 'G');
+      st.setType(LabelType.concrete);
+      st.addLabelAtWgs(32.0, 114.0);
+      st.addLabelAtWgs(32.001, 114.0);
+      st.addLabelAtWgs(32.002, 114.0);
+      expect(st.labels.map((e) => e.name).toList(), ['G-1', 'G-2', 'G-3']);
+
+      st.removeLabel(st.labels[1]); // 删掉 G-2
+      await _settle();
+      st.addLabelAtWgs(32.003, 114.0);
+
+      expect(st.labels.last.name, 'G-4',
+          reason: '编号应按最大号递增；按剩余数量计数会与 G-3 重号');
     });
   });
 

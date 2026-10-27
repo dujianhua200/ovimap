@@ -17,11 +17,15 @@ import '../models/map_label.dart';
   final lt = label.type;
   final color = label.symColor != 0 ? Color(label.symColor) : lt.color;
   final shape = label.symShape.isNotEmpty ? label.symShape : lt.shape;
+  // dot = 纯圆圈：圆很小，不再把点名/类型名塞进圆内（否则字会挤成一团）。
+  // 用户显式设了符号字（symText）时仍按覆盖值绘制。
   final symbol = label.symText.isNotEmpty
       ? label.symText
-      : (label.name.trim().isNotEmpty
-          ? label.name.trim()
-          : (lt.symbol.isNotEmpty ? lt.symbol : lt.name));
+      : shape == 'dot'
+          ? ''
+          : (label.name.trim().isNotEmpty
+              ? label.name.trim()
+              : (lt.symbol.isNotEmpty ? lt.symbol : lt.name));
   return (color, shape, symbol);
 }
 

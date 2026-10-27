@@ -343,6 +343,7 @@ class _MapCanvasState extends State<MapCanvas> {
     final draft = _hitTestGeo(st.labels, point);
     if (draft != null) return (draft, '');
     for (final cid in st.visibleCids) {
+      if (!st.isOverlayVisible(cid)) continue;
       final list = st.overlayLabels[cid];
       if (list == null || list.isEmpty) continue;
       // D2：隐藏的点点不中（草稿不受 mark 显隐影响，仍可点中编辑）。
@@ -369,7 +370,7 @@ class _MapCanvasState extends State<MapCanvas> {
     final polylines = <Polyline>[
       ...buildSegLines(st, st.labels, isDraft: true),
       for (final e in st.overlayLabels.entries)
-        if (st.visibleCids.contains(e.key)) ...buildSegLines(st, e.value),
+        if (st.isOverlayVisible(e.key)) ...buildSegLines(st, e.value),
       if (st.mode == AppMode.topoLink) ...buildTopoLines(st),
       if (st.measurePts.length >= 2)
         Polyline(
@@ -720,7 +721,7 @@ List<Marker> buildBusinessMarkers(AppState st, MapCamera cam,
 
   // 可见收藏（底层）：D2——hiddenLabelIds 的点不画符号。
   for (final entry in st.overlayLabels.entries) {
-    if (!st.visibleCids.contains(entry.key)) continue;
+    if (!st.isOverlayVisible(entry.key)) continue;
     for (final l in withoutHiddenLabels(entry.value, st.hiddenLabelIds)) {
       addFor(l);
     }
@@ -805,7 +806,7 @@ List<SegText> collectSegTexts(AppState st, MapCamera cam) {
 
   addFor(st.labels, isDraft: true);
   for (final entry in st.overlayLabels.entries) {
-    if (st.visibleCids.contains(entry.key)) {
+    if (st.isOverlayVisible(entry.key)) {
       addFor(entry.value, isDraft: false);
     }
   }

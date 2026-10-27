@@ -20,8 +20,9 @@ class LabelType {
   // ---- 预置符号 ----
   static const LabelType pipe =
       LabelType('pipe', '管道口', '管', Color(0xFF1565C0), 'pin', 6);
+  // 水泥杆：用户要求去掉圆内“电”字，只保留一个圆圈（dot = 实心圆）。
   static const LabelType concrete =
-      LabelType('concrete', '水泥杆', '电', Color(0xFF6A1B9A), 'pin', 5);
+      LabelType('concrete', '水泥杆', '', Color(0xFF6A1B9A), 'dot', 5);
   static const LabelType wood =
       LabelType('wood', '木杆', '木', Color(0xFF5D4037), 'pin', 5);
   static const LabelType electric =

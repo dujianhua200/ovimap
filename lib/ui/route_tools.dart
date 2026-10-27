@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../geo/geo_util.dart';
+import '../geo/route_layout.dart';
 import '../models/label_type.dart';
 import '../models/map_label.dart';
 import '../models/project_template.dart';
@@ -13,19 +14,34 @@ import 'design_tokens.dart';
 /// 布杆结果可一次撤销，落点可再拖动微调。
 Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
   final chains = buildLabelChains(st.labels);
+  // 有线组 → 沿线路布杆（L 形/折返按实际走向，不切角）；没有线组才退回两点直线。
+  final chain = chains.isEmpty ? null : chains.last;
+  final path = chain == null
+      ? null
+      : <List<double>>[
+          for (final l in chain) <double>[l.lat, l.lon]
+        ];
+  final pathLen = path == null ? 0.0 : RouteLayout.pathLengthM(path);
+
   var defStart = '';
   var defEnd = '';
-  if (chains.isNotEmpty) {
-    final c = chains.last;
+  if (chain != null) {
     defStart =
-        '${c.first.lat.toStringAsFixed(6)},${c.first.lon.toStringAsFixed(6)}';
-    defEnd = '${c.last.lat.toStringAsFixed(6)},${c.last.lon.toStringAsFixed(6)}';
+        '${chain.first.lat.toStringAsFixed(6)},${chain.first.lon.toStringAsFixed(6)}';
+    defEnd =
+        '${chain.last.lat.toStringAsFixed(6)},${chain.last.lon.toStringAsFixed(6)}';
   }
   final startCtl = TextEditingController(text: defStart);
   final endCtl = TextEditingController(text: defEnd);
   final spaceCtl = TextEditingController(text: '50');
   final prefixCtl = TextEditingController(text: st.numPrefix);
-  var typeId = st.curType.id;
+
+  // 自动布杆只允许杆型（role=5）：水泥杆/木杆/电力杆。
+  // 以前把箱体/人孔也列进来，选错就会沿线路布一排箱体。
+  final poleTypes = LabelType.all.where((t) => t.role == 5).toList();
+  var typeId = poleTypes.any((t) => t.id == st.curType.id)
+      ? st.curType.id
+      : LabelType.concrete.id;
 
   await showDarkDialog(
     context,
@@ -36,19 +52,25 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('两点直线等距布杆，含起点与终点；结果可「撤销」，落点可再拖动微调。',
-                style: TextStyle(color: kTextSub, fontSize: 11)),
+            Text(
+                path != null
+                    ? '沿最近一条线组等距布杆：${chain!.length} 点 · 全长 '
+                        '${GeoUtil.fmtDist(pathLen)}。含起点与终点，L 形/折返按实际走向，不切角。'
+                    : '当前没有已画线组：填起止点做两点直线布杆。含起点与终点。',
+                style: const TextStyle(color: kTextSub, fontSize: 11)),
             const SizedBox(height: 8),
-            TextField(
-                controller: startCtl,
-                style: const TextStyle(color: kTextMain, fontSize: 13),
-                decoration: dec('起点 纬度,经度（如 32.10,114.08）')),
-            const SizedBox(height: 8),
-            TextField(
-                controller: endCtl,
-                style: const TextStyle(color: kTextMain, fontSize: 13),
-                decoration: dec('终点 纬度,经度')),
-            const SizedBox(height: 8),
+            if (path == null) ...[
+              TextField(
+                  controller: startCtl,
+                  style: const TextStyle(color: kTextMain, fontSize: 13),
+                  decoration: dec('起点 纬度,经度（如 32.10,114.08）')),
+              const SizedBox(height: 8),
+              TextField(
+                  controller: endCtl,
+                  style: const TextStyle(color: kTextMain, fontSize: 13),
+                  decoration: dec('终点 纬度,经度')),
+              const SizedBox(height: 8),
+            ],
             Row(children: [
               Expanded(
                 child: TextField(
@@ -73,8 +95,7 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (final t in LabelType.all.where((t) =>
-                    !const ['text', 'track', 'none', 'area'].contains(t.id)))
+                for (final t in poleTypes)
                   ChoiceChip(
                     label: Text(t.name,
                         style: TextStyle(
@@ -95,12 +116,6 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
     actions: [
       darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
       darkTextBtn('布杆', () {
-        final s = GeoUtil.parseCoordInput(startCtl.text);
-        final e = GeoUtil.parseCoordInput(endCtl.text);
-        if (s == null || e == null) {
-          toast(context, '起止坐标格式不对（纬度,经度）');
-          return;
-        }
         final sp = double.tryParse(spaceCtl.text.trim()) ?? 50;
         // 防御 NaN / Infinity / 非正档距（NaN<=0 为 false，单靠 <=0 拦不住）。
         if (!sp.isFinite || sp <= 0) {
@@ -108,16 +123,33 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
           return;
         }
         final pfx = prefixCtl.text.trim();
+        final usePrefix = pfx.isEmpty ? st.numPrefix : pfx;
+        int cnt;
+        if (path != null) {
+          cnt = st.autoPlacePolesAlongPath(
+            path: path,
+            spacingM: sp,
+            typeId: typeId,
+            prefix: usePrefix,
+          );
+        } else {
+          final s = GeoUtil.parseCoordInput(startCtl.text);
+          final e = GeoUtil.parseCoordInput(endCtl.text);
+          if (s == null || e == null) {
+            toast(context, '起止坐标格式不对（纬度,经度）');
+            return;
+          }
+          cnt = st.autoPlacePoles(
+            sLat: s[0],
+            sLon: s[1],
+            eLat: e[0],
+            eLon: e[1],
+            spacingM: sp,
+            typeId: typeId,
+            prefix: usePrefix,
+          );
+        }
         Navigator.pop(context);
-        final cnt = st.autoPlacePoles(
-          sLat: s[0],
-          sLon: s[1],
-          eLat: e[0],
-          eLon: e[1],
-          spacingM: sp,
-          typeId: typeId,
-          prefix: pfx.isEmpty ? st.numPrefix : pfx,
-        );
         toast(context, '已布 $cnt 基杆（可点「撤销」回退）');
       }),
     ],

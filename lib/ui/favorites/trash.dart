@@ -156,6 +156,8 @@ class TrashStore extends ChangeNotifier {
       final payload = jsonEncode({
         'meta': (meta ?? CollectionMeta(id: cid, name: node.name)).toJson(),
         'labels': labels.map((l) => l.toJson()).toList(),
+        // 记录删除前的地图显隐：还原时按原状态回到地图，不要求用户再手动开显。
+        'visible': st.visibleCids.contains(cid),
       });
       // 统一入口：清理可见集合 + 刷新 + 通知同步器（服务端软删除）。
       await st.deleteCollection(cid);
@@ -191,6 +193,7 @@ class TrashStore extends ChangeNotifier {
         projs.add({
           'meta': m.toJson(),
           'labels': labels.map((l) => l.toJson()).toList(),
+          'visible': st.visibleCids.contains(m.id),
         });
       }
       final payload = jsonEncode({
@@ -258,6 +261,8 @@ class TrashStore extends ChangeNotifier {
         meta['folderId'] = '';
       }
       await _restoreProject({'meta': meta, 'labels': payload['labels']});
+      await _restoreVisibility(
+          meta['id'] as String? ?? '', payload['visible']);
     } else if (item.kind == 'folder') {
       final folders = ((payload['folders'] as List?) ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
@@ -274,6 +279,8 @@ class TrashStore extends ChangeNotifier {
           meta['folderId'] = '';
         }
         await _restoreProject({'meta': meta, 'labels': p['labels']});
+        await _restoreVisibility(
+            meta['id'] as String? ?? '', p['visible']);
       }
     }
     _items.removeWhere((e) => e.trashId == item.trashId);
@@ -402,6 +409,13 @@ class TrashStore extends ChangeNotifier {
   }
 
   // ---------- 还原的文件读写（镜像 store.dart 格式，不动 store.dart） ----------
+
+  /// 还原时恢复删除前的地图显隐；旧版 trash.json 没有 visible 字段 → 按隐藏处理。
+  Future<void> _restoreVisibility(String cid, Object? visible) async {
+    final st = appState;
+    if (st == null || cid.isEmpty || visible != true) return;
+    await st.showCollectionOnMap(cid);
+  }
 
   Future<void> _restoreProject(Map<String, dynamic> p) async {
     final meta =

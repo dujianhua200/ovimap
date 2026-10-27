@@ -1020,8 +1020,13 @@ class DxfExporter {
       } else {
         block = 'HZ_POLE';
       }
-      _appendInsert(c, 'TuQian', block, lx + 2, y,
-          sx: symScale, sy: symScale);
+      // dot（水泥杆）：图例也画纯圆圈，与图面/地图一致，不再套 HZ_POLE（圆+十字）。
+      if (t.shape == 'dot') {
+        _appendCircle(c, 'TuQian', lx + 2, y, _pinRadiusM(routeScale));
+      } else {
+        _appendInsert(c, 'TuQian', block, lx + 2, y,
+            sx: symScale, sy: symScale);
+      }
       _text(c, 'TuQian', lx + 5, y - 1, _mmOf(2.5, routeScale), t.name);
       y -= 6;
     }

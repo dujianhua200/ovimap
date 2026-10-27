@@ -93,6 +93,12 @@ class DraftMeta {
   String projectName = '';
   String folderId = '';
   String editMode = 'design';
+
+  /// 草稿当前归属的已保存工程 id（空 = 未保存的新草稿）。
+  ///
+  /// 以前不落这个字段：编辑已保存工程时退出应用，重启后草稿会被当成新草稿，
+  /// 再保存就多出一个重复工程。现在启动时按它恢复"正在编辑哪个工程"。
+  String activeCid = '';
 }
 
 /// 数据持久化：草稿、收藏（标签/轨迹/测量数据）、文件夹。
@@ -152,7 +158,8 @@ class LabelStore {
       [String projectName = '',
       String folderId = '',
       String editMode = 'design',
-      List<Map<String, dynamic>>? fiberLinks]) async {
+      List<Map<String, dynamic>>? fiberLinks,
+      String activeCid = '']) async {
     try {
       final dir = await labelsDir();
       final links = fiberLinks ?? await loadFiberLinks();
@@ -162,6 +169,7 @@ class LabelStore {
         'folderId': folderId,
         'editMode': editMode,
         'fiberLinks': links,
+        'activeCid': activeCid,
       };
       await robustWriteAsString(File('${dir.path}/draft.json'), jsonEncode(o));
     } catch (e) {
@@ -179,6 +187,7 @@ class LabelStore {
       meta.projectName = (o['projectName'] as String?) ?? '';
       meta.folderId = (o['folderId'] as String?) ?? '';
       meta.editMode = (o['editMode'] as String?) ?? 'design';
+      meta.activeCid = (o['activeCid'] as String?) ?? '';
     } catch (e) {
       _reportPersistError('loadDraftMeta', e);
     }
