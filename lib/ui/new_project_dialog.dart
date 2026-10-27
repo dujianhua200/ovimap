@@ -28,7 +28,7 @@ Future<bool> showNewProjectDialog(BuildContext context, AppState st) async {
   await showDarkDialog(
     context,
     title: '新建工程',
-    width: screenW >= 560 ? 430 : null,
+    width: screenW >= 560 ? 430 : screenW - 48,
     content: StatefulBuilder(
       builder: (ctx, setSt) => SingleChildScrollView(
         child: Column(
@@ -42,26 +42,40 @@ Future<bool> showNewProjectDialog(BuildContext context, AppState st) async {
               decoration: dec('工程名称（如：李庄架空光缆改造）'),
             ),
             const SizedBox(height: TokSp.s),
-            const Text('场景模板',
-                style: TextStyle(color: kTextSub, fontSize: TokFs.caption)),
-            for (final t in <ProjectTemplate?>[null, ...ProjectTemplate.presets])
+            const Text(
+              '场景模板',
+              style: TextStyle(color: kTextSub, fontSize: TokFs.caption),
+            ),
+            for (final t in <ProjectTemplate?>[
+              null,
+              ...ProjectTemplate.presets,
+            ])
               RadioListTile<String>(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 value: t?.id ?? '',
                 groupValue: tplId,
                 activeColor: kAccent,
-                title: Text(t?.name ?? '空白工程',
-                    style:
-                        const TextStyle(color: kTextMain, fontSize: TokFs.body)),
-                subtitle: Text(_templateHint(t),
-                    style: const TextStyle(
-                        color: kTextSub, fontSize: TokFs.caption)),
+                title: Text(
+                  t?.name ?? '空白工程',
+                  style: const TextStyle(
+                    color: kTextMain,
+                    fontSize: TokFs.body,
+                  ),
+                ),
+                subtitle: Text(
+                  _templateHint(t),
+                  style: const TextStyle(
+                    color: kTextSub,
+                    fontSize: TokFs.caption,
+                  ),
+                ),
                 onChanged: (v) {
                   setSt(() {
                     tplId = v ?? '';
                     // 只有用户没手动改过前缀时才跟随模板，避免覆盖自定义值。
-                    if (!prefixTouched) prefixCtl.text = defaultPrefixFor(tplId);
+                    if (!prefixTouched)
+                      prefixCtl.text = defaultPrefixFor(tplId);
                   });
                 },
               ),
@@ -69,8 +83,10 @@ Future<bool> showNewProjectDialog(BuildContext context, AppState st) async {
             CheckboxListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text('自动编号（落点命名 前缀-1、前缀-2…）',
-                  style: TextStyle(color: kTextMain, fontSize: TokFs.body)),
+              title: const Text(
+                '自动编号（落点命名 前缀-1、前缀-2…）',
+                style: TextStyle(color: kTextMain, fontSize: TokFs.body),
+              ),
               value: autoNum,
               activeColor: kAccent,
               onChanged: (v) => setSt(() => autoNum = v ?? false),
@@ -83,8 +99,10 @@ Future<bool> showNewProjectDialog(BuildContext context, AppState st) async {
               decoration: dec('编号前缀（如 G / R / X）'),
             ),
             const SizedBox(height: TokSp.s),
-            const Text('创建后直接进入打点模式，编号从 1 开始；工程在第一次保存时落盘。',
-                style: TextStyle(color: kTextHint, fontSize: TokFs.caption)),
+            const Text(
+              '创建后直接进入打点模式，编号从 1 开始；工程在第一次保存时落盘。',
+              style: TextStyle(color: kTextHint, fontSize: TokFs.caption),
+            ),
           ],
         ),
       ),
@@ -109,8 +127,12 @@ Future<bool> showNewProjectDialog(BuildContext context, AppState st) async {
     ],
   );
 
-  nameCtl.dispose();
-  prefixCtl.dispose();
+  // 对话框退场动画期间 TextField 仍会读 controller，立即 dispose 会抛
+  // "A TextEditingController was used after being disposed"（widget 测试抓到）。
+  Future<void>.delayed(const Duration(milliseconds: 400), () {
+    nameCtl.dispose();
+    prefixCtl.dispose();
+  });
   return created;
 }
 

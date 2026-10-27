@@ -71,18 +71,17 @@ const Color kWarn = TokC.warn;
 const Color kTextHint = TokC.textHintConst;
 
 InputDecoration dec(String hint) => InputDecoration(
-      hintText: hint,
-      hintStyle: const TextStyle(color: kTextHint, fontSize: TokFs.body),
-      filled: true,
-      fillColor: kFieldBg,
-      isDense: true,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(TokR.m),
-        borderSide: BorderSide.none,
-      ),
-    );
+  hintText: hint,
+  hintStyle: const TextStyle(color: kTextHint, fontSize: TokFs.body),
+  filled: true,
+  fillColor: kFieldBg,
+  isDense: true,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+  border: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(TokR.m),
+    borderSide: BorderSide.none,
+  ),
+);
 
 Future<void> showDarkDialog(
   BuildContext context, {
@@ -101,33 +100,61 @@ Future<void> showDarkDialog(
       barrierDismissible: barrierDismissible,
       builder: (ctx) => AlertDialog(
         backgroundColor: kPanelBg,
-        title: Text(title,
-            style: const TextStyle(color: kTextMain, fontSize: 16)),
+        title: Text(
+          title,
+          style: const TextStyle(color: kTextMain, fontSize: 16),
+        ),
         content: content,
         actions: actions,
       ),
     );
   }
 
-  // 传 width 时：本 Flutter 版本的 AlertDialog 会按视口把对话框撑满（仅用 SizedBox 包 content
-  // 无法收口），故直接约束对话框自身：min==max==width 锁定宽度，maxHeight 限制高度（内容可滚动）。
-  // insetPadding 保留默认（不贴边）。默认分支不传 constraints，旧对话框视觉完全不变。
+  // 传 width 时用自绘 Dialog，而不是给 AlertDialog 加 constraints：
+  // 本 Flutter 版本的 AlertDialog 在「定宽 + 内容较高」时，下半部分会画出来
+  // 但点不中（新建工程对话框的「开始打点」、复选框、图源面板底部按钮都中过）。
+  // 自绘 Column 里把 content 放进有界 Flexible，按钮始终在同一个可命中区域内。
   final vh = MediaQuery.of(context).size.height;
+  final vw = MediaQuery.of(context).size.width;
+  final w = width > vw - 48 ? vw - 48 : width;
   return showDialog(
     context: context,
     barrierDismissible: barrierDismissible,
-    builder: (ctx) => AlertDialog(
+    builder: (ctx) => Dialog(
       backgroundColor: kPanelBg,
-      title: Text(title,
-          style: const TextStyle(color: kTextMain, fontSize: 16)),
-      content: content,
-      actions: actions,
-      constraints: BoxConstraints(
-        minWidth: width,
-        maxWidth: width,
-        maxHeight: vh * maxHeightFactor,
-      ),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: w,
+          maxHeight: vh * maxHeightFactor,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(color: kTextMain, fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              // 内容自己决定是否滚动（多数定宽面板本来就带 SingleChildScrollView）。
+              // 这里只给一个有界高度，避免嵌套滚动视图拿到无界约束。
+              Flexible(child: content ?? const SizedBox.shrink()),
+              if (actions != null && actions.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 4,
+                  children: actions,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     ),
   );
 }
@@ -147,15 +174,17 @@ Widget sheetTile(BuildContext context, String text, VoidCallback onTap) =>
         Navigator.pop(context);
         onTap();
       },
-      title: Text(text,
-          style: const TextStyle(color: kTextMain, fontSize: 13.5)),
+      title: Text(
+        text,
+        style: const TextStyle(color: kTextMain, fontSize: 13.5),
+      ),
     );
 
 /// 面板分组标题（如"成果与资料""地图"）。
 Widget sheetGroupTitle(String text) => Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text(text, style: const TextStyle(color: kTextSub, fontSize: 12)),
-    );
+  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+  child: Text(text, style: const TextStyle(color: kTextSub, fontSize: 12)),
+);
 
 /// 段标注自动补距离：委托 [GeoUtil.segDistText]（米、整数不留 ".0"）。
 ///
@@ -175,26 +204,28 @@ Widget segPrefixChips(TextEditingController ctl, {double? autoDist}) {
     spacing: 6,
     runSpacing: 6,
     children: [
-      for (final p in const [
-        '埋', '管', '吊', '架', '钉', '槽', '桥', '顶棚', '暗', '竖',
-      ])
+      for (final p in const ['埋', '管', '吊', '架', '钉', '槽', '桥', '顶棚', '暗', '竖'])
         ActionChip(
-          label: Text(p,
-              style: const TextStyle(color: kTextMain, fontSize: 12.5)),
+          label: Text(
+            p,
+            style: const TextStyle(color: kTextMain, fontSize: 12.5),
+          ),
           backgroundColor: TokC.field,
           side: BorderSide.none,
           visualDensity: VisualDensity.compact,
           onPressed: () {
             final m = RegExp(r'[0-9][0-9.]*').firstMatch(ctl.text);
             final num = m?.group(0);
-            final digit = num ??
-                (autoDist == null ? null : _segAutoDistText(autoDist));
+            final digit =
+                num ?? (autoDist == null ? null : _segAutoDistText(autoDist));
             ctl.text = p + (digit ?? '');
           },
         ),
       ActionChip(
-        label: const Text('清除',
-            style: TextStyle(color: kTextSub, fontSize: 12)),
+        label: const Text(
+          '清除',
+          style: TextStyle(color: kTextSub, fontSize: 12),
+        ),
         backgroundColor: TokC.field,
         side: BorderSide.none,
         visualDensity: VisualDensity.compact,
@@ -207,12 +238,14 @@ Widget segPrefixChips(TextEditingController ctl, {double? autoDist}) {
 void toast(BuildContext context, String msg) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(
-      content: Text(msg),
-      duration: const Duration(milliseconds: 1800),
-      behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.fromLTRB(24, 0, 24, 120),
-    ));
+    ..showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(milliseconds: 1800),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(24, 0, 24, 120),
+      ),
+    );
 }
 
 /// P1-17：持久化异常 UI 提示轮询（store 层无 BuildContext，不能直接 toast）。
@@ -265,14 +298,18 @@ Future<void> showLabelProperties(
   final noteCtl = TextEditingController(text: label.note);
   final segLabelCtl = TextEditingController(text: label.distLabel);
   final distCtl = TextEditingController(
-      text: label.distanceM != null ? label.distanceM!.toStringAsFixed(1) : '');
-  final holesCtl =
-      TextEditingController(text: label.holes > 0 ? '${label.holes}' : '');
+    text: label.distanceM != null ? label.distanceM!.toStringAsFixed(1) : '',
+  );
+  final holesCtl = TextEditingController(
+    text: label.holes > 0 ? '${label.holes}' : '',
+  );
   final usedCtl = TextEditingController(
-      text: label.usedHoles > 0 ? '${label.usedHoles}' : '');
+    text: label.usedHoles > 0 ? '${label.usedHoles}' : '',
+  );
   final ratioCtl = TextEditingController(text: label.splitterRatio);
   final slackCtl = TextEditingController(
-      text: label.slackM > 0 ? _fmtSlack(label.slackM) : '');
+    text: label.slackM > 0 ? _fmtSlack(label.slackM) : '',
+  );
   final segCableCtl = TextEditingController(text: label.segCable);
   var segKind = label.segKind;
   // 段标注 chip 自动补距离：取同线组上一链点的段距（与地图渲染口径一致）。
@@ -280,8 +317,12 @@ Future<void> showLabelProperties(
   final _segAutoDist = _prevChain == null
       ? null
       : (label.distanceM ??
-          GeoUtil.haversine(
-              _prevChain.lat, _prevChain.lon, label.lat, label.lon));
+            GeoUtil.haversine(
+              _prevChain.lat,
+              _prevChain.lon,
+              label.lat,
+              label.lon,
+            ));
   final isWell = ['manhole', 'handwell', 'pipe'].contains(label.typeId);
   final isTopoBox = label.type.isTopoNode;
   var photos = List<String>.from(label.photoPaths);
@@ -289,6 +330,7 @@ Future<void> showLabelProperties(
   await showDarkDialog(
     context,
     title: title,
+    width: 520,
     content: StatefulBuilder(
       builder: (ctx, setSt) => SingleChildScrollView(
         child: Column(
@@ -296,60 +338,74 @@ Future<void> showLabelProperties(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(
-                controller: nameCtl,
-                style: const TextStyle(color: kTextMain, fontSize: 14),
-                decoration: dec('标签名称')),
+              controller: nameCtl,
+              style: const TextStyle(color: kTextMain, fontSize: 14),
+              decoration: dec('标签名称'),
+            ),
             const SizedBox(height: 8),
             TextField(
-                controller: noteCtl,
-                style: const TextStyle(color: kTextMain, fontSize: 14),
-                decoration: dec('备注')),
+              controller: noteCtl,
+              style: const TextStyle(color: kTextMain, fontSize: 14),
+              decoration: dec('备注'),
+            ),
             _photoStripSection(context, st, label, photos, setSt),
             if (label.seq > 1) ...[
               const SizedBox(height: 8),
               TextField(
-                  controller: segLabelCtl,
-                  style: const TextStyle(color: kTextMain, fontSize: 14),
-                  decoration: dec('本段标注（如：埋42.5 / 架38，留空自动显示距离）')),
+                controller: segLabelCtl,
+                style: const TextStyle(color: kTextMain, fontSize: 14),
+                decoration: dec('本段标注（如：埋42.5 / 架38，留空自动显示距离）'),
+              ),
               const SizedBox(height: 6),
               segPrefixChips(segLabelCtl, autoDist: _segAutoDist),
               const SizedBox(height: 8),
               TextField(
-                  controller: distCtl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: kTextMain, fontSize: 14),
-                  decoration: dec('到上一点距离（米，留空自动）')),
+                controller: distCtl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: const TextStyle(color: kTextMain, fontSize: 14),
+                decoration: dec('到上一点距离（米，留空自动）'),
+              ),
               const SizedBox(height: 8),
               TextField(
-                  controller: slackCtl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: kTextMain, fontSize: 14),
-                  decoration: dec('本段接头盘留（米，结算用量=丈量+盘留）')),
+                controller: slackCtl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: const TextStyle(color: kTextMain, fontSize: 14),
+                decoration: dec('本段接头盘留（米，结算用量=丈量+盘留）'),
+              ),
               const SizedBox(height: 8),
               TextField(
-                  controller: segCableCtl,
-                  style: const TextStyle(color: kTextMain, fontSize: 14),
-                  decoration: dec('本段光缆型号（如 48芯GYTS，沿线标注并计入材料统计）')),
+                controller: segCableCtl,
+                style: const TextStyle(color: kTextMain, fontSize: 14),
+                decoration: dec('本段光缆型号（如 48芯GYTS，沿线标注并计入材料统计）'),
+              ),
               const SizedBox(height: 8),
-              const Text('本段敷设方式（决定连线颜色）',
-                  style: TextStyle(color: kTextSub, fontSize: 11)),
+              const Text(
+                '本段敷设方式（决定连线颜色）',
+                style: TextStyle(color: kTextSub, fontSize: 11),
+              ),
               Row(
                 children: [
                   for (final kv in const {
                     0: '默认',
                     1: '架空',
                     2: '埋地',
-                    3: '管道'
+                    3: '管道',
                   }.entries)
                     Expanded(
                       child: RadioListTile<int>(
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(kv.value,
-                            style: const TextStyle(
-                                color: kTextMain, fontSize: 12)),
+                        title: Text(
+                          kv.value,
+                          style: const TextStyle(
+                            color: kTextMain,
+                            fontSize: 12,
+                          ),
+                        ),
                         value: kv.key,
                         groupValue: segKind,
                         activeColor: kAccent,
@@ -361,33 +417,44 @@ Future<void> showLabelProperties(
             ],
             if (isWell) ...[
               const SizedBox(height: 8),
-              const Text('管孔（可选）',
-                  style: TextStyle(color: kTextSub, fontSize: 11)),
-              Row(children: [
-                Expanded(
+              const Text(
+                '管孔（可选）',
+                style: TextStyle(color: kTextSub, fontSize: 11),
+              ),
+              Row(
+                children: [
+                  Expanded(
                     child: TextField(
-                        controller: holesCtl,
-                        keyboardType: TextInputType.number,
-                        style: const TextStyle(color: kTextMain, fontSize: 14),
-                        decoration: dec('总孔数（如 12）'))),
-                const SizedBox(width: 8),
-                Expanded(
+                      controller: holesCtl,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(color: kTextMain, fontSize: 14),
+                      decoration: dec('总孔数（如 12）'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: TextField(
-                        controller: usedCtl,
-                        keyboardType: TextInputType.number,
-                        style: const TextStyle(color: kTextMain, fontSize: 14),
-                        decoration: dec('已占用孔数（如 4）'))),
-              ]),
+                      controller: usedCtl,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(color: kTextMain, fontSize: 14),
+                      decoration: dec('已占用孔数（如 4）'),
+                    ),
+                  ),
+                ],
+              ),
             ],
             if (isTopoBox) ...[
               const SizedBox(height: 8),
-              const Text('光分路器分光比（可选，如 1:8 / 1:16 / 1:32）',
-                  style: TextStyle(color: kTextSub, fontSize: 11)),
+              const Text(
+                '光分路器分光比（可选，如 1:8 / 1:16 / 1:32）',
+                style: TextStyle(color: kTextSub, fontSize: 11),
+              ),
               const SizedBox(height: 4),
               TextField(
-                  controller: ratioCtl,
-                  style: const TextStyle(color: kTextMain, fontSize: 14),
-                  decoration: dec('分光比')),
+                controller: ratioCtl,
+                style: const TextStyle(color: kTextMain, fontSize: 14),
+                decoration: dec('分光比'),
+              ),
             ],
           ],
         ),
@@ -402,15 +469,19 @@ Future<void> showLabelProperties(
             Navigator.pop(context);
             st.setMode(AppMode.edit);
             st.startRouteFrom(label);
-            toast(context,
-                '已从「${label.name.isEmpty ? label.type.name : label.name}」开始新分支杆路，继续点地图绘制');
+            toast(
+              context,
+              '已从「${label.name.isEmpty ? label.type.name : label.name}」开始新分支杆路，继续点地图绘制',
+            );
           }, color: kGreen),
         darkTextBtn('拖动点位', () {
           Navigator.pop(context);
           st.draggingLabelId = label.id;
           st.refreshUi();
-          toast(context,
-              '拖动模式：在地图上点一下，把「${label.name.isEmpty ? label.type.name : label.name}」移到那里');
+          toast(
+            context,
+            '拖动模式：在地图上点一下，把「${label.name.isEmpty ? label.type.name : label.name}」移到那里',
+          );
         }),
       ],
       if (st.hasFix && st.curLat != null && st.curLon != null)
@@ -423,7 +494,10 @@ Future<void> showLabelProperties(
             st.updateOverlayLabel(sourceCid, label);
           }
           Navigator.pop(context);
-          toast(context, '已把「${label.name.isEmpty ? label.type.name : label.name}」移到当前定位位置');
+          toast(
+            context,
+            '已把「${label.name.isEmpty ? label.type.name : label.name}」移到当前定位位置',
+          );
         }, color: kGreen),
       darkTextBtn('删除点', () {
         Navigator.pop(context);
@@ -461,110 +535,155 @@ Future<void> showLabelProperties(
 // ---- 现场取证照片（奥维标签附件式） ----
 
 /// 属性对话框内的照片缩略图条：拍照/相册挂接，点击看大图，长按删除。
-Widget _photoStripSection(BuildContext context, AppState st, MapLabel label,
-    List<String> photos, void Function(void Function()) setSt) {
+Widget _photoStripSection(
+  BuildContext context,
+  AppState st,
+  MapLabel label,
+  List<String> photos,
+  void Function(void Function()) setSt,
+) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const SizedBox(height: 8),
-      Text('现场取证照片${photos.isEmpty ? '' : ' ${photos.length} 张'}（点缩略图看大图，长按删除）',
-          style: const TextStyle(color: kTextSub, fontSize: 11)),
+      Text(
+        '现场取证照片${photos.isEmpty ? '' : ' ${photos.length} 张'}（点缩略图看大图，长按删除）',
+        style: const TextStyle(color: kTextSub, fontSize: 11),
+      ),
       const SizedBox(height: 6),
-      Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        Expanded(
-          child: photos.isEmpty
-              ? const Text('尚无照片，可拍照或从相册挂接',
-                  style: TextStyle(color: TokC.textHintConst, fontSize: 12))
-              : SizedBox(
-                  height: 68,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: photos.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 6),
-                    itemBuilder: (c, i) => GestureDetector(
-                      onTap: () => _showPhotoViewer(context, photos[i]),
-                      onLongPress: () async {
-                        final del = await showDialog<bool>(
-                          context: context,
-                          builder: (dctx) => AlertDialog(
-                            backgroundColor: kPanelBg,
-                            title: const Text('删除照片？',
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: photos.isEmpty
+                ? const Text(
+                    '尚无照片，可拍照或从相册挂接',
+                    style: TextStyle(color: TokC.textHintConst, fontSize: 12),
+                  )
+                : SizedBox(
+                    height: 68,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: photos.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 6),
+                      itemBuilder: (c, i) => GestureDetector(
+                        onTap: () => _showPhotoViewer(context, photos[i]),
+                        onLongPress: () async {
+                          final del = await showDialog<bool>(
+                            context: context,
+                            builder: (dctx) => AlertDialog(
+                              backgroundColor: kPanelBg,
+                              title: const Text(
+                                '删除照片？',
                                 style: TextStyle(
-                                    color: kTextMain, fontSize: 15)),
-                            content: Text('将同时删除照片文件，不可恢复。',
+                                  color: kTextMain,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              content: Text(
+                                '将同时删除照片文件，不可恢复。',
                                 style: const TextStyle(
-                                    color: kTextSub, fontSize: 12)),
-                            actions: [
-                              TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(dctx, false),
-                                  child: const Text('取消')),
-                              TextButton(
+                                  color: kTextSub,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(dctx, false),
+                                  child: const Text('取消'),
+                                ),
+                                TextButton(
                                   onPressed: () => Navigator.pop(dctx, true),
-                                  child: const Text('删除',
-                                      style: TextStyle(
-                                          color: TokC.danger))),
-                            ],
-                          ),
-                        );
-                        if (del != true) return;
-                        await PhotoService.deleteFile(photos[i]);
-                        photos.removeAt(i);
-                        label.photoPaths = List<String>.from(photos);
-                        st.updateLabel(label);
-                        setSt(() {});
-                      },
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: FutureBuilder<String>(
-                          future: PhotoService.absPath(photos[i]),
-                          builder: (c, snap) => snap.hasData
-                              ? Image.file(File(snap.data!),
-                                  width: 64,
-                                  height: 64,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
+                                  child: const Text(
+                                    '删除',
+                                    style: TextStyle(color: TokC.danger),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (del != true) return;
+                          await PhotoService.deleteFile(photos[i]);
+                          photos.removeAt(i);
+                          label.photoPaths = List<String>.from(photos);
+                          st.updateLabel(label);
+                          setSt(() {});
+                        },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: FutureBuilder<String>(
+                            future: PhotoService.absPath(photos[i]),
+                            builder: (c, snap) => snap.hasData
+                                ? Image.file(
+                                    File(snap.data!),
+                                    width: 64,
+                                    height: 64,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
                                       width: 64,
                                       height: 64,
                                       color: TokC.field,
-                                      child: const Icon(Icons.broken_image,
-                                          color: kTextSub, size: 20)))
-                              : Container(
-                                  width: 64,
-                                  height: 64,
-                                  color: TokC.field),
+                                      child: const Icon(
+                                        Icons.broken_image,
+                                        color: kTextSub,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  )
+                                : Container(
+                                    width: 64,
+                                    height: 64,
+                                    color: TokC.field,
+                                  ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-        ),
-        IconButton(
-          // 桌面无相机：入口降级为「选择图片文件」。
-          tooltip: PlatformCaps.hasCamera ? '拍照取证' : '选择图片文件',
-          icon: Icon(PlatformCaps.hasCamera ? Icons.photo_camera : Icons.folder_open,
-              color: kAccent, size: 22),
-          onPressed: () => _pickAndAttachPhoto(
-              context, st, label, photos, ImageSource.camera, setSt),
-        ),
-        IconButton(
-          tooltip: '从相册选择',
-          icon: const Icon(Icons.photo_library, color: kAccent, size: 22),
-          onPressed: () => _pickAndAttachPhoto(
-              context, st, label, photos, ImageSource.gallery, setSt),
-        ),
-      ]),
+          ),
+          IconButton(
+            // 桌面无相机：入口降级为「选择图片文件」。
+            tooltip: PlatformCaps.hasCamera ? '拍照取证' : '选择图片文件',
+            icon: Icon(
+              PlatformCaps.hasCamera ? Icons.photo_camera : Icons.folder_open,
+              color: kAccent,
+              size: 22,
+            ),
+            onPressed: () => _pickAndAttachPhoto(
+              context,
+              st,
+              label,
+              photos,
+              ImageSource.camera,
+              setSt,
+            ),
+          ),
+          IconButton(
+            tooltip: '从相册选择',
+            icon: const Icon(Icons.photo_library, color: kAccent, size: 22),
+            onPressed: () => _pickAndAttachPhoto(
+              context,
+              st,
+              label,
+              photos,
+              ImageSource.gallery,
+              setSt,
+            ),
+          ),
+        ],
+      ),
     ],
   );
 }
 
 Future<void> _pickAndAttachPhoto(
-    BuildContext context,
-    AppState st,
-    MapLabel label,
-    List<String> photos,
-    ImageSource src,
-    void Function(void Function()) setSt) async {
+  BuildContext context,
+  AppState st,
+  MapLabel label,
+  List<String> photos,
+  ImageSource src,
+  void Function(void Function()) setSt,
+) async {
   try {
     String? path;
     if (src == ImageSource.camera && !PlatformCaps.hasCamera) {
@@ -580,8 +699,11 @@ Future<void> _pickAndAttachPhoto(
         path = tmp.path;
       }
     } else {
-      final f = await ImagePicker()
-          .pickImage(source: src, maxWidth: 2560, imageQuality: 85);
+      final f = await ImagePicker().pickImage(
+        source: src,
+        maxWidth: 2560,
+        imageQuality: 85,
+      );
       path = f?.path;
     }
     if (path == null || path.isEmpty) return;
@@ -606,36 +728,41 @@ Future<void> _showPhotoViewer(BuildContext context, String relName) async {
   await showDarkDialog(
     context,
     title: '取证照片',
+    width: 520,
     content: SizedBox(
       height: 340,
       child: InteractiveViewer(
         maxScale: 4,
         child: Center(
-          child: Image.file(File(abs),
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Text('照片文件不存在',
-                  style: TextStyle(color: kTextSub))),
+          child: Image.file(
+            File(abs),
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) =>
+                const Text('照片文件不存在', style: TextStyle(color: kTextSub)),
+          ),
         ),
       ),
     ),
-    actions: [
-      darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub),
-    ],
+    actions: [darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub)],
   );
 }
 
 /// 文字标注落点后立即输入内容。
 Future<void> showTextPrompt(
-    BuildContext context, AppState st, MapLabel label) async {
+  BuildContext context,
+  AppState st,
+  MapLabel label,
+) async {
   final ctl = TextEditingController();
   await showDarkDialog(
     context,
     title: '文字标注',
     content: TextField(
-        controller: ctl,
-        autofocus: true,
-        style: const TextStyle(color: kTextMain, fontSize: 14),
-        decoration: dec('输入标注文字（如：这里转角、预留2孔）')),
+      controller: ctl,
+      autofocus: true,
+      style: const TextStyle(color: kTextMain, fontSize: 14),
+      decoration: dec('输入标注文字（如：这里转角、预留2孔）'),
+    ),
     actions: [
       darkTextBtn('删除', () {
         st.removeLabel(label);
@@ -656,7 +783,11 @@ Future<void> showTextPrompt(
 
 /// 独立标记落点后输入名称/备注（三端共用：桌面/安卓/iOS 都走 map_canvas 落点）。
 Future<void> showMarkPrompt(
-    BuildContext context, AppState st, MapLabel label, String cid) async {
+  BuildContext context,
+  AppState st,
+  MapLabel label,
+  String cid,
+) async {
   final nameCtl = TextEditingController(text: label.name);
   final noteCtl = TextEditingController(text: label.note);
   await showDarkDialog(
@@ -666,15 +797,17 @@ Future<void> showMarkPrompt(
       mainAxisSize: MainAxisSize.min,
       children: [
         TextField(
-            controller: nameCtl,
-            autofocus: true,
-            style: const TextStyle(color: kTextMain, fontSize: 14),
-            decoration: dec('名称（如：光交箱位置、预留管孔）')),
+          controller: nameCtl,
+          autofocus: true,
+          style: const TextStyle(color: kTextMain, fontSize: 14),
+          decoration: dec('名称（如：光交箱位置、预留管孔）'),
+        ),
         const SizedBox(height: 8),
         TextField(
-            controller: noteCtl,
-            style: const TextStyle(color: kTextMain, fontSize: 14),
-            decoration: dec('备注（可选）')),
+          controller: noteCtl,
+          style: const TextStyle(color: kTextMain, fontSize: 14),
+          decoration: dec('备注（可选）'),
+        ),
       ],
     ),
     actions: [
@@ -716,10 +849,11 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
         mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
-              controller: nameCtl,
-              autofocus: st.projectName.isEmpty,
-              style: const TextStyle(color: kTextMain, fontSize: 14),
-              decoration: dec('项目名称')),
+            controller: nameCtl,
+            autofocus: st.projectName.isEmpty,
+            style: const TextStyle(color: kTextMain, fontSize: 14),
+            decoration: dec('项目名称'),
+          ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
             value: folders.any((f) => f.id == folder) ? folder : '',
@@ -734,8 +868,10 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
             onChanged: (v) => setSt(() => folder = v ?? ''),
           ),
           const SizedBox(height: 10),
-          Text('共 ${st.labels.length} 个点 · ${st.editModeName == 'completion' ? '竣工模式' : '设计模式'}',
-              style: const TextStyle(color: kTextSub, fontSize: 12)),
+          Text(
+            '共 ${st.labels.length} 个点 · ${st.editModeName == 'completion' ? '竣工模式' : '设计模式'}',
+            style: const TextStyle(color: kTextSub, fontSize: 12),
+          ),
         ],
       ),
     ),
@@ -756,19 +892,21 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
           }
         }
 
-        await showDarkDialog(context,
-            title: '新建文件夹',
-            content: TextField(
-                controller: fCtl,
-                autofocus: true,
-                onSubmitted: (_) => submit(),
-                style: const TextStyle(color: kTextMain),
-                decoration: dec('文件夹名称')),
-            actions: [
-              darkTextBtn('取消', () => Navigator.pop(context),
-                  color: kTextSub),
-              darkTextBtn('创建', () => submit(), color: kGreen),
-            ]);
+        await showDarkDialog(
+          context,
+          title: '新建文件夹',
+          content: TextField(
+            controller: fCtl,
+            autofocus: true,
+            onSubmitted: (_) => submit(),
+            style: const TextStyle(color: kTextMain),
+            decoration: dec('文件夹名称'),
+          ),
+          actions: [
+            darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+            darkTextBtn('创建', () => submit(), color: kGreen),
+          ],
+        );
       }, color: kGreen),
       darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
       darkTextBtn('保存', () async {
@@ -781,10 +919,11 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
           await st.finishCollection();
           if (!context.mounted) return;
           toast(
-              context,
-              st.persistErrors.length > errsBefore
-                  ? '已保存到收藏，但保存可能失败，详见日志'
-                  : '已保存到收藏');
+            context,
+            st.persistErrors.length > errsBefore
+                ? '已保存到收藏，但保存可能失败，详见日志'
+                : '已保存到收藏',
+          );
         } catch (e) {
           if (context.mounted) toast(context, '保存失败：$e');
         }
@@ -795,13 +934,16 @@ Future<void> showFinishDialog(BuildContext context, AppState st) async {
 
 // ================= 导出 =================
 
-Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
-    String name,
-    {String segPrefix = '',
-    List<FiberLink> fiberLinks = const [],
-    // P1-1：数据源来源条——调用方如实传入（当前草稿/收藏工程/拓扑连线集合），
-    // 空=未知来源，不渲染来源条。
-    String source = ''}) async {
+Future<void> showExportDialog(
+  BuildContext context,
+  List<MapLabel> labels,
+  String name, {
+  String segPrefix = '',
+  List<FiberLink> fiberLinks = const [],
+  // P1-1：数据源来源条——调用方如实传入（当前草稿/收藏工程/拓扑连线集合），
+  // 空=未知来源，不渲染来源条。
+  String source = '',
+}) async {
   if (labels.isEmpty) {
     toast(context, '没有可导出的数据');
     return;
@@ -810,6 +952,7 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
   await showDarkDialog(
     context,
     title: '导出成果',
+    width: 620,
     content: StatefulBuilder(
       builder: (ctx, setSt) => SingleChildScrollView(
         child: Column(
@@ -820,8 +963,14 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
               _exportSourceBar(name, labels.length, source),
             _exportTile('📐 DXF 路由图（CAD 可直接打开）', () async {
               Navigator.pop(context);
-              await showDxfOptions(context, labels, name,
-                  segPrefix: segPrefix, fiberLinks: fiberLinks, source: source);
+              await showDxfOptions(
+                context,
+                labels,
+                name,
+                segPrefix: segPrefix,
+                fiberLinks: fiberLinks,
+                source: source,
+              );
             }),
             _exportTile('🌍 KML（谷歌地球 / 奥维）', () async {
               Navigator.pop(context);
@@ -844,11 +993,15 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
             _exportTile('🔌 芯线占用表 CSV（含校验）', () async {
               Navigator.pop(context);
               try {
-                final (f, warns) =
-                    await CsvExporter.exportCoreTable(name, labels);
+                final (f, warns) = await CsvExporter.exportCoreTable(
+                  name,
+                  labels,
+                );
                 if (context.mounted) {
-                  toast(context,
-                      warns > 0 ? '导出完成，发现 $warns 条告警' : '导出完成，校验全部通过');
+                  toast(
+                    context,
+                    warns > 0 ? '导出完成，发现 $warns 条告警' : '导出完成，校验全部通过',
+                  );
                   shareFile(context, f);
                 }
               } catch (e) {
@@ -893,36 +1046,41 @@ Future<void> showExportDialog(BuildContext context, List<MapLabel> labels,
 /// P1-1：导出对话框顶部来源条——"导出对象：XXX（N 个点）· 来源：…"
 /// `source` 由调用方按实际数据源如实传入（当前草稿/收藏工程/拓扑连线集合），不硬编码。
 Widget _exportSourceBar(String name, int count, String source) => Container(
-      width: double.maxFinite,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: TokC.field,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        '导出对象：$name（$count 个点）· 来源：$source',
-        style: const TextStyle(color: kTextSub, fontSize: 12),
-      ),
-    );
+  width: double.maxFinite,
+  margin: const EdgeInsets.only(bottom: 8),
+  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+  decoration: BoxDecoration(
+    color: TokC.field,
+    borderRadius: BorderRadius.circular(8),
+  ),
+  child: Text(
+    '导出对象：$name（$count 个点）· 来源：$source',
+    style: const TextStyle(color: kTextSub, fontSize: 12),
+  ),
+);
 
 Widget _exportTile(String title, VoidCallback onTap) => InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
-        margin: const EdgeInsets.only(bottom: 4),
-        decoration: BoxDecoration(
-          color: TokC.field,
-          borderRadius: BorderRadius.circular(8),
+  onTap: onTap,
+  child: Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
+    margin: const EdgeInsets.only(bottom: 4),
+    decoration: BoxDecoration(
+      color: TokC.field,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(color: kTextMain, fontSize: 13),
+          ),
         ),
-        child: Row(children: [
-          Expanded(
-              child: Text(title,
-                  style: const TextStyle(color: kTextMain, fontSize: 13))),
-          const Icon(Icons.chevron_right, color: kTextSub, size: 18),
-        ]),
-      ),
-    );
+        const Icon(Icons.chevron_right, color: kTextSub, size: 18),
+      ],
+    ),
+  ),
+);
 
 /// P1-4：配线图数据源标注——与 lib/export/dxf.dart 的生效口径一致。
 ///
@@ -931,7 +1089,9 @@ Widget _exportTile(String title, VoidCallback onTap) => InkWell(
 /// - 两者同时存在：导出以人工连线为准，ODN 拓扑被忽略（dxf.dart：fiberLinks
 ///   非空时不再从 ODN 合成）。此处只做 UI 展示，优先级逻辑不动。
 ({bool manual, bool odn}) _wiringSources(
-    List<MapLabel> labels, List<FiberLink> fiberLinks) {
+  List<MapLabel> labels,
+  List<FiberLink> fiberLinks,
+) {
   final manual = fiberLinks.isNotEmpty;
   var odn = false;
   for (final l in labels) {
@@ -943,12 +1103,15 @@ Widget _exportTile(String title, VoidCallback onTap) => InkWell(
   return (manual: manual, odn: odn);
 }
 
-Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
-    String name,
-    {String segPrefix = '',
-    List<FiberLink> fiberLinks = const [],
-    // P1-1：与 showExportDialog 同口径的来源条（DXF 选项是第二层对话框，同样要写清来源）。
-    String source = ''}) async {
+Future<void> showDxfOptions(
+  BuildContext context,
+  List<MapLabel> labels,
+  String name, {
+  String segPrefix = '',
+  List<FiberLink> fiberLinks = const [],
+  // P1-1：与 showExportDialog 同口径的来源条（DXF 选项是第二层对话框，同样要写清来源）。
+  String source = '',
+}) async {
   // P1-4：配线图数据源判定（人工 / ODN）。
   final wiringSrc = _wiringSources(labels, fiberLinks);
   // 选项记忆：下次导出默认沿用上次勾选
@@ -995,8 +1158,9 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   // 默认 **沿线 50m**（线路设计口径：用户明确"轨迹附近 50 米就好"）。
   // 原默认 880m → 100m → 现在 50m；用户手选过的值仍按记忆走。
   var rangeM = prefs.getDouble('dxfRangeM') ?? 50;
-  final corridorCtl =
-      TextEditingController(text: prefs.getString('dxfCorridor') ?? '0');
+  final corridorCtl = TextEditingController(
+    text: prefs.getString('dxfCorridor') ?? '0',
+  );
 
   // —— 搜索/兜底 key（导出与"底图检测"共用同一份，口径一致）——
   // 天地图 key：用户自定义优先，未配置则用内置兜底（单一来源）
@@ -1021,8 +1185,10 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   bool probeStarted = false;
   bool dialogOpen = true;
 
-  Future<void> runProbe(
-      {required bool refresh, required StateSetter refreshUi}) async {
+  Future<void> runProbe({
+    required bool refresh,
+    required StateSetter refreshUi,
+  }) async {
     if (probing) return;
     probing = true;
     probeError = '';
@@ -1055,62 +1221,89 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
     const small = TextStyle(color: kTextSub, fontSize: 11);
     final children = <Widget>[];
     if (probing) {
-      children.add(const Row(children: [
-        SizedBox(
-            width: 12,
-            height: 12,
-            child: CircularProgressIndicator(strokeWidth: 2)),
-        SizedBox(width: 8),
-        Text('正在抓取底图…', style: small),
-      ]));
+      children.add(
+        const Row(
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 8),
+            Text('正在抓取底图…', style: small),
+          ],
+        ),
+      );
     } else if (probeError.isNotEmpty) {
-      children.add(Text('底图检测失败：$probeError',
-          style: const TextStyle(color: Color(0xFFFF8A80), fontSize: 11)));
+      children.add(
+        Text(
+          '底图检测失败：$probeError',
+          style: const TextStyle(color: Color(0xFFFF8A80), fontSize: 11),
+        ),
+      );
     } else if (probeReport != null) {
       final rep = probeReport!;
       final bad = !rep.hasVector;
-      children.add(Text(
-        '底图：${rep.summaryLine}',
-        style: TextStyle(
-            color: bad ? const Color(0xFFFF8A80) : kGreen, fontSize: 11.5),
-      ));
+      children.add(
+        Text(
+          '底图：${rep.summaryLine}',
+          style: TextStyle(
+            color: bad ? const Color(0xFFFF8A80) : kGreen,
+            fontSize: 11.5,
+          ),
+        ),
+      );
       for (final s in rep.statusLines()) {
-        children.add(Padding(
-            padding: const EdgeInsets.only(top: 2), child: Text('· $s', style: small)));
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text('· $s', style: small),
+          ),
+        );
       }
       if (bad) {
-        children.add(Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: Text(
-            rep.anyEmptyAnswer
-                ? '数据源返回空（疑似底图镜像故障，不是您的范围问题）：'
-                    '请点「重试抓取（忽略缓存）」换镜像再取一次。'
-                : '道路与建筑均为空：本次导出不会有矢量底图。'
-                    '如需地形/建筑请放大范围或改用「导入 GeoJSON 底图」。',
-            style: const TextStyle(color: Color(0xFFFF8A80), fontSize: 11),
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              rep.anyEmptyAnswer
+                  ? '数据源返回空（疑似底图镜像故障，不是您的范围问题）：'
+                        '请点「重试抓取（忽略缓存）」换镜像再取一次。'
+                  : '道路与建筑均为空：本次导出不会有矢量底图。'
+                        '如需地形/建筑请放大范围或改用「导入 GeoJSON 底图」。',
+              style: const TextStyle(color: Color(0xFFFF8A80), fontSize: 11),
+            ),
           ),
-        ));
+        );
       }
     } else {
-      children.add(const Text('底图：未检测（点「检测底图」先看抓取结果再导出）',
-          style: small));
+      children.add(const Text('底图：未检测（点「检测底图」先看抓取结果再导出）', style: small));
     }
     children.add(const SizedBox(height: 2));
-    children.add(Row(children: [
-      TextButton(
-        onPressed: probing
-            ? null
-            : () => runProbe(refresh: false, refreshUi: refreshUi),
-        child: const Text('检测底图',
-            style: TextStyle(color: kAccent, fontSize: 12.5)),
+    children.add(
+      Row(
+        children: [
+          TextButton(
+            onPressed: probing
+                ? null
+                : () => runProbe(refresh: false, refreshUi: refreshUi),
+            child: const Text(
+              '检测底图',
+              style: TextStyle(color: kAccent, fontSize: 12.5),
+            ),
+          ),
+          TextButton(
+            onPressed: probing
+                ? null
+                : () => runProbe(refresh: true, refreshUi: refreshUi),
+            child: const Text(
+              '重试抓取（忽略缓存）',
+              style: TextStyle(color: kAccent, fontSize: 12.5),
+            ),
+          ),
+        ],
       ),
-      TextButton(
-        onPressed:
-            probing ? null : () => runProbe(refresh: true, refreshUi: refreshUi),
-        child: const Text('重试抓取（忽略缓存）',
-            style: TextStyle(color: kAccent, fontSize: 12.5)),
-      ),
-    ]));
+    );
     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
@@ -1127,8 +1320,10 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
       CheckboxListTile(
         dense: true,
         contentPadding: const EdgeInsets.only(left: 16),
-        title: Text(title,
-            style: const TextStyle(color: kTextMain, fontSize: 12.5)),
+        title: Text(
+          title,
+          style: const TextStyle(color: kTextMain, fontSize: 12.5),
+        ),
         value: value,
         activeColor: kAccent,
         onChanged: (v) => onChanged(v ?? false),
@@ -1137,416 +1332,523 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
   await showDarkDialog(
     context,
     title: 'DXF 导出选项',
+    width: 620,
     content: StatefulBuilder(
       builder: (ctx, setSt) {
         // 打开即自动检测一次（缓存命中几乎瞬时，未命中也不阻塞导出操作）。
         if (surroundings && !probeStarted) {
           probeStarted = true;
           Future<void>.microtask(
-              () => runProbe(refresh: false, refreshUi: setSt));
+            () => runProbe(refresh: false, refreshUi: setSt),
+          );
         }
         return SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-          // P1-1：DXF 选项顶部同样写清"导出谁"。
-          if (source.isNotEmpty) _exportSourceBar(name, labels.length, source),
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('输出符号块（杆/井/箱按图例）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            value: symbols,
-            activeColor: kAccent,
-            onChanged: (v) => setSt(() => symbols = v ?? true),
-          ),
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('杆路里程桩号（K0+000，竣工核对快）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            value: stakes,
-            activeColor: kAccent,
-            onChanged: (v) => setSt(() => stakes = v ?? true),
-          ),
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('图例栏自动生成（图框内左下角）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            value: legend,
-            activeColor: kAccent,
-            onChanged: (v) => setSt(() => legend = v ?? true),
-          ),
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('竣工图红色描边（杆路/管廊红色）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            value: redline,
-            activeColor: kAccent,
-            onChanged: (v) => setSt(() => redline = v ?? false),
-          ),
-          // P1-4：配线图数据来源标注（人工连线 / ODN 拓扑 / 无）；两者冲突时警告。
-          Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: Text(
-              '配线图数据来源：'
-              '${wiringSrc.manual && wiringSrc.odn ? '人工连线 + ODN 拓扑' : wiringSrc.manual ? '人工连线' : wiringSrc.odn ? 'ODN 拓扑' : '无（不绘制配线图）'}',
-              style: const TextStyle(color: kTextSub, fontSize: 12),
-            ),
-          ),
-          if (wiringSrc.manual && wiringSrc.odn)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 4),
-              child: Text('⚠ 人工连线与 ODN 拓扑同时存在，导出以人工连线为准，ODN 拓扑连线将被忽略。',
-                  style: TextStyle(color: TokC.warn, fontSize: 11.5)),
-            ),
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('管廊双线（输入走廊宽度米，0=单中心线）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            value: (double.tryParse(corridorCtl.text.trim()) ?? 0) > 0,
-            activeColor: kAccent,
-            onChanged: (v) => setSt(
-                () => corridorCtl.text = v == true ? '2' : '0'),
-          ),
-          TextField(
-              controller: corridorCtl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(color: kTextMain, fontSize: 14),
-              decoration: dec('走廊宽度（米），如 2')),
-          const Divider(color: TokC.divider),
-          // —————— DXF 版本 ——————
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('R2000 专业格式（图层线宽/真彩/建筑填充 HATCH；默认 R12 最广兼容）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            value: version == DxfVersion.r2000,
-            activeColor: kAccent,
-            onChanged: (v) => setSt(() =>
-                version = (v ?? false) ? DxfVersion.r2000 : DxfVersion.r12),
-          ),
-          if (version == DxfVersion.r2000)
-            const Padding(
-              padding: EdgeInsets.only(left: 16, bottom: 2),
-              child: Text('提示：部分老 CAD 打开 R2000 可能提示"修复"；不确定就用 R12。',
-                  style: TextStyle(color: kTextSub, fontSize: 11)),
-            ),
-          const Divider(color: TokC.divider),
-          // —————— 底图数据源与图层 ——————
-          CheckboxListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('自动添加周边底图矢量（建筑轮廓/道路/地名，联网·首次后离线复用）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
-            value: surroundings,
-            activeColor: kAccent,
-            onChanged: (v) => setSt(() => surroundings = v ?? false),
-          ),
-          if (surroundings) ...[
-            subOption('道路（分级双线描边 + 居中路名）', layerRoads,
-                (v) => setSt(() => layerRoads = v)),
-            subOption('建筑轮廓', layerBldOutline,
-                (v) => setSt(() => layerBldOutline = v)),
-            subOption('建筑填充（默认关，R2000=HATCH / R12=SOLID）', layerBldFill,
-                (v) => setSt(() => layerBldFill = v)),
-            subOption('小路也标路名（service/other，默认关）', minorRoadNames,
-                (v) => setSt(() => minorRoadNames = v)),
-            subOption('地名 / 小区名', layerPlaces,
-                (v) => setSt(() => layerPlaces = v)),
-            subOption('天地图地名兜底（OSM 缺名时补）', tdtFallback,
-                (v) => setSt(() => tdtFallback = v)),
-            subOption('在线建筑抓取（关则只用离线包，避免重复）', useOnlineBuildings,
-                (v) => setSt(() => useOnlineBuildings = v)),
-            subOption('建筑兜底包（离线 70 万栋，关则不用）', useBuildingFallback,
-                (v) => setSt(() => useBuildingFallback = v)),
-            subOption('刷新底图（忽略缓存，重新联网抓取）', refreshBasemap,
-                (v) => setSt(() => refreshBasemap = v)),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 16, top: 6, bottom: 2),
-                child: Text('底图范围（线路外扩）',
-                    style: TextStyle(color: kTextSub, fontSize: 11)),
+              // P1-1：DXF 选项顶部同样写清"导出谁"。
+              if (source.isNotEmpty)
+                _exportSourceBar(name, labels.length, source),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  '输出符号块（杆/井/箱按图例）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                value: symbols,
+                activeColor: kAccent,
+                onChanged: (v) => setSt(() => symbols = v ?? true),
               ),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 16, bottom: 4),
-                child: Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final r in rangeOptions)
-                      ChoiceChip(
-                        label: Text('${r.toInt()}m',
-                            style: const TextStyle(fontSize: 12)),
-                        selected: rangeM == r,
-                        onSelected: (_) => setSt(() => rangeM = r),
-                      ),
-                    ChoiceChip(
-                      label: Text(
-                          rangeOptions.contains(rangeM)
-                              ? '自定义…'
-                              : '自定义(${rangeM.toInt()}m)',
-                          style: TextStyle(
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  '杆路里程桩号（K0+000，竣工核对快）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                value: stakes,
+                activeColor: kAccent,
+                onChanged: (v) => setSt(() => stakes = v ?? true),
+              ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  '图例栏自动生成（图框内左下角）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                value: legend,
+                activeColor: kAccent,
+                onChanged: (v) => setSt(() => legend = v ?? true),
+              ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  '竣工图红色描边（杆路/管廊红色）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                value: redline,
+                activeColor: kAccent,
+                onChanged: (v) => setSt(() => redline = v ?? false),
+              ),
+              // P1-4：配线图数据来源标注（人工连线 / ODN 拓扑 / 无）；两者冲突时警告。
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  '配线图数据来源：'
+                  '${wiringSrc.manual && wiringSrc.odn
+                      ? '人工连线 + ODN 拓扑'
+                      : wiringSrc.manual
+                      ? '人工连线'
+                      : wiringSrc.odn
+                      ? 'ODN 拓扑'
+                      : '无（不绘制配线图）'}',
+                  style: const TextStyle(color: kTextSub, fontSize: 12),
+                ),
+              ),
+              if (wiringSrc.manual && wiringSrc.odn)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '⚠ 人工连线与 ODN 拓扑同时存在，导出以人工连线为准，ODN 拓扑连线将被忽略。',
+                    style: TextStyle(color: TokC.warn, fontSize: 11.5),
+                  ),
+                ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  '管廊双线（输入走廊宽度米，0=单中心线）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                value: (double.tryParse(corridorCtl.text.trim()) ?? 0) > 0,
+                activeColor: kAccent,
+                onChanged: (v) =>
+                    setSt(() => corridorCtl.text = v == true ? '2' : '0'),
+              ),
+              TextField(
+                controller: corridorCtl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: const TextStyle(color: kTextMain, fontSize: 14),
+                decoration: dec('走廊宽度（米），如 2'),
+              ),
+              const Divider(color: TokC.divider),
+              // —————— DXF 版本 ——————
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'R2000 专业格式（图层线宽/真彩/建筑填充 HATCH；默认 R12 最广兼容）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                value: version == DxfVersion.r2000,
+                activeColor: kAccent,
+                onChanged: (v) => setSt(
+                  () => version = (v ?? false)
+                      ? DxfVersion.r2000
+                      : DxfVersion.r12,
+                ),
+              ),
+              if (version == DxfVersion.r2000)
+                const Padding(
+                  padding: EdgeInsets.only(left: 16, bottom: 2),
+                  child: Text(
+                    '提示：部分老 CAD 打开 R2000 可能提示"修复"；不确定就用 R12。',
+                    style: TextStyle(color: kTextSub, fontSize: 11),
+                  ),
+                ),
+              const Divider(color: TokC.divider),
+              // —————— 底图数据源与图层 ——————
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  '自动添加周边底图矢量（建筑轮廓/道路/地名，联网·首次后离线复用）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                value: surroundings,
+                activeColor: kAccent,
+                onChanged: (v) => setSt(() => surroundings = v ?? false),
+              ),
+              if (surroundings) ...[
+                subOption(
+                  '道路（分级双线描边 + 居中路名）',
+                  layerRoads,
+                  (v) => setSt(() => layerRoads = v),
+                ),
+                subOption(
+                  '建筑轮廓',
+                  layerBldOutline,
+                  (v) => setSt(() => layerBldOutline = v),
+                ),
+                subOption(
+                  '建筑填充（默认关，R2000=HATCH / R12=SOLID）',
+                  layerBldFill,
+                  (v) => setSt(() => layerBldFill = v),
+                ),
+                subOption(
+                  '小路也标路名（service/other，默认关）',
+                  minorRoadNames,
+                  (v) => setSt(() => minorRoadNames = v),
+                ),
+                subOption(
+                  '地名 / 小区名',
+                  layerPlaces,
+                  (v) => setSt(() => layerPlaces = v),
+                ),
+                subOption(
+                  '天地图地名兜底（OSM 缺名时补）',
+                  tdtFallback,
+                  (v) => setSt(() => tdtFallback = v),
+                ),
+                subOption(
+                  '在线建筑抓取（关则只用离线包，避免重复）',
+                  useOnlineBuildings,
+                  (v) => setSt(() => useOnlineBuildings = v),
+                ),
+                subOption(
+                  '建筑兜底包（离线 70 万栋，关则不用）',
+                  useBuildingFallback,
+                  (v) => setSt(() => useBuildingFallback = v),
+                ),
+                subOption(
+                  '刷新底图（忽略缓存，重新联网抓取）',
+                  refreshBasemap,
+                  (v) => setSt(() => refreshBasemap = v),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, top: 6, bottom: 2),
+                    child: Text(
+                      '底图范围（线路外扩）',
+                      style: TextStyle(color: kTextSub, fontSize: 11),
+                    ),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, bottom: 4),
+                    child: Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final r in rangeOptions)
+                          ChoiceChip(
+                            label: Text(
+                              '${r.toInt()}m',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            selected: rangeM == r,
+                            onSelected: (_) => setSt(() => rangeM = r),
+                          ),
+                        ChoiceChip(
+                          label: Text(
+                            rangeOptions.contains(rangeM)
+                                ? '自定义…'
+                                : '自定义(${rangeM.toInt()}m)',
+                            style: TextStyle(
                               fontSize: 12,
                               color: rangeOptions.contains(rangeM)
                                   ? null
-                                  : kAccent)),
-                      selected: !rangeOptions.contains(rangeM),
-                      onSelected: (_) async {
-                        final v = await _promptCustomRange(context, rangeM);
-                        if (v == null) return;
-                        // 确认即持久化：下次打开直接恢复自定义值
-                        await prefs.setDouble('dxfRangeM', v);
-                        setSt(() => rangeM = v);
-                      },
+                                  : kAccent,
+                            ),
+                          ),
+                          selected: !rangeOptions.contains(rangeM),
+                          onSelected: (_) async {
+                            final v = await _promptCustomRange(context, rangeM);
+                            if (v == null) return;
+                            // 确认即持久化：下次打开直接恢复自定义值
+                            await prefs.setDouble('dxfRangeM', v);
+                            setSt(() => rangeM = v);
+                          },
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-            // 底图数据源（Overpass 端点）提示：让用户导出前一眼看到走的哪条路
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
-                child: Text(
-                    '底图数据源（Overpass）：'
-                    '${OverpassEndpoints.resolve(overpassEndpoints).length} 个端点'
-                    '${overpassEndpoints.trim().isEmpty ? '（全内置·境外，可能较慢；可在设置里填自建反代）' : '（自定义优先）'}',
-                    style: const TextStyle(color: kTextSub, fontSize: 10.5)),
-              ),
-            ),
-            // R1-3：导出前把底图抓取结果摊开（含失败原因 + 重试入口）
-            if (surroundings) probeCard(setSt),
-            const Divider(color: TokC.divider),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
-                child: Text('本地开源矢量底图（离线，无网也能出图）',
-                    style: TextStyle(color: kTextSub, fontSize: 11)),
-              ),
-            ),
-            if (hasLocal)
-              subOption('优先使用已导入的本地底图', useLocal,
-                  (v) => setSt(() => useLocal = v)),
-            if (hasLocal)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 2),
-                  child: Text(
-                      '已导入：道路 ${localBm?.roads.length ?? 0} · 建筑 ${localBm?.buildings.length ?? 0} · 地名 ${localBm?.places.length ?? 0}'
-                      '${(localMeta['sourceName'] as String?)?.isNotEmpty == true ? '（${localMeta['sourceName']}）' : ''}',
-                      style: const TextStyle(color: kGreen, fontSize: 11)),
-                ),
-              )
-            else
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 2),
-                  child: Text('未导入：可导入自行下载的开源数据（GeoJSON：Polygon=建筑 / LineString=道路 / Point=地名）',
-                      style: TextStyle(color: kTextSub, fontSize: 11)),
-                ),
-              ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Row(children: [
-                  TextButton(
-                    onPressed: () async {
-                      final bm = await _showImportGeoJsonDialog(context);
-                      if (bm == null) return;
-                      localBm = bm;
-                      hasLocal = true;
-                      useLocal = true;
-                      setSt(() {});
-                    },
-                    child: const Text('导入 GeoJSON 底图…',
-                        style: TextStyle(color: kAccent, fontSize: 12.5)),
                   ),
-                  if (hasLocal)
-                    TextButton(
-                      onPressed: () async {
-                        final s = await LocalBasemapStore.open();
-                        await s.clear();
-                        localBm = null;
-                        hasLocal = false;
-                        useLocal = false;
-                        setSt(() {});
-                      },
-                      child: const Text('清除本地底图',
-                          style: TextStyle(color: kTextSub, fontSize: 12.5)),
+                ),
+                // 底图数据源（Overpass 端点）提示：让用户导出前一眼看到走的哪条路
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
+                    child: Text(
+                      '底图数据源（Overpass）：'
+                      '${OverpassEndpoints.resolve(overpassEndpoints).length} 个端点'
+                      '${overpassEndpoints.trim().isEmpty ? '（全内置·境外，可能较慢；可在设置里填自建反代）' : '（自定义优先）'}',
+                      style: const TextStyle(color: kTextSub, fontSize: 10.5),
                     ),
-                ]),
-              ),
-            ),
-            // —— 建筑兜底包（中国区 OSM 建筑稀疏时自动补）——
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 16, bottom: 2, top: 4),
-                child: Text(
-                    () {
-                      final m = fallbackMeta;
-                      if (m == null) {
-                        return '建筑兜底包：未安装（OSM 在中国区建筑稀疏，建议安装）';
-                      }
-                      final upd = '${m['updated'] ?? m['date'] ?? ''}';
-                      return '建筑兜底包：${m['name']} v${m['version']} · '
-                          '${m['buildings']} 栋'
-                          '${upd.isNotEmpty ? '（$upd 更新）' : ''}';
-                    }(),
-                    style: TextStyle(
-                        color: fallbackMeta != null ? kGreen : kTextSub,
-                        fontSize: 11)),
-              ),
-            ),
-            if (fallbackDownloading)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 2),
-                  child: Text('正在下载：$fallbackProgress',
-                      style: const TextStyle(color: kAccent, fontSize: 11)),
+                  ),
                 ),
-              ),
-            if (fallbackError.isNotEmpty)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 2),
-                  child: Text(fallbackError,
-                      style:
-                          const TextStyle(color: Colors.redAccent, fontSize: 11)),
+                // R1-3：导出前把底图抓取结果摊开（含失败原因 + 重试入口）
+                if (surroundings) probeCard(setSt),
+                const Divider(color: TokC.divider),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
+                    child: Text(
+                      '本地开源矢量底图（离线，无网也能出图）',
+                      style: TextStyle(color: kTextSub, fontSize: 11),
+                    ),
+                  ),
                 ),
-              ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Row(children: [
-                  if (fallbackMeta == null)
-                    TextButton(
-                      onPressed: fallbackDownloading
-                          ? null
-                          : () async {
-                              final pkg = fallbackRegistry.first;
-                              setSt(() {
-                                fallbackDownloading = true;
-                                fallbackError = '';
-                                fallbackProgress = '正在获取版本信息…';
-                              });
-                              try {
-                                await fallbackStore.install(pkg,
-                                    onStage: (stage) {
-                                  if (dialogOpen) {
-                                    setSt(() => fallbackProgress = stage);
-                                  }
-                                }, onProgress: (rx, total) {
-                                  if (dialogOpen && total > 0) {
-                                    setSt(() {
-                                      fallbackProgress =
-                                          '正在下载：${(rx / 1048576).toStringAsFixed(1)}MB / '
-                                          '${(total / 1048576).toStringAsFixed(1)}MB '
-                                          '(${(rx / total * 100).toStringAsFixed(0)}%)';
-                                    });
-                                  }
-                                });
-                                fallbackMeta = fallbackStore.meta();
-                                if (dialogOpen) {
-                                  setSt(() {
-                                    fallbackDownloading = false;
-                                    fallbackError = '';
-                                    fallbackProgress = '';
-                                  });
-                                }
-                              } catch (e) {
-                                // 失败原因持久显示（不自动隐藏），直到下次重试或关闭
-                                if (dialogOpen) {
-                                  setSt(() {
-                                    fallbackDownloading = false;
-                                    fallbackError = '下载失败：$e';
-                                  });
-                                }
-                              }
-                            },
+                if (hasLocal)
+                  subOption(
+                    '优先使用已导入的本地底图',
+                    useLocal,
+                    (v) => setSt(() => useLocal = v),
+                  ),
+                if (hasLocal)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16, bottom: 2),
                       child: Text(
-                          '下载建筑兜底包（${fallbackRegistry.first.name}）…',
-                          style: const TextStyle(
-                              color: kAccent, fontSize: 12.5)),
+                        '已导入：道路 ${localBm?.roads.length ?? 0} · 建筑 ${localBm?.buildings.length ?? 0} · 地名 ${localBm?.places.length ?? 0}'
+                        '${(localMeta['sourceName'] as String?)?.isNotEmpty == true ? '（${localMeta['sourceName']}）' : ''}',
+                        style: const TextStyle(color: kGreen, fontSize: 11),
+                      ),
                     ),
-                  if (fallbackMeta != null) ...[
-                    TextButton(
-                      onPressed: fallbackDownloading
-                          ? null
-                          : () async {
-                              setSt(() {
-                                fallbackDownloading = true;
-                                fallbackProgress = '正在检查更新…';
-                              });
-                              try {
-                                final n =
-                                    await fallbackStore.ensureLatest(
-                                        onProgress: (id, rx, total) {
-                                  if (dialogOpen && total > 0) {
-                                    setSt(() {
-                                      fallbackProgress =
-                                          '正在更新：${(rx / 1048576).toStringAsFixed(1)}MB / '
-                                          '${(total / 1048576).toStringAsFixed(1)}MB';
-                                    });
-                                  }
-                                });
-                                fallbackMeta = fallbackStore.meta();
-                                fallbackProgress =
-                                    n > 0 ? '已更新到最新版本' : '已是最新版本';
-                                await Future.delayed(
-                                    const Duration(seconds: 2));
-                              } catch (e) {
-                                fallbackProgress = '检查更新失败：$e';
-                                await Future.delayed(
-                                    const Duration(seconds: 3));
-                              }
-                              if (dialogOpen) {
-                                setSt(() {
-                                  fallbackDownloading = false;
-                                  fallbackProgress = '';
-                                });
-                              }
-                            },
-                      child: const Text('检查更新',
-                          style: TextStyle(color: kAccent, fontSize: 12.5)),
+                  )
+                else
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16, bottom: 2),
+                      child: Text(
+                        '未导入：可导入自行下载的开源数据（GeoJSON：Polygon=建筑 / LineString=道路 / Point=地名）',
+                        style: TextStyle(color: kTextSub, fontSize: 11),
+                      ),
                     ),
-                    TextButton(
-                      onPressed: fallbackDownloading
-                          ? null
-                          : () async {
-                              await fallbackStore.uninstall();
-                              fallbackMeta = null;
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Row(
+                      children: [
+                        TextButton(
+                          onPressed: () async {
+                            final bm = await _showImportGeoJsonDialog(context);
+                            if (bm == null) return;
+                            localBm = bm;
+                            hasLocal = true;
+                            useLocal = true;
+                            setSt(() {});
+                          },
+                          child: const Text(
+                            '导入 GeoJSON 底图…',
+                            style: TextStyle(color: kAccent, fontSize: 12.5),
+                          ),
+                        ),
+                        if (hasLocal)
+                          TextButton(
+                            onPressed: () async {
+                              final s = await LocalBasemapStore.open();
+                              await s.clear();
+                              localBm = null;
+                              hasLocal = false;
+                              useLocal = false;
                               setSt(() {});
                             },
-                      child: const Text('删除兜底包',
-                          style: TextStyle(color: kTextSub, fontSize: 12.5)),
+                            child: const Text(
+                              '清除本地底图',
+                              style: TextStyle(color: kTextSub, fontSize: 12.5),
+                            ),
+                          ),
+                      ],
                     ),
-                  ],
-                ]),
+                  ),
+                ),
+                // —— 建筑兜底包（中国区 OSM 建筑稀疏时自动补）——
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 16, bottom: 2, top: 4),
+                    child: Text(
+                      () {
+                        final m = fallbackMeta;
+                        if (m == null) {
+                          return '建筑兜底包：未安装（OSM 在中国区建筑稀疏，建议安装）';
+                        }
+                        final upd = '${m['updated'] ?? m['date'] ?? ''}';
+                        return '建筑兜底包：${m['name']} v${m['version']} · '
+                            '${m['buildings']} 栋'
+                            '${upd.isNotEmpty ? '（$upd 更新）' : ''}';
+                      }(),
+                      style: TextStyle(
+                        color: fallbackMeta != null ? kGreen : kTextSub,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ),
+                if (fallbackDownloading)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16, bottom: 2),
+                      child: Text(
+                        '正在下载：$fallbackProgress',
+                        style: const TextStyle(color: kAccent, fontSize: 11),
+                      ),
+                    ),
+                  ),
+                if (fallbackError.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16, bottom: 2),
+                      child: Text(
+                        fallbackError,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Row(
+                      children: [
+                        if (fallbackMeta == null)
+                          TextButton(
+                            onPressed: fallbackDownloading
+                                ? null
+                                : () async {
+                                    final pkg = fallbackRegistry.first;
+                                    setSt(() {
+                                      fallbackDownloading = true;
+                                      fallbackError = '';
+                                      fallbackProgress = '正在获取版本信息…';
+                                    });
+                                    try {
+                                      await fallbackStore.install(
+                                        pkg,
+                                        onStage: (stage) {
+                                          if (dialogOpen) {
+                                            setSt(
+                                              () => fallbackProgress = stage,
+                                            );
+                                          }
+                                        },
+                                        onProgress: (rx, total) {
+                                          if (dialogOpen && total > 0) {
+                                            setSt(() {
+                                              fallbackProgress =
+                                                  '正在下载：${(rx / 1048576).toStringAsFixed(1)}MB / '
+                                                  '${(total / 1048576).toStringAsFixed(1)}MB '
+                                                  '(${(rx / total * 100).toStringAsFixed(0)}%)';
+                                            });
+                                          }
+                                        },
+                                      );
+                                      fallbackMeta = fallbackStore.meta();
+                                      if (dialogOpen) {
+                                        setSt(() {
+                                          fallbackDownloading = false;
+                                          fallbackError = '';
+                                          fallbackProgress = '';
+                                        });
+                                      }
+                                    } catch (e) {
+                                      // 失败原因持久显示（不自动隐藏），直到下次重试或关闭
+                                      if (dialogOpen) {
+                                        setSt(() {
+                                          fallbackDownloading = false;
+                                          fallbackError = '下载失败：$e';
+                                        });
+                                      }
+                                    }
+                                  },
+                            child: Text(
+                              '下载建筑兜底包（${fallbackRegistry.first.name}）…',
+                              style: const TextStyle(
+                                color: kAccent,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ),
+                        if (fallbackMeta != null) ...[
+                          TextButton(
+                            onPressed: fallbackDownloading
+                                ? null
+                                : () async {
+                                    setSt(() {
+                                      fallbackDownloading = true;
+                                      fallbackProgress = '正在检查更新…';
+                                    });
+                                    try {
+                                      final n = await fallbackStore.ensureLatest(
+                                        onProgress: (id, rx, total) {
+                                          if (dialogOpen && total > 0) {
+                                            setSt(() {
+                                              fallbackProgress =
+                                                  '正在更新：${(rx / 1048576).toStringAsFixed(1)}MB / '
+                                                  '${(total / 1048576).toStringAsFixed(1)}MB';
+                                            });
+                                          }
+                                        },
+                                      );
+                                      fallbackMeta = fallbackStore.meta();
+                                      fallbackProgress = n > 0
+                                          ? '已更新到最新版本'
+                                          : '已是最新版本';
+                                      await Future.delayed(
+                                        const Duration(seconds: 2),
+                                      );
+                                    } catch (e) {
+                                      fallbackProgress = '检查更新失败：$e';
+                                      await Future.delayed(
+                                        const Duration(seconds: 3),
+                                      );
+                                    }
+                                    if (dialogOpen) {
+                                      setSt(() {
+                                        fallbackDownloading = false;
+                                        fallbackProgress = '';
+                                      });
+                                    }
+                                  },
+                            child: const Text(
+                              '检查更新',
+                              style: TextStyle(color: kAccent, fontSize: 12.5),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: fallbackDownloading
+                                ? null
+                                : () async {
+                                    await fallbackStore.uninstall();
+                                    fallbackMeta = null;
+                                    setSt(() {});
+                                  },
+                            child: const Text(
+                              '删除兜底包',
+                              style: TextStyle(color: kTextSub, fontSize: 12.5),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              const Text(
+                '坐标系：以第一个点为原点的本地平面（米）',
+                style: TextStyle(color: kTextSub, fontSize: 11),
               ),
-            ),
-          ],
-          const Text('坐标系：以第一个点为原点的本地平面（米）',
-              style: TextStyle(color: kTextSub, fontSize: 11)),
-        ],
-        ),
-      );
+            ],
+          ),
+        );
       },
     ),
     actions: [
@@ -1561,7 +1863,9 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
         prefs.setBool('dxfRedline', redline);
         prefs.setString('dxfCorridor', corridorCtl.text.trim());
         prefs.setString(
-            'dxfVersion', version == DxfVersion.r12 ? 'r12' : 'r2000');
+          'dxfVersion',
+          version == DxfVersion.r12 ? 'r12' : 'r2000',
+        );
         prefs.setBool('dxfLayerRoads', layerRoads);
         prefs.setBool('dxfLayerBldOutline', layerBldOutline);
         prefs.setBool('dxfLayerBldFill', layerBldFill);
@@ -1574,8 +1878,7 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
         prefs.setDouble('dxfRangeM', rangeM);
         toast(context, '正在生成 DXF…');
         try {
-          final corridor =
-              double.tryParse(corridorCtl.text.trim()) ?? 0;
+          final corridor = double.tryParse(corridorCtl.text.trim()) ?? 0;
           final r = await DxfExporter.export(
             name: name,
             labels: labels,
@@ -1616,11 +1919,13 @@ Future<void> showDxfOptions(BuildContext context, List<MapLabel> labels,
             final renoStats = <String>[];
             if (r.renoNewLenM > 0 || r.renoRemoveLenM > 0) {
               renoStats.add(
-                  '杆路改造：新增${r.renoNewLenM.toStringAsFixed(0)}米 / 拆除${r.renoRemoveLenM.toStringAsFixed(0)}米');
+                '杆路改造：新增${r.renoNewLenM.toStringAsFixed(0)}米 / 拆除${r.renoRemoveLenM.toStringAsFixed(0)}米',
+              );
             }
             if (r.fiberNewLenM > 0 || r.fiberRemoveLenM > 0) {
               renoStats.add(
-                  '光缆改造：新增${r.fiberNewLenM.toStringAsFixed(0)}米 / 拆除${r.fiberRemoveLenM.toStringAsFixed(0)}米');
+                '光缆改造：新增${r.fiberNewLenM.toStringAsFixed(0)}米 / 拆除${r.fiberRemoveLenM.toStringAsFixed(0)}米',
+              );
             }
             if (renoStats.isNotEmpty && context.mounted) {
               toast(context, renoStats.join('\n'));
@@ -1661,8 +1966,10 @@ Future<double?> _promptCustomRange(BuildContext context, double current) async {
           decoration: dec('20 ~ 5000 米，如 150'),
         ),
         const SizedBox(height: 6),
-        const Text('导出矢量底图时按杆路线路外扩该范围（20~5000 米）。',
-            style: TextStyle(color: kTextSub, fontSize: 11)),
+        const Text(
+          '导出矢量底图时按杆路线路外扩该范围（20~5000 米）。',
+          style: TextStyle(color: kTextSub, fontSize: 11),
+        ),
       ],
     ),
     actions: [
@@ -1706,34 +2013,43 @@ Future<void> showAddCustomSource(BuildContext context, AppState st) async {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-                controller: nameCtl,
-                style: const TextStyle(color: kTextMain, fontSize: 14),
-                decoration: dec('名称（如：公司内网卫星图）')),
+              controller: nameCtl,
+              style: const TextStyle(color: kTextMain, fontSize: 14),
+              decoration: dec('名称（如：公司内网卫星图）'),
+            ),
             const SizedBox(height: 8),
             TextField(
-                controller: urlCtl,
-                style: const TextStyle(color: kTextMain, fontSize: 12),
-                decoration: dec(
-                    'URL 模板，如 https://host/tile/{z}/{x}/{y}.png')),
+              controller: urlCtl,
+              style: const TextStyle(color: kTextMain, fontSize: 12),
+              decoration: dec('URL 模板，如 https://host/tile/{z}/{x}/{y}.png'),
+            ),
             const SizedBox(height: 8),
             TextField(
-                controller: zoomCtl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: kTextMain, fontSize: 14),
-                decoration: dec('最大缩放级别（如 18）')),
+              controller: zoomCtl,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(color: kTextMain, fontSize: 14),
+              decoration: dec('最大缩放级别（如 18）'),
+            ),
             const SizedBox(height: 8),
-            const Text('瓦片坐标系（选错会偏移 300-500 米）',
-                style: TextStyle(color: kTextSub, fontSize: 11)),
+            const Text(
+              '瓦片坐标系（选错会偏移 300-500 米）',
+              style: TextStyle(color: kTextSub, fontSize: 11),
+            ),
             Row(
               children: [
-                for (final kv in const {0: 'WGS-84', 1: 'GCJ-02', 2: 'BD-09'}.entries)
+                for (final kv in const {
+                  0: 'WGS-84',
+                  1: 'GCJ-02',
+                  2: 'BD-09',
+                }.entries)
                   Expanded(
                     child: RadioListTile<int>(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      title: Text(kv.value,
-                          style:
-                              const TextStyle(color: kTextMain, fontSize: 12)),
+                      title: Text(
+                        kv.value,
+                        style: const TextStyle(color: kTextMain, fontSize: 12),
+                      ),
                       value: kv.key,
                       groupValue: datumSel,
                       activeColor: kAccent,
@@ -1745,8 +2061,10 @@ Future<void> showAddCustomSource(BuildContext context, AppState st) async {
             CheckboxListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text('作为透明注记叠加层',
-                  style: TextStyle(color: kTextMain, fontSize: 13)),
+              title: const Text(
+                '作为透明注记叠加层',
+                style: TextStyle(color: kTextMain, fontSize: 13),
+              ),
               value: overlay,
               activeColor: kAccent,
               onChanged: (v) => setSt(() => overlay = v ?? false),
@@ -1779,64 +2097,72 @@ Future<void> showAddCustomSource(BuildContext context, AppState st) async {
 
 // ================= 离线下载 =================
 
-Future<void> showOfflineDialog(BuildContext context, AppState st,
-    MapController controller, CacheTileProvider provider) async {
+Future<void> showOfflineDialog(
+  BuildContext context,
+  AppState st,
+  MapController controller,
+  CacheTileProvider provider,
+) async {
   final cam = controller.camera;
   var targetZoom = cam.zoom.round() + 1;
   if (targetZoom > st.curSource.maxZoom) targetZoom = st.curSource.maxZoom;
 
-  int estimate(double z) => OfflineDownload.instance
-      .estimateTiles(cam.visibleBounds, z.round());
+  int estimate(double z) =>
+      OfflineDownload.instance.estimateTiles(cam.visibleBounds, z.round());
 
   await showDarkDialog(
     context,
     title: '离线区域下载',
+    width: 520,
     content: StatefulBuilder(
       builder: (ctx, setSt) {
         final est = estimate(targetZoom.toDouble());
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('下载「当前屏幕范围」的瓦片，之后无网络也能看',
-                style: TextStyle(color: kTextSub, fontSize: 12)),
+            const Text(
+              '下载「当前屏幕范围」的瓦片，之后无网络也能看',
+              style: TextStyle(color: kTextSub, fontSize: 12),
+            ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text('下载至级别 ',
-                    style: TextStyle(color: kTextMain, fontSize: 13)),
+                const Text(
+                  '下载至级别 ',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
                   onPressed: targetZoom > 3
                       ? () => setSt(() => targetZoom--)
                       : null,
-                  icon: const Icon(Icons.remove_circle_outline,
-                      color: kAccent),
+                  icon: const Icon(Icons.remove_circle_outline, color: kAccent),
                 ),
-                Text('$targetZoom',
-                    style: const TextStyle(
-                        color: kTextMain,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
+                Text(
+                  '$targetZoom',
+                  style: const TextStyle(
+                    color: kTextMain,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
                   onPressed: targetZoom < st.curSource.maxZoom
                       ? () => setSt(() => targetZoom++)
                       : null,
-                  icon:
-                      const Icon(Icons.add_circle_outline, color: kAccent),
+                  icon: const Icon(Icons.add_circle_outline, color: kAccent),
                 ),
               ],
             ),
             Text(
-                est > 6000
-                    ? '约 $est 张瓦片（过多，请放大地图或降低级别）'
-                    : '约 $est 张瓦片',
-                style: TextStyle(
-                    color: est > 6000
-                        ? const Color(0xFFFF8A80)
-                        : kTextSub,
-                    fontSize: 12)),
+              est > 6000 ? '约 $est 张瓦片（过多，请放大地图或降低级别）' : '约 $est 张瓦片',
+              style: TextStyle(
+                color: est > 6000 ? const Color(0xFFFF8A80) : kTextSub,
+                fontSize: 12,
+              ),
+            ),
           ],
         );
       },
@@ -1851,16 +2177,18 @@ Future<void> showOfflineDialog(BuildContext context, AppState st,
   );
 }
 
-Future<void> _runOffline(BuildContext context, AppState st,
-    CacheTileProvider provider, LatLngBounds bounds, int zoom) async {
+Future<void> _runOffline(
+  BuildContext context,
+  AppState st,
+  CacheTileProvider provider,
+  LatLngBounds bounds,
+  int zoom,
+) async {
   await showDialog(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) => _OfflineProgressDialog(
-      provider: provider,
-      bounds: bounds,
-      zoom: zoom,
-    ),
+    builder: (ctx) =>
+        _OfflineProgressDialog(provider: provider, bounds: bounds, zoom: zoom),
   );
 }
 
@@ -1924,19 +2252,27 @@ class _OfflineProgressDialogState extends State<_OfflineProgressDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: kPanelBg,
-      title: Text(finished ? '离线下载完成' : '正在下载离线瓦片',
-          style: const TextStyle(color: kTextMain, fontSize: 15)),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        LinearProgressIndicator(
-            value: total == 0 ? 0 : done / total, color: kAccent),
-        const SizedBox(height: 10),
-        Text(
+      title: Text(
+        finished ? '离线下载完成' : '正在下载离线瓦片',
+        style: const TextStyle(color: kTextMain, fontSize: 15),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          LinearProgressIndicator(
+            value: total == 0 ? 0 : done / total,
+            color: kAccent,
+          ),
+          const SizedBox(height: 10),
+          Text(
             error ??
                 (finished
                     ? '共 $total 张，新下载 $fresh 张'
                     : '$done / $total（新下载 $fresh 张）'),
-            style: const TextStyle(color: kTextSub, fontSize: 12)),
-      ]),
+            style: const TextStyle(color: kTextSub, fontSize: 12),
+          ),
+        ],
+      ),
       actions: finished
           ? [darkTextBtn('关闭', () => Navigator.pop(context))]
           : [
@@ -1965,21 +2301,25 @@ Future<void> showCollectionSettings(BuildContext context, AppState st) async {
           CheckboxListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            title: const Text('杆路自动编号（落点自动命名 GK-1、GK-2…）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
+            title: const Text(
+              '杆路自动编号（落点自动命名 GK-1、GK-2…）',
+              style: TextStyle(color: kTextMain, fontSize: 13),
+            ),
             value: autoNum,
             activeColor: kAccent,
             onChanged: (v) => setSt(() => autoNum = v ?? false),
           ),
           TextField(
-              controller: prefixCtl,
-              style: const TextStyle(color: kTextMain, fontSize: 14),
-              decoration: dec('编号前缀（默认 GK）')),
+            controller: prefixCtl,
+            style: const TextStyle(color: kTextMain, fontSize: 14),
+            decoration: dec('编号前缀（默认 GK）'),
+          ),
           const SizedBox(height: 10),
           TextField(
-              controller: segPrefixCtl,
-              style: const TextStyle(color: kTextMain, fontSize: 14),
-              decoration: dec('段标前缀（如 埋／架，留空则只显示数字）')),
+            controller: segPrefixCtl,
+            style: const TextStyle(color: kTextMain, fontSize: 14),
+            decoration: dec('段标前缀（如 埋／架，留空则只显示数字）'),
+          ),
         ],
       ),
     ),
@@ -1996,7 +2336,9 @@ Future<void> showCollectionSettings(BuildContext context, AppState st) async {
 }
 
 Future<void> showTiandituKeyDialog(BuildContext context, AppState st) async {
-  final ctl = TextEditingController(text: st.prefs.getString(AppState.prefTdtKey) ?? '');
+  final ctl = TextEditingController(
+    text: st.prefs.getString(AppState.prefTdtKey) ?? '',
+  );
   var coordSys = st.tdtCoordSys;
   await showDarkDialog(
     context,
@@ -2007,19 +2349,24 @@ Future<void> showTiandituKeyDialog(BuildContext context, AppState st) async {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
-              controller: ctl,
-              style: const TextStyle(color: kTextMain, fontSize: 12),
-              decoration: dec('天地图开发者 key（留空隐藏天地图源）')),
+            controller: ctl,
+            style: const TextStyle(color: kTextMain, fontSize: 12),
+            decoration: dec('天地图开发者 key（留空隐藏天地图源）'),
+          ),
           const SizedBox(height: 12),
-          const Text('天地图地名坐标系',
-              style: TextStyle(color: kTextSub, fontSize: 12)),
+          const Text(
+            '天地图地名坐标系',
+            style: TextStyle(color: kTextSub, fontSize: 12),
+          ),
           // 天地图检索 POI 实测为 GCJ-02 火星坐标（瓦片才是 WGS84），
           // 默认自动纠偏；测绘用户可关掉对照原始返回坐标。
           RadioListTile<String>(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            title: const Text('GCJ-02 火星坐标（自动纠偏为 WGS-84）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
+            title: const Text(
+              'GCJ-02 火星坐标（自动纠偏为 WGS-84）',
+              style: TextStyle(color: kTextMain, fontSize: 13),
+            ),
             value: AppState.tdtCoordGcj02,
             groupValue: coordSys,
             activeColor: kAccent,
@@ -2029,8 +2376,10 @@ Future<void> showTiandituKeyDialog(BuildContext context, AppState st) async {
           RadioListTile<String>(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            title: const Text('WGS-84（不转换，保留原始返回坐标）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
+            title: const Text(
+              'WGS-84（不转换，保留原始返回坐标）',
+              style: TextStyle(color: kTextMain, fontSize: 13),
+            ),
             value: AppState.tdtCoordWgs84,
             groupValue: coordSys,
             activeColor: kAccent,
@@ -2067,9 +2416,10 @@ Future<void> showAmapKeyDialog(BuildContext context, AppState st) async {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextField(
-            controller: ctl,
-            style: const TextStyle(color: kTextMain, fontSize: 12),
-            decoration: dec('高德 Web 服务 key（留空=用内置 key）')),
+          controller: ctl,
+          style: const TextStyle(color: kTextMain, fontSize: 12),
+          decoration: dec('高德 Web 服务 key（留空=用内置 key）'),
+        ),
         const SizedBox(height: 8),
         const Text(
           '默认已内置高德 key，开箱即用地名搜索/兜底即优选高德，无需填写。\n'
@@ -2090,9 +2440,10 @@ Future<void> showAmapKeyDialog(BuildContext context, AppState st) async {
       darkTextBtn('保存', () {
         st.setAmapKey(ctl.text);
         Navigator.pop(context);
-        toast(context, ctl.text.trim().isEmpty
-            ? '已清空，恢复使用内置高德 Key'
-            : '已保存，搜索与底图地名优先使用高德');
+        toast(
+          context,
+          ctl.text.trim().isEmpty ? '已清空，恢复使用内置高德 Key' : '已保存，搜索与底图地名优先使用高德',
+        );
       }),
     ],
   );
@@ -2108,7 +2459,10 @@ Future<void> showAmapKeyDialog(BuildContext context, AppState st) async {
 /// 弹窗保留并给出中文提示，**不写入任何内容**。理由：面向非程序员，若静默丢弃
 /// 手误写成 `ovp.xxx.com`（漏了协议头）的地址，用户会以为"填好了却没生效"，
 /// 反而更困惑；整体拦截能逼用户当场改对。
-Future<void> showOverpassEndpointsDialog(BuildContext context, AppState st) async {
+Future<void> showOverpassEndpointsDialog(
+  BuildContext context,
+  AppState st,
+) async {
   final ctl = TextEditingController(text: st.overpassEndpoints);
   final custom = OverpassEndpoints.splitCustom(st.overpassEndpoints).toSet();
   final effective = OverpassEndpoints.resolve(st.overpassEndpoints);
@@ -2127,8 +2481,10 @@ Future<void> showOverpassEndpointsDialog(BuildContext context, AppState st) asyn
               maxLines: 5,
               keyboardType: TextInputType.url,
               style: const TextStyle(color: kTextMain, fontSize: 12),
-              decoration: dec('每行一个（或用逗号/分号分隔），如：\n'
-                  'https://ovp.你的域名.com/'),
+              decoration: dec(
+                '每行一个（或用逗号/分号分隔），如：\n'
+                'https://ovp.你的域名.com/',
+              ),
             ),
             const SizedBox(height: 8),
             const Text(
@@ -2139,8 +2495,10 @@ Future<void> showOverpassEndpointsDialog(BuildContext context, AppState st) asyn
               style: TextStyle(color: kTextSub, fontSize: 11),
             ),
             const SizedBox(height: 10),
-            Text('当前生效端点：${effective.length} 个（自定义在前，绿色=你的反代）',
-                style: const TextStyle(color: kTextSub, fontSize: 11)),
+            Text(
+              '当前生效端点：${effective.length} 个（自定义在前，绿色=你的反代）',
+              style: const TextStyle(color: kTextSub, fontSize: 11),
+            ),
             const SizedBox(height: 4),
             for (var i = 0; i < effective.length; i++)
               Padding(
@@ -2148,8 +2506,9 @@ Future<void> showOverpassEndpointsDialog(BuildContext context, AppState st) asyn
                 child: Text(
                   '${i + 1}. ${effective[i]}',
                   style: TextStyle(
-                      color: custom.contains(effective[i]) ? kGreen : kTextSub,
-                      fontSize: 10.5),
+                    color: custom.contains(effective[i]) ? kGreen : kTextSub,
+                    fontSize: 10.5,
+                  ),
                 ),
               ),
           ],
@@ -2170,17 +2529,17 @@ Future<void> showOverpassEndpointsDialog(BuildContext context, AppState st) asyn
             .toList();
         if (invalid.isNotEmpty) {
           // 整体拦截：保留弹窗、不写入，提示哪几项非法
-          toast(context,
-              '地址需以 http:// 或 https:// 开头，请检查：${invalid.join('、')}');
+          toast(context, '地址需以 http:// 或 https:// 开头，请检查：${invalid.join('、')}');
           return;
         }
         st.setOverpassEndpoints(ctl.text);
         Navigator.pop(context);
         toast(
-            context,
-            items.isEmpty
-                ? '已清空，恢复使用内置 Overpass 镜像'
-                : '已保存 ${items.length} 个自定义端点，底图抓取将优先使用');
+          context,
+          items.isEmpty
+              ? '已清空，恢复使用内置 Overpass 镜像'
+              : '已保存 ${items.length} 个自定义端点，底图抓取将优先使用',
+        );
       }),
     ],
   );
@@ -2189,60 +2548,64 @@ Future<void> showOverpassEndpointsDialog(BuildContext context, AppState st) asyn
 // ================= 说明类 =================
 
 Future<void> showDatumHelp(BuildContext context, AppState st) => showDarkDialog(
-      context,
-      title: '坐标系说明',
-      content: Text(
-        '本图当前按 ${GeoConvert.datumName(st.datum)} 显示。\n\n'
-        '· GPS 原始坐标为 WGS-84；国内卫星/街道图通常带 GCJ-02 偏移。\n'
-        '· 所有采集数据一律以 WGS-84 保存，显示时自动纠偏，导出不受影响。\n'
-        '· 切换图源时坐标系随图源自动设置；自定义源请在添加时选择。',
-        style: const TextStyle(color: kTextMain, fontSize: 13),
-      ),
-      actions: [darkTextBtn('知道了', () => Navigator.pop(context))],
-    );
+  context,
+  title: '坐标系说明',
+  content: Text(
+    '本图当前按 ${GeoConvert.datumName(st.datum)} 显示。\n\n'
+    '· GPS 原始坐标为 WGS-84；国内卫星/街道图通常带 GCJ-02 偏移。\n'
+    '· 所有采集数据一律以 WGS-84 保存，显示时自动纠偏，导出不受影响。\n'
+    '· 切换图源时坐标系随图源自动设置；自定义源请在添加时选择。',
+    style: const TextStyle(color: kTextMain, fontSize: 13),
+  ),
+  actions: [darkTextBtn('知道了', () => Navigator.pop(context))],
+);
 
 Future<void> showAbout(BuildContext context) => showDarkDialog(
-      context,
-      title: '滑洲云图 3.0',
-      content: const Text(
-        '面向通信工程勘察设计与竣工测量的地图工具。\n\n'
-        '· 设计/竣工双模式 · 符号库对齐联通线路图例\n'
-        '· 定位航向箭头跟随手机方向 · 重名工程自动续号不覆盖\n'
-        '· 收藏树 · 测距测面 · 轨迹记录 · 离线下载\n'
-        '· DXF / KML / CSV / 配线图导出 · 拓扑芯线校验',
-        style: TextStyle(color: kTextMain, fontSize: 13),
-      ),
-      actions: [darkTextBtn('关闭', () => Navigator.pop(context))],
-    );
+  context,
+  title: '滑洲云图 3.0',
+  content: const Text(
+    '面向通信工程勘察设计与竣工测量的地图工具。\n\n'
+    '· 设计/竣工双模式 · 符号库对齐联通线路图例\n'
+    '· 定位航向箭头跟随手机方向 · 重名工程自动续号不覆盖\n'
+    '· 收藏树 · 测距测面 · 轨迹记录 · 离线下载\n'
+    '· DXF / KML / CSV / 配线图导出 · 拓扑芯线校验',
+    style: TextStyle(color: kTextMain, fontSize: 13),
+  ),
+  actions: [darkTextBtn('关闭', () => Navigator.pop(context))],
+);
 
 Future<void> showTopoGuide(BuildContext context) => showDarkDialog(
-      context,
-      title: '拓扑连线怎么用',
-      content: SingleChildScrollView(
-        child: Text(
-          '1. 画杆路：正常放置水泥杆/人孔等，自动连线。\n\n'
-          '2. 放箱体：光交、分光器箱、分纤盒、ONU箱、机房、基站、引上是独立点，'
-          '不会打断杆路线，画完杆路后单独放置即可。\n\n'
-          '3. 保存项目后：在收藏夹里找到该工程 → 点行尾「⋯」→「拓扑连线」'
-          '（桌面端也可点工具栏「连线路（拓扑）」按钮）。\n\n'
-          '4. 连线：点起点箱体（如光交）→ 点终点箱体（如分光箱）→ 选光缆规格'
-          '（6芯/12芯/24芯/48芯…）→ 保存；重复直到全部连完。可「撤销连线」。\n\n'
-          '5. 出图：导出里选 DXF（路由图+配线图同图框）/ 配线拓扑图 PNG / 芯线占用表。\n\n'
-          '6. 分支杆路：采集中长按任一已存点 →「从此点续画新杆路」。\n\n'
-          '编号规则：有名称用你的名称；没名称按类型自动编号（光交-1、分纤盒-2…）。',
-          style: const TextStyle(color: kTextMain, fontSize: 12.5, height: 1.4),
-        ),
-      ),
-      actions: [darkTextBtn('知道了', () => Navigator.pop(context))],
-    );
+  context,
+  title: '拓扑连线怎么用',
+  content: SingleChildScrollView(
+    child: Text(
+      '1. 画杆路：正常放置水泥杆/人孔等，自动连线。\n\n'
+      '2. 放箱体：光交、分光器箱、分纤盒、ONU箱、机房、基站、引上是独立点，'
+      '不会打断杆路线，画完杆路后单独放置即可。\n\n'
+      '3. 保存项目后：在收藏夹里找到该工程 → 点行尾「⋯」→「拓扑连线」'
+      '（桌面端也可点工具栏「连线路（拓扑）」按钮）。\n\n'
+      '4. 连线：点起点箱体（如光交）→ 点终点箱体（如分光箱）→ 选光缆规格'
+      '（6芯/12芯/24芯/48芯…）→ 保存；重复直到全部连完。可「撤销连线」。\n\n'
+      '5. 出图：导出里选 DXF（路由图+配线图同图框）/ 配线拓扑图 PNG / 芯线占用表。\n\n'
+      '6. 分支杆路：采集中长按任一已存点 →「从此点续画新杆路」。\n\n'
+      '编号规则：有名称用你的名称；没名称按类型自动编号（光交-1、分纤盒-2…）。',
+      style: const TextStyle(color: kTextMain, fontSize: 12.5, height: 1.4),
+    ),
+  ),
+  actions: [darkTextBtn('知道了', () => Navigator.pop(context))],
+);
 
 /// 拓扑连线后选择光缆规格。
 Future<void> showCableDialog(
-    BuildContext context, AppState st, MapLabel target) async {
+  BuildContext context,
+  AppState st,
+  MapLabel target,
+) async {
   final ctl = TextEditingController(text: target.cableSpec);
   await showDarkDialog(
     context,
     title: '选择连接光缆',
+    width: 460,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2252,7 +2615,10 @@ Future<void> showCableDialog(
           children: [
             for (final c in const ['6芯', '12芯', '24芯', '48芯', '96芯', '144芯'])
               ActionChip(
-                label: Text(c, style: const TextStyle(color: kTextMain, fontSize: 12)),
+                label: Text(
+                  c,
+                  style: const TextStyle(color: kTextMain, fontSize: 12),
+                ),
                 backgroundColor: TokC.field,
                 side: BorderSide.none,
                 onPressed: () => ctl.text = c,
@@ -2261,9 +2627,10 @@ Future<void> showCableDialog(
         ),
         const SizedBox(height: 8),
         TextField(
-            controller: ctl,
-            style: const TextStyle(color: kTextMain, fontSize: 14),
-            decoration: dec('光缆规格（如：架空48芯GYTS-01）')),
+          controller: ctl,
+          style: const TextStyle(color: kTextMain, fontSize: 14),
+          decoration: dec('光缆规格（如：架空48芯GYTS-01）'),
+        ),
       ],
     ),
     actions: [
@@ -2280,7 +2647,10 @@ Future<void> showCableDialog(
 
 /// 续画杆路确认。
 Future<void> showContinueRouteDialog(
-    BuildContext context, AppState st, MapLabel near) async {
+  BuildContext context,
+  AppState st,
+  MapLabel near,
+) async {
   final nm = near.name.trim().isNotEmpty ? near.name.trim() : near.type.name;
   await showDarkDialog(
     context,
@@ -2301,8 +2671,12 @@ Future<void> showContinueRouteDialog(
 }
 
 /// 浏览模式长按上下文卡。
-Future<void> showContextCard(BuildContext context, AppState st,
-    double dispLat, double dispLon) async {
+Future<void> showContextCard(
+  BuildContext context,
+  AppState st,
+  double dispLat,
+  double dispLon,
+) async {
   final w = st.toWgs(dispLat, dispLon);
   await showDarkDialog(
     context,
@@ -2329,9 +2703,10 @@ Future<void> showContextCard(BuildContext context, AppState st,
             } else {
               txt = '高程：查询失败（网络原因）';
             }
-            return Text(txt,
-                style: const TextStyle(
-                    color: Color(0xFF9CCC65), fontSize: 12.5));
+            return Text(
+              txt,
+              style: const TextStyle(color: Color(0xFF9CCC65), fontSize: 12.5),
+            );
           },
         ),
       ],
@@ -2340,7 +2715,9 @@ Future<void> showContextCard(BuildContext context, AppState st,
       darkTextBtn('复制坐标', () {
         Navigator.pop(context);
         // 剪贴板
-        _copyToClipboard('${w[0].toStringAsFixed(6)},${w[1].toStringAsFixed(6)}');
+        _copyToClipboard(
+          '${w[0].toStringAsFixed(6)},${w[1].toStringAsFixed(6)}',
+        );
         toast(context, '已复制 WGS-84 坐标');
       }),
       darkTextBtn('在此放「${st.curType.name}」', () {
@@ -2362,8 +2739,11 @@ Future<double?> fetchElevation(double lat, double lon) async {
   if (_elevCache.containsKey(key)) return _elevCache[key];
   try {
     final r = await http
-        .get(Uri.parse(
-            'https://api.open-meteo.com/v1/elevation?latitude=$lat&longitude=$lon'))
+        .get(
+          Uri.parse(
+            'https://api.open-meteo.com/v1/elevation?latitude=$lat&longitude=$lon',
+          ),
+        )
         .timeout(const Duration(seconds: 8));
     if (r.statusCode != 200) return null;
     final arr = jsonDecode(r.body)['elevation'];
@@ -2392,14 +2772,18 @@ Future<void> showKmlImportDialog(BuildContext context, AppState st) async {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-            '支持 .kml 文本（Point 单点 / LineString 连线）；KMZ 为 zip 包，请先解压出 .kml 再导。坐标按 WGS-84 处理。',
-            style: TextStyle(color: kTextSub, fontSize: 11)),
+          '支持 .kml 文本（Point 单点 / LineString 连线）；KMZ 为 zip 包，请先解压出 .kml 再导。坐标按 WGS-84 处理。',
+          style: TextStyle(color: kTextSub, fontSize: 11),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: ctl,
           maxLines: 6,
           style: const TextStyle(
-              color: kTextMain, fontSize: 11, fontFamily: 'monospace'),
+            color: kTextMain,
+            fontSize: 11,
+            fontFamily: 'monospace',
+          ),
           decoration: dec('粘贴 KML 全文，或点下方「读取剪贴板」'),
         ),
       ],
@@ -2423,8 +2807,10 @@ Future<void> showKmlImportDialog(BuildContext context, AppState st) async {
         }
         final summary = st.importKmlText(ctl.text);
         Navigator.pop(context);
-        toast(context,
-            summary == null ? '解析失败：未找到有效的 KML 要素' : '已导入 $summary（可点「撤销」回退）');
+        toast(
+          context,
+          summary == null ? '解析失败：未找到有效的 KML 要素' : '已导入 $summary（可点「撤销」回退）',
+        );
       }),
     ],
   );
@@ -2448,7 +2834,9 @@ Future<void> showImportDialog(BuildContext context, AppState st) async {
   /// >10MB 在 isolate 里解析，否则当前 isolate 直接解析。
   /// （async 包一层：无论 Importer.parseFile 是同步还是异步返回都能接住。）
   Future<ImportParseResult?> parseImportBytes(
-      String fileName, Uint8List bytes) async {
+    String fileName,
+    Uint8List bytes,
+  ) async {
     if (bytes.length > 10 * 1024 * 1024) {
       // bytes / fileName 均可跨 isolate 发送；Importer.parseFile 为静态入口。
       return Isolate.run(() => Importer.parseFile(fileName, bytes));
@@ -2483,16 +2871,21 @@ Future<void> showImportDialog(BuildContext context, AppState st) async {
       toast(context, '导入失败：收藏夹控制器不可用（$e）');
       return;
     }
-    final r = await importParsedResult(tree, parsed,
-        parentId: tree.treeSelectedFolderId);
+    final r = await importParsedResult(
+      tree,
+      parsed,
+      parentId: tree.treeSelectedFolderId,
+    );
     if (!context.mounted) return;
     if (!r.ok) {
       toast(context, '导入失败：写入收藏夹时出错');
       return;
     }
-    toast(context,
-        '已导入：${r.folderCount} 个文件夹 · ${r.projectCount} 个工程 · ${r.pointCount} 点 · '
-        '${r.lineCount} 线；在收藏夹点条目右侧眼睛可显示到地图（可撤销回退）');
+    toast(
+      context,
+      '已导入：${r.folderCount} 个文件夹 · ${r.projectCount} 个工程 · ${r.pointCount} 点 · '
+      '${r.lineCount} 线；在收藏夹点条目右侧眼睛可显示到地图（可撤销回退）',
+    );
     for (final w in parsed.warnings) {
       toast(context, w);
     }
@@ -2501,21 +2894,26 @@ Future<void> showImportDialog(BuildContext context, AppState st) async {
   await showDarkDialog(
     context,
     title: '导入对象文件（KML/KMZ/奥维）',
+    width: 560,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-            '支持 KML / KMZ（Google Earth）与奥维地图文件（.ovkml / .ovkmz / .ovjsn / .ovobj；'
-            'ovobj 仅可靠支持点要素）。导入到收藏夹树，保留文件夹层级；'
-            '整个导入为一条撤销命令，可一键回退。',
-            style: TextStyle(color: kTextSub, fontSize: 11)),
+          '支持 KML / KMZ（Google Earth）与奥维地图文件（.ovkml / .ovkmz / .ovjsn / .ovobj；'
+          'ovobj 仅可靠支持点要素）。导入到收藏夹树，保留文件夹层级；'
+          '整个导入为一条撤销命令，可一键回退。',
+          style: TextStyle(color: kTextSub, fontSize: 11),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: ctl,
           maxLines: 6,
           style: const TextStyle(
-              color: kTextMain, fontSize: 11, fontFamily: 'monospace'),
+            color: kTextMain,
+            fontSize: 11,
+            fontFamily: 'monospace',
+          ),
           decoration: dec('粘贴 KML 全文，或点下方「读取剪贴板」（小样本调试用）；大文件请点「从文件选择…」'),
         ),
       ],
@@ -2533,7 +2931,7 @@ Future<void> showImportDialog(BuildContext context, AppState st) async {
               'ovkml',
               'ovkmz',
               'ovjsn',
-              'ovobj'
+              'ovobj',
             ],
             // 只取路径（大文件避免 withData 在内存里多拷贝一层），下面按路径读字节。
             withData: false,
@@ -2616,25 +3014,30 @@ Future<BasemapData?> _showImportGeoJsonDialog(BuildContext context) async {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-            '两种方式任选：点「从文件选择…」用系统选择器选本地 .geojson/.json；'
-            '或把 GeoJSON 全文粘贴到下方。Polygon=建筑、LineString=道路、Point=地名，'
-            '坐标按 WGS-84（[经度, 纬度]）。导入后写入项目目录，无网也能出带底图的图。',
-            style: TextStyle(color: kTextSub, fontSize: 11)),
+          '两种方式任选：点「从文件选择…」用系统选择器选本地 .geojson/.json；'
+          '或把 GeoJSON 全文粘贴到下方。Polygon=建筑、LineString=道路、Point=地名，'
+          '坐标按 WGS-84（[经度, 纬度]）。导入后写入项目目录，无网也能出带底图的图。',
+          style: TextStyle(color: kTextSub, fontSize: 11),
+        ),
         if (hasCur) ...[
           const SizedBox(height: 6),
           Text(
-              '当前已导入：道路 ${curMeta['roads'] ?? 0} · 建筑 ${curMeta['buildings'] ?? 0} · '
-              '地名 ${curMeta['places'] ?? 0}'
-              '${(curMeta['sourceName'] as String?)?.isNotEmpty == true ? '（${curMeta['sourceName']}）' : ''}'
-              '${_fmtMetaTime(curMeta['savedAt'])}',
-              style: const TextStyle(color: kGreen, fontSize: 11)),
+            '当前已导入：道路 ${curMeta['roads'] ?? 0} · 建筑 ${curMeta['buildings'] ?? 0} · '
+            '地名 ${curMeta['places'] ?? 0}'
+            '${(curMeta['sourceName'] as String?)?.isNotEmpty == true ? '（${curMeta['sourceName']}）' : ''}'
+            '${_fmtMetaTime(curMeta['savedAt'])}',
+            style: const TextStyle(color: kGreen, fontSize: 11),
+          ),
         ],
         const SizedBox(height: 8),
         TextField(
           controller: ctl,
           maxLines: 8,
           style: const TextStyle(
-              color: kTextMain, fontSize: 11, fontFamily: 'monospace'),
+            color: kTextMain,
+            fontSize: 11,
+            fontFamily: 'monospace',
+          ),
           decoration: dec('粘贴 GeoJSON 全文，或点下方「读取剪贴板」；也可点「从文件选择…」'),
         ),
       ],
@@ -2661,12 +3064,16 @@ Future<BasemapData?> _showImportGeoJsonDialog(BuildContext context) async {
           final BasemapData bm;
           final path = f.path;
           if (path != null && path.isNotEmpty) {
-            bm = await BasemapFileImporter.importFromPath(path,
-                sourceName: f.name);
+            bm = await BasemapFileImporter.importFromPath(
+              path,
+              sourceName: f.name,
+            );
           } else if (f.bytes != null) {
             // 少数平台只给 content://（无本地路径）：回退读字节解码。
-            bm = await BasemapFileImporter.importFromBytes(f.bytes!,
-                sourceName: f.name);
+            bm = await BasemapFileImporter.importFromBytes(
+              f.bytes!,
+              sourceName: f.name,
+            );
           } else {
             if (context.mounted) toast(context, '读取失败：无法获取所选文件的内容');
             return;
@@ -2674,8 +3081,10 @@ Future<BasemapData?> _showImportGeoJsonDialog(BuildContext context) async {
           result = bm;
           if (context.mounted) Navigator.pop(context);
           if (context.mounted) {
-            toast(context,
-                '已导入：道路 ${bm.roads.length} · 建筑 ${bm.buildings.length} · 地名 ${bm.places.length}（项目级离线复用）');
+            toast(
+              context,
+              '已导入：道路 ${bm.roads.length} · 建筑 ${bm.buildings.length} · 地名 ${bm.places.length}（项目级离线复用）',
+            );
           }
         } on FormatException catch (e) {
           if (context.mounted) toast(context, '所选文件不是有效的 GeoJSON：${e.message}');
@@ -2710,8 +3119,10 @@ Future<BasemapData?> _showImportGeoJsonDialog(BuildContext context) async {
           return;
         }
         try {
-          await BasemapFileImporter.importFromText(raw,
-              sourceName: 'imported.geojson');
+          await BasemapFileImporter.importFromText(
+            raw,
+            sourceName: 'imported.geojson',
+          );
         } catch (e) {
           if (context.mounted) toast(context, '保存失败：$e');
           return;
@@ -2719,8 +3130,10 @@ Future<BasemapData?> _showImportGeoJsonDialog(BuildContext context) async {
         result = bm;
         if (context.mounted) Navigator.pop(context);
         if (context.mounted) {
-          toast(context,
-              '已导入：道路 ${bm.roads.length} · 建筑 ${bm.buildings.length} · 地名 ${bm.places.length}（项目级离线复用）');
+          toast(
+            context,
+            '已导入：道路 ${bm.roads.length} · 建筑 ${bm.buildings.length} · 地名 ${bm.places.length}（项目级离线复用）',
+          );
         }
       }),
     ],

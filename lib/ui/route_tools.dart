@@ -19,7 +19,7 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
   final path = chain == null
       ? null
       : <List<double>>[
-          for (final l in chain) <double>[l.lat, l.lon]
+          for (final l in chain) <double>[l.lat, l.lon],
         ];
   final pathLen = path == null ? 0.0 : RouteLayout.pathLengthM(path);
 
@@ -43,9 +43,12 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
       ? st.curType.id
       : LabelType.concrete.id;
 
+  final screenW = MediaQuery.of(context).size.width;
   await showDarkDialog(
     context,
     title: '自动布杆（等距）',
+    // 用定宽自绘 Dialog：高内容 + AlertDialog 的下半区会点不中。
+    width: screenW >= 560 ? 460 : screenW - 48,
     content: StatefulBuilder(
       builder: (ctx, setSt) => SingleChildScrollView(
         child: Column(
@@ -53,41 +56,49 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-                path != null
-                    ? '沿最近一条线组等距布杆：${chain!.length} 点 · 全长 '
+              path != null
+                  ? '沿最近一条线组等距布杆：${chain!.length} 点 · 全长 '
                         '${GeoUtil.fmtDist(pathLen)}。含起点与终点，L 形/折返按实际走向，不切角。'
-                    : '当前没有已画线组：填起止点做两点直线布杆。含起点与终点。',
-                style: const TextStyle(color: kTextSub, fontSize: 11)),
+                  : '当前没有已画线组：填起止点做两点直线布杆。含起点与终点。',
+              style: const TextStyle(color: kTextSub, fontSize: 11),
+            ),
             const SizedBox(height: 8),
             if (path == null) ...[
               TextField(
-                  controller: startCtl,
-                  style: const TextStyle(color: kTextMain, fontSize: 13),
-                  decoration: dec('起点 纬度,经度（如 32.10,114.08）')),
+                controller: startCtl,
+                style: const TextStyle(color: kTextMain, fontSize: 13),
+                decoration: dec('起点 纬度,经度（如 32.10,114.08）'),
+              ),
               const SizedBox(height: 8),
               TextField(
-                  controller: endCtl,
-                  style: const TextStyle(color: kTextMain, fontSize: 13),
-                  decoration: dec('终点 纬度,经度')),
+                controller: endCtl,
+                style: const TextStyle(color: kTextMain, fontSize: 13),
+                decoration: dec('终点 纬度,经度'),
+              ),
               const SizedBox(height: 8),
             ],
-            Row(children: [
-              Expanded(
-                child: TextField(
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
                     controller: spaceCtl,
                     keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                      decimal: true,
+                    ),
                     style: const TextStyle(color: kTextMain, fontSize: 14),
-                    decoration: dec('平均档距(米)')),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
+                    decoration: dec('平均档距(米)'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
                     controller: prefixCtl,
                     style: const TextStyle(color: kTextMain, fontSize: 14),
-                    decoration: dec('编号前缀')),
-              ),
-            ]),
+                    decoration: dec('编号前缀'),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
             const Text('杆型', style: TextStyle(color: kTextSub, fontSize: 11)),
             const SizedBox(height: 4),
@@ -97,10 +108,13 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
               children: [
                 for (final t in poleTypes)
                   ChoiceChip(
-                    label: Text(t.name,
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: typeId == t.id ? Colors.black : kTextMain)),
+                    label: Text(
+                      t.name,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: typeId == t.id ? Colors.black : kTextMain,
+                      ),
+                    ),
                     selected: typeId == t.id,
                     selectedColor: kAccent,
                     backgroundColor: TokC.field,
@@ -167,8 +181,10 @@ Future<void> showTemplateDialog(BuildContext context, AppState st) async {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('套用后，此后新增点沿用模板的默认符号 / 敷设方式 / 型号 / 盘留（不回溯已有点）。',
-              style: TextStyle(color: kTextSub, fontSize: 11)),
+          const Text(
+            '套用后，此后新增点沿用模板的默认符号 / 敷设方式 / 型号 / 盘留（不回溯已有点）。',
+            style: TextStyle(color: kTextSub, fontSize: 11),
+          ),
           const SizedBox(height: 8),
           for (final t in ProjectTemplate.presets)
             ListTile(
@@ -180,8 +196,10 @@ Future<void> showTemplateDialog(BuildContext context, AppState st) async {
                 color: st.templateId == t.id ? kGreen : kTextSub,
                 size: 20,
               ),
-              title: Text(t.name,
-                  style: const TextStyle(color: kTextMain, fontSize: 13.5)),
+              title: Text(
+                t.name,
+                style: const TextStyle(color: kTextMain, fontSize: 13.5),
+              ),
               subtitle: Text(
                 '符号 ${LabelType.fromId(t.defTypeId).name} · '
                 '敷设 ${_kindName(t.defSegKind)}'
@@ -198,9 +216,7 @@ Future<void> showTemplateDialog(BuildContext context, AppState st) async {
         ],
       ),
     ),
-    actions: [
-      darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub),
-    ],
+    actions: [darkTextBtn('关闭', () => Navigator.pop(context), color: kTextSub)],
   );
 }
 

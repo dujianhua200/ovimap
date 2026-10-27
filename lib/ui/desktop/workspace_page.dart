@@ -117,12 +117,9 @@ class _WorkspacePageState extends State<WorkspacePage> {
     // 非 Windows 平台该通道永不触发，注册无副作用。
     FileDrop.register(_onFilesDropped);
     // P1-17：启动后若持久化层记了异常（启动加载/保存失败），toast 提醒用户。
-    _persistWatch = startPersistErrorWatch(
-      () => _st.persistErrors,
-      () {
-        if (mounted) toast(context, '保存可能失败，详见日志');
-      },
-    );
+    _persistWatch = startPersistErrorWatch(() => _st.persistErrors, () {
+      if (mounted) toast(context, '保存可能失败，详见日志');
+    });
   }
 
   @override
@@ -191,8 +188,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
       toast(context, '导出工程文件失败：找不到该工程的原始文件');
       return;
     }
-    await ExportSaver.saveOrShare(context, f,
-        suggestedName: f.uri.pathSegments.last);
+    await ExportSaver.saveOrShare(
+      context,
+      f,
+      suggestedName: f.uri.pathSegments.last,
+    );
   }
 
   // ================= 回调 =================
@@ -208,8 +208,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       _selCid = '';
     });
     st.refreshUi();
-    toast(context,
-        '已新建「${st.projectName}」：直接在地图上打点，Ctrl+S 保存到收藏夹根目录');
+    toast(context, '已新建「${st.projectName}」：直接在地图上打点，Ctrl+S 保存到收藏夹根目录');
   }
 
   void _save() => showFinishDialog(context, _st);
@@ -284,8 +283,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       if (ls.any((l) => l.type.isTopoLinkable)) candidates.add(m);
     }
     if (candidates.isEmpty) {
-      toast(context,
-          '没有含可连线箱体（光交/分纤盒/分光器箱/ONU/机房/基站/引上）的收藏工程');
+      toast(context, '没有含可连线箱体（光交/分纤盒/分光器箱/ONU/机房/基站/引上）的收藏工程');
       return;
     }
     CollectionMeta pick;
@@ -300,44 +298,61 @@ class _WorkspacePageState extends State<WorkspacePage> {
     final ok = await st.startTopoLink(pick);
     if (!mounted) return;
     final pickName = pick.name.isEmpty ? '未命名' : pick.name;
-    toast(context,
-        ok ? '拓扑连线「$pickName」：点起点箱体 → 点终点箱体' : '进入拓扑连线失败');
+    toast(context, ok ? '拓扑连线「$pickName」：点起点箱体 → 点终点箱体' : '进入拓扑连线失败');
   }
 
   /// P1-6：多个候选工程时，让用户选择进哪个工程做拓扑连线。
   Future<CollectionMeta?> _pickTopoProject(
-      BuildContext context, List<CollectionMeta> candidates) async {
+    BuildContext context,
+    List<CollectionMeta> candidates,
+  ) async {
     CollectionMeta? picked;
     await showDarkDialog(
       context,
       title: '选择拓扑连线工程',
       content: SizedBox(
         width: double.maxFinite,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('多个工程含可连线箱体，请选择要连线的工程：',
-              style: TextStyle(color: kTextSub, fontSize: 12)),
-          const SizedBox(height: 8),
-          Flexible(
-            child: ListView(shrinkWrap: true, children: [
-              for (final m in candidates)
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.account_tree_outlined,
-                      color: kAccent, size: 20),
-                  title: Text(m.name.isEmpty ? '未命名' : m.name,
-                      style:
-                          const TextStyle(color: kTextMain, fontSize: 13.5)),
-                  subtitle: Text('${m.count} 点',
-                      style:
-                          const TextStyle(color: kTextSub, fontSize: 11)),
-                  onTap: () {
-                    picked = m;
-                    Navigator.pop(context);
-                  },
-                ),
-            ]),
-          ),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '多个工程含可连线箱体，请选择要连线的工程：',
+              style: TextStyle(color: kTextSub, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final m in candidates)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(
+                        Icons.account_tree_outlined,
+                        color: kAccent,
+                        size: 20,
+                      ),
+                      title: Text(
+                        m.name.isEmpty ? '未命名' : m.name,
+                        style: const TextStyle(
+                          color: kTextMain,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${m.count} 点',
+                        style: const TextStyle(color: kTextSub, fontSize: 11),
+                      ),
+                      onTap: () {
+                        picked = m;
+                        Navigator.pop(context);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
       actions: [
         darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
@@ -362,8 +377,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
       return;
     }
     final d = st.toDisplay(st.curLat!, st.curLon!);
-    _mc.moveAndRotate(LatLng(d[0], d[1]),
-        _mc.camera.zoom < 16 ? 17.5 : _mc.camera.zoom, _mc.camera.rotation);
+    _mc.moveAndRotate(
+      LatLng(d[0], d[1]),
+      _mc.camera.zoom < 16 ? 17.5 : _mc.camera.zoom,
+      _mc.camera.rotation,
+    );
     st.setFollow(true);
     toast(context, '已定位到当前位置');
   }
@@ -430,16 +448,15 @@ class _WorkspacePageState extends State<WorkspacePage> {
 
   /// Esc：取消当前操作（奥维桌面版 `Esc` 语义）。
   ///
-  /// 优先级从「最临时」到「最正式」：待定点位编辑 → 框选 → 测量/连线 → 视图。
+  /// 优先级从「最临时」到「最正式」：待定点位编辑 → 选择集 → 当前工具模式 →
+  /// 普通视图（此时才收收藏夹面板）。
+  ///
+  /// 以前收藏夹面板排在第一位：打点中按 Esc 只会收起左栏，提示栏写着
+  /// 「Esc 结束打点」却要按两次——这是实机走查发现的真实操作问题。
   /// **普通/采集模式不清空草稿** —— 误触 Esc 丢掉几十个点是不可接受的，
   /// 清空草稿有专门入口（右键菜单 / 左栏）。
   void _escape() {
     final st = _st;
-    // Esc 第一优先：收起收藏夹悬浮面板（临时 UI 最先退场）。
-    if (_favOpen) {
-      setState(() => _favOpen = false);
-      return;
-    }
     if (st.draggingLabelId != null) {
       st.cancelPendingEdit();
       toast(context, '已取消「待点地图放置」');
@@ -468,6 +485,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
         st.setMode(AppMode.view);
         toast(context, '已结束打点（草稿保留，Ctrl+S 保存到收藏夹）');
       case AppMode.view:
+        // 普通视图下才把 Esc 用于收起收藏夹面板（最低优先级）。
+        if (_favOpen) {
+          setState(() => _favOpen = false);
+          return;
+        }
         toast(context, '当前没有可取消的操作（Esc 可退出测量/连线/框选、取消待定点位）');
     }
   }
@@ -529,8 +551,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
     }
     final p = await PhotoService.purgeOrphans([refs]);
     if (!mounted) return;
-    toast(context,
-        '存储清理完成：图源缓存${n > 0 ? '已清' : '无'} · 未引用照片${p > 0 ? '已清 $p 个' : '无'}');
+    toast(
+      context,
+      '存储清理完成：图源缓存${n > 0 ? '已清' : '无'} · 未引用照片${p > 0 ? '已清 $p 个' : '无'}',
+    );
   }
 
   void _showSyncInfo() {
@@ -551,28 +575,26 @@ class _WorkspacePageState extends State<WorkspacePage> {
       toast(context, '当前项目没有点，无需体检');
       return;
     }
-    await showRouteInspectDialog(
-      context,
-      st,
-      onLocate: _locateLabels,
-    );
+    await showRouteInspectDialog(context, st, onLocate: _locateLabels);
   }
 
   /// ODN 拓扑图（桌面菜单入口）：选工程是异步流程，这里 fire-and-forget；
   /// 节点定位直接用节点坐标（拓扑可能来自收藏工程，不一定在当前草稿里，
   /// 不能走按 id 查草稿的 [_locateLabels]）。
   void _showOdnTopo() {
-    unawaited(openOdnTopoViewer(
-      context,
-      _st,
-      onLocateLabel: (l) {
-        final d = _st.toDisplay(l.lat, l.lon);
-        if (_mapReady) {
-          final z = _mc.camera.zoom;
-          _mc.move(LatLng(d[0], d[1]), z < 17 ? 17.0 : z);
-        }
-      },
-    ));
+    unawaited(
+      openOdnTopoViewer(
+        context,
+        _st,
+        onLocateLabel: (l) {
+          final d = _st.toDisplay(l.lat, l.lon);
+          if (_mapReady) {
+            final z = _mc.camera.zoom;
+            _mc.move(LatLng(d[0], d[1]), z < 17 ? 17.0 : z);
+          }
+        },
+      ),
+    );
   }
 
   /// 把体检报出的点选中并把地图移过去。
@@ -589,8 +611,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
       final l = hits.first;
       final d = _st.toDisplay(l.lat, l.lon);
       if (_mapReady) {
-        _mc.move(LatLng(d[0], d[1]),
-            _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom);
+        _mc.move(
+          LatLng(d[0], d[1]),
+          _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom,
+        );
       }
     } else {
       // 多点（组定位）：缩放到全部点位的范围
@@ -613,8 +637,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
         zoom = 18 - math.log((span / 0.002).clamp(1, 100000)) / 0.6931;
         zoom = zoom.clamp(5.0, 18.0);
       }
-      final d = _st.toDisplay(
-          (minLat + maxLat) / 2, (minLon + maxLon) / 2);
+      final d = _st.toDisplay((minLat + maxLat) / 2, (minLon + maxLon) / 2);
       if (_mapReady) {
         _mc.move(LatLng(d[0], d[1]), zoom);
       }
@@ -638,8 +661,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       toast(context, '地图未就绪，稍后再试');
       return;
     }
-    _mc.move(LatLng(d[0], d[1]),
-        _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom);
+    _mc.move(LatLng(d[0], d[1]), _mc.camera.zoom < 18 ? 18.0 : _mc.camera.zoom);
     toast(context, '已定位到「${l.name.isEmpty ? '标记点' : l.name}」');
   }
 
@@ -674,8 +696,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       zoom = 18 - math.log((span / 0.002).clamp(1, 100000)) / 0.6931;
       zoom = zoom.clamp(5.0, 18.0);
     }
-    final d =
-        _st.toDisplay((minLat + maxLat) / 2, (minLon + maxLon) / 2);
+    final d = _st.toDisplay((minLat + maxLat) / 2, (minLon + maxLon) / 2);
     _mc.move(LatLng(d[0], d[1]), zoom);
     toast(context, '已定位到该组（${labels.length} 个点）');
   }
@@ -695,30 +716,45 @@ class _WorkspacePageState extends State<WorkspacePage> {
         height: 400,
         child: chains.isEmpty
             ? const Center(
-                child: Text('没有参与连线的点（箱体请从地图上直接点选）',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: kTextSub, fontSize: TokFs.body)))
+                child: Text(
+                  '没有参与连线的点（箱体请从地图上直接点选）',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: kTextSub, fontSize: TokFs.body),
+                ),
+              )
             : ListView(
                 children: [
                   for (var ci = 0; ci < chains.length; ci++) ...[
-                    Builder(builder: (ctx) {
-                      var len = 0.0;
-                      for (var i = 1; i < chains[ci].length; i++) {
-                        final p = chains[ci][i];
-                        len += p.distanceM ??
-                            GeoUtil.haversine(chains[ci][i - 1].lat,
-                                chains[ci][i - 1].lon, p.lat, p.lon);
-                      }
-                      return Container(
-                        color: TokC.field,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
-                        child: Text(
+                    Builder(
+                      builder: (ctx) {
+                        var len = 0.0;
+                        for (var i = 1; i < chains[ci].length; i++) {
+                          final p = chains[ci][i];
+                          len +=
+                              p.distanceM ??
+                              GeoUtil.haversine(
+                                chains[ci][i - 1].lat,
+                                chains[ci][i - 1].lon,
+                                p.lat,
+                                p.lon,
+                              );
+                        }
+                        return Container(
+                          color: TokC.field,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
+                          child: Text(
                             '链 ${ci + 1} · ${chains[ci].length} 点 · 全长 ${_fmtChainLen(len)}',
                             style: const TextStyle(
-                                color: kAccent, fontSize: TokFs.body)),
-                      );
-                    }),
+                              color: kAccent,
+                              fontSize: TokFs.body,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                     for (final l in chains[ci])
                       ListTile(
                         dense: true,
@@ -726,21 +762,33 @@ class _WorkspacePageState extends State<WorkspacePage> {
                           radius: 11,
                           backgroundColor: l.type.color,
                           child: Text(
-                              l.name.trim().isNotEmpty
-                                  ? l.name.trim().substring(0, 1)
-                                  : (l.type.symbol.isEmpty
+                            l.name.trim().isNotEmpty
+                                ? l.name.trim().substring(0, 1)
+                                : (l.type.symbol.isEmpty
                                       ? l.type.name.substring(0, 1)
                                       : l.type.symbol),
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: TokFs.caption)),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: TokFs.caption,
+                            ),
+                          ),
                         ),
                         title: Text(
-                            l.name.trim().isNotEmpty ? l.name.trim() : l.type.name,
-                            style: const TextStyle(
-                                color: kTextMain, fontSize: TokFs.title)),
-                        subtitle: Text(_poleSub(l, chains[ci]),
-                            style: const TextStyle(
-                                color: kTextSub, fontSize: TokFs.caption)),
+                          l.name.trim().isNotEmpty
+                              ? l.name.trim()
+                              : l.type.name,
+                          style: const TextStyle(
+                            color: kTextMain,
+                            fontSize: TokFs.title,
+                          ),
+                        ),
+                        subtitle: Text(
+                          _poleSub(l, chains[ci]),
+                          style: const TextStyle(
+                            color: kTextSub,
+                            fontSize: TokFs.caption,
+                          ),
+                        ),
                         onTap: () {
                           Navigator.pop(context);
                           final d = st.toDisplay(l.lat, l.lon);
@@ -765,13 +813,15 @@ class _WorkspacePageState extends State<WorkspacePage> {
     final parts = <String>[];
     final i = chain.indexOf(l);
     if (i > 0) {
-      final d = l.distanceM ??
+      final d =
+          l.distanceM ??
           GeoUtil.haversine(chain[i - 1].lat, chain[i - 1].lon, l.lat, l.lon);
       parts.add('距上点 ${GeoUtil.fmtDist(d)}');
     }
     if (l.slackM > 0) {
       parts.add(
-          '盘留${l.slackM == l.slackM.roundToDouble() ? l.slackM.toStringAsFixed(0) : l.slackM.toStringAsFixed(1)}m');
+        '盘留${l.slackM == l.slackM.roundToDouble() ? l.slackM.toStringAsFixed(0) : l.slackM.toStringAsFixed(1)}m',
+      );
     }
     if (l.segCable.trim().isNotEmpty) parts.add(l.segCable.trim());
     if (l.photoPaths.isNotEmpty) parts.add('${l.photoPaths.length}图');
@@ -785,9 +835,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
       toast(context, '没有轨迹：先在线走查一遍并记录轨迹，再来核查');
       return;
     }
-    final poles = [
-      for (final chain in buildLabelChains(st.labels)) ...chain,
-    ];
+    final poles = [for (final chain in buildLabelChains(st.labels)) ...chain];
     if (poles.isEmpty) {
       toast(context, '当前项目没有杆路点，无法核查');
       return;
@@ -803,10 +851,20 @@ class _WorkspacePageState extends State<WorkspacePage> {
             for (final m in tracks)
               ListTile(
                 dense: true,
-                title: Text(m.name.isEmpty ? '未命名轨迹' : m.name,
-                    style: const TextStyle(color: kTextMain, fontSize: TokFs.title)),
-                subtitle: Text('${m.count} 点',
-                    style: const TextStyle(color: kTextSub, fontSize: TokFs.caption)),
+                title: Text(
+                  m.name.isEmpty ? '未命名轨迹' : m.name,
+                  style: const TextStyle(
+                    color: kTextMain,
+                    fontSize: TokFs.title,
+                  ),
+                ),
+                subtitle: Text(
+                  '${m.count} 点',
+                  style: const TextStyle(
+                    color: kTextSub,
+                    fontSize: TokFs.caption,
+                  ),
+                ),
                 onTap: () async {
                   Navigator.pop(context);
                   final trackPts = await st.store.loadCollection(m.id);
@@ -833,30 +891,36 @@ class _WorkspacePageState extends State<WorkspacePage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('轨迹：$trackName',
-                style: const TextStyle(color: kTextSub, fontSize: TokFs.small)),
+            Text(
+              '轨迹：$trackName',
+              style: const TextStyle(color: kTextSub, fontSize: TokFs.small),
+            ),
             const SizedBox(height: 6),
             Text(
-                '杆数 ${r.poleCount} · 轨迹全长 ${_fmtChainLen(r.trackLen)}\n'
-                '平均偏移 ${r.avgOffset.toStringAsFixed(0)} 米（阈值 ${r.threshold.toStringAsFixed(0)} 米）',
-                style: const TextStyle(color: kTextMain, fontSize: TokFs.body)),
+              '杆数 ${r.poleCount} · 轨迹全长 ${_fmtChainLen(r.trackLen)}\n'
+              '平均偏移 ${r.avgOffset.toStringAsFixed(0)} 米（阈值 ${r.threshold.toStringAsFixed(0)} 米）',
+              style: const TextStyle(color: kTextMain, fontSize: TokFs.body),
+            ),
             const SizedBox(height: 10),
             Text(
-                r.outliers.isEmpty
-                    ? '✓ 全部杆位偏移在阈值内，没有漏杆/错位迹象'
-                    : '⚠ ${r.outliers.length} 根杆偏移超阈值，按偏移从大到小：',
-                style: TextStyle(
-                    color: r.outliers.isEmpty
-                        ? TokC.ok
-                        : TokC.warn,
-                    fontSize: TokFs.body)),
+              r.outliers.isEmpty
+                  ? '✓ 全部杆位偏移在阈值内，没有漏杆/错位迹象'
+                  : '⚠ ${r.outliers.length} 根杆偏移超阈值，按偏移从大到小：',
+              style: TextStyle(
+                color: r.outliers.isEmpty ? TokC.ok : TokC.warn,
+                fontSize: TokFs.body,
+              ),
+            ),
             for (final (pole, off) in r.outliers.take(10))
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Text(
-                    '· ${pole.name.trim().isNotEmpty ? pole.name.trim() : pole.type.name}：偏移 ${off.toStringAsFixed(0)} 米',
-                    style: const TextStyle(
-                        color: TokC.warn, fontSize: TokFs.body)),
+                  '· ${pole.name.trim().isNotEmpty ? pole.name.trim() : pole.type.name}：偏移 ${off.toStringAsFixed(0)} 米',
+                  style: const TextStyle(
+                    color: TokC.warn,
+                    fontSize: TokFs.body,
+                  ),
+                ),
               ),
           ],
         ),
@@ -887,8 +951,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
             children: [
               CircularProgressIndicator(color: kAccent),
               SizedBox(height: 14),
-              Text('滑洲云图 启动中…',
-                  style: TextStyle(color: kTextSub, fontSize: TokFs.body)),
+              Text(
+                '滑洲云图 启动中…',
+                style: TextStyle(color: kTextSub, fontSize: TokFs.body),
+              ),
             ],
           ),
         ),
@@ -898,14 +964,17 @@ class _WorkspacePageState extends State<WorkspacePage> {
     // 图源变化时重建 provider（与移动端一致）。
     if (_baseProviderFor != st.curSource.id || _baseProvider == null) {
       _baseProvider = CacheTileProvider(
-          sourceId: st.curSource.id,
-          urlTemplate: st.curSource.normalizedUrl);
+        sourceId: st.curSource.id,
+        urlTemplate: st.curSource.normalizedUrl,
+      );
       _baseProviderFor = st.curSource.id;
     }
     final ovl = st.currentOverlay();
     if (ovl != null && _overlayProviderFor != ovl.id) {
       _overlayProvider = CacheTileProvider(
-          sourceId: ovl.id, urlTemplate: ovl.normalizedUrl);
+        sourceId: ovl.id,
+        urlTemplate: ovl.normalizedUrl,
+      );
       _overlayProviderFor = ovl.id;
     } else if (ovl == null) {
       _overlayProvider = null;
@@ -966,8 +1035,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 onInspect: _inspect,
                 leftCollapsed: !_favOpen,
                 rightCollapsed: _rightCollapsed,
-                onToggleLeft: () =>
-                    setState(() => _favOpen = !_favOpen),
+                onToggleLeft: () => setState(() => _favOpen = !_favOpen),
                 onToggleRight: () =>
                     setState(() => _rightCollapsed = !_rightCollapsed),
               ),
@@ -994,29 +1062,29 @@ class _WorkspacePageState extends State<WorkspacePage> {
   /// macOS 原生菜单与 Windows 自绘菜单**共用这一份**，不会出现
   /// 「macOS 有这一项、Windows 没有」的平台漂移（默认值/模式切换曾正是这样丢的）。
   OviMenuActions get _menuActions => OviMenuActions(
-        onNewProject: _newProject,
-        onOpenProject: _openProjectFile,
-        onExportProject: _exportProjectFile,
-        onSave: _save,
-        onExport: _export,
-        onUndo: _undo,
-        onRedo: _redo,
-        onDeleteSelection: _deleteSelection,
-        onPoleTable: _showPoleTable,
-        onTrackCheck: _showTrackCheck,
-        onInspect: _inspect,
-        onOdnTopo: _showOdnTopo,
-        onOffline: _onOffline,
-        onStorageCleanup: _storageCleanup,
-        onSync: _showSyncInfo,
-        onToggleLeft: () => setState(() => _favOpen = !_favOpen),
-        onToggleRight: () => setState(() => _rightCollapsed = !_rightCollapsed),
-        onFocusMap: _focusMap,
-        onZoomIn: _zoomIn,
-        onZoomOut: _zoomOut,
-        onResetView: _resetView,
-        onFocusSearch: _focusSearch,
-      );
+    onNewProject: _newProject,
+    onOpenProject: _openProjectFile,
+    onExportProject: _exportProjectFile,
+    onSave: _save,
+    onExport: _export,
+    onUndo: _undo,
+    onRedo: _redo,
+    onDeleteSelection: _deleteSelection,
+    onPoleTable: _showPoleTable,
+    onTrackCheck: _showTrackCheck,
+    onInspect: _inspect,
+    onOdnTopo: _showOdnTopo,
+    onOffline: _onOffline,
+    onStorageCleanup: _storageCleanup,
+    onSync: _showSyncInfo,
+    onToggleLeft: () => setState(() => _favOpen = !_favOpen),
+    onToggleRight: () => setState(() => _rightCollapsed = !_rightCollapsed),
+    onFocusMap: _focusMap,
+    onZoomIn: _zoomIn,
+    onZoomOut: _zoomOut,
+    onResetView: _resetView,
+    onFocusSearch: _focusSearch,
+  );
 
   Widget _body(AppState st) {
     return LayoutBuilder(
@@ -1032,15 +1100,19 @@ class _WorkspacePageState extends State<WorkspacePage> {
             // 收藏夹停靠面板（奥维桌面版同款布局：常驻左侧、可拖宽、可收起）。
             if (_favOpen) ...[
               SizedBox(width: _leftW, child: _leftPanel(st)),
-              _dragDivider((dx) => setState(
-                  () => _leftW = (_leftW + dx).clamp(220.0, 460.0))),
+              _dragDivider(
+                (dx) =>
+                    setState(() => _leftW = (_leftW + dx).clamp(220.0, 460.0)),
+              ),
             ],
             Expanded(child: _mapStack(st)),
             if (showRight)
-              _dragDivider((dx) => setState(
-                  () => _rightW = (_rightW - dx).clamp(240.0, 460.0))),
-            if (showRight)
-              SizedBox(width: _rightW, child: _rightPanel(st)),
+              _dragDivider(
+                (dx) => setState(
+                  () => _rightW = (_rightW - dx).clamp(240.0, 460.0),
+                ),
+              ),
+            if (showRight) SizedBox(width: _rightW, child: _rightPanel(st)),
           ],
         );
       },
@@ -1050,20 +1122,33 @@ class _WorkspacePageState extends State<WorkspacePage> {
   /// 最左侧图标轨道：目前只有「收藏夹」一个入口，后续同类入口（如体检、
   /// 导出中心）可以继续往下加，形成奥维桌面版左侧工具条的布局。
   Widget _favRail(AppState st) {
-    Widget railBtn(IconData icon, String label, bool active, VoidCallback onTap) {
+    Widget railBtn(
+      IconData icon,
+      String label,
+      bool active,
+      VoidCallback onTap,
+    ) {
       final color = active ? kAccent : kTextSub;
       return InkWell(
         onTap: onTap,
         child: Container(
           width: 52,
           padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 20, color: color),
-            const SizedBox(height: 3),
-            Text(label,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(height: 3),
+              Text(
+                label,
                 style: TextStyle(
-                    fontSize: TokFs.micro, color: color, height: 1.1)),
-          ]),
+                  fontSize: TokFs.micro,
+                  color: color,
+                  height: 1.1,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -1074,38 +1159,44 @@ class _WorkspacePageState extends State<WorkspacePage> {
         color: TokC.panelSolid,
         border: Border(right: BorderSide(color: TokC.divider)),
       ),
-      child: Column(children: [
-        railBtn(Icons.bookmarks, '收藏夹', _favOpen,
-            () => setState(() => _favOpen = !_favOpen)),
-        railBtn(Icons.note_add, '新建', false, _newProject),
-        const Spacer(),
-      ]),
+      child: Column(
+        children: [
+          railBtn(
+            Icons.bookmarks,
+            '收藏夹',
+            _favOpen,
+            () => setState(() => _favOpen = !_favOpen),
+          ),
+          railBtn(Icons.note_add, '新建', false, _newProject),
+          const Spacer(),
+        ],
+      ),
     );
   }
 
   Widget _leftPanel(AppState st) => LeftPanel(
-        st: st,
-        searchFocus: _searchFocus,
-        onNewProject: _newProject,
-        // 收藏夹点位/组定位：直接用 label 坐标（不查草稿，收藏点常不在草稿里）。
-        // 2026-10-05 修复"定位不管用"：此前走 _locateLabels 按 id 查草稿，
-        // 收藏点不在草稿时静默返回、地图不动。
-        onLocate: _locateFavLabel,
-        // 组点击 → 定位整个组（全部点位，缩放到范围）。
-        onLocateGroup: _locateFavLabels,
-        // 悬浮面板标题栏的「收起」按钮。
-        onClose: () => setState(() => _favOpen = false),
-      );
+    st: st,
+    searchFocus: _searchFocus,
+    onNewProject: _newProject,
+    // 收藏夹点位/组定位：直接用 label 坐标（不查草稿，收藏点常不在草稿里）。
+    // 2026-10-05 修复"定位不管用"：此前走 _locateLabels 按 id 查草稿，
+    // 收藏点不在草稿时静默返回、地图不动。
+    onLocate: _locateFavLabel,
+    // 组点击 → 定位整个组（全部点位，缩放到范围）。
+    onLocateGroup: _locateFavLabels,
+    // 悬浮面板标题栏的「收起」按钮。
+    onClose: () => setState(() => _favOpen = false),
+  );
 
   Widget _rightPanel(AppState st) => RightPanel(
-        st: st,
-        label: _selLabel,
-        sourceCid: _selCid,
-        onCleared: () => setState(() {
-          _selLabel = null;
-          _selCid = '';
-        }),
-      );
+    st: st,
+    label: _selLabel,
+    sourceCid: _selCid,
+    onCleared: () => setState(() {
+      _selLabel = null;
+      _selCid = '';
+    }),
+  );
 
   Widget _mapStack(AppState st) {
     return Stack(
@@ -1154,20 +1245,26 @@ class _WorkspacePageState extends State<WorkspacePage> {
             ),
             // 搜索临时标记：醒目定位针，点击弹信息（名称/地址/坐标/加入收藏/清除）。
             if (_searchMark != null)
-              MarkerLayer(markers: [
-                Marker(
-                  point: LatLng(
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: LatLng(
                       st.toDisplay(_searchMark!.lat, _searchMark!.lon)[0],
-                      st.toDisplay(_searchMark!.lat, _searchMark!.lon)[1]),
-                  width: 44,
-                  height: 44,
-                  child: GestureDetector(
-                    onTap: () => _showSearchMarkPanel(st),
-                    child: const Icon(Icons.location_on,
-                        color: Color(0xFFE91E63), size: 40),
+                      st.toDisplay(_searchMark!.lat, _searchMark!.lon)[1],
+                    ),
+                    width: 44,
+                    height: 44,
+                    child: GestureDetector(
+                      onTap: () => _showSearchMarkPanel(st),
+                      child: const Icon(
+                        Icons.location_on,
+                        color: Color(0xFFE91E63),
+                        size: 40,
+                      ),
+                    ),
                   ),
-                ),
-              ]),
+                ],
+              ),
           ],
         ),
         // 比例尺（左下）
@@ -1179,11 +1276,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
               : const SizedBox.shrink(),
         ),
         // 地名搜索（左上）：高德优先，2026-10-05 用户要求（Mac 版此前无搜索）。
-        Positioned(
-          left: 12,
-          top: 12,
-          child: _mapSearchBar(st),
-        ),
+        Positioned(left: 12, top: 12, child: _mapSearchBar(st)),
       ],
     );
   }
@@ -1197,7 +1290,11 @@ class _WorkspacePageState extends State<WorkspacePage> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: TokC.divider),
         boxShadow: const [
-          BoxShadow(color: Color(0x40000000), blurRadius: 8, offset: Offset(0, 2))
+          BoxShadow(
+            color: Color(0x40000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
         ],
       ),
       child: Row(
@@ -1211,8 +1308,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 hintStyle: TextStyle(color: kTextHint, fontSize: 12.5),
                 prefixIcon: Icon(Icons.search, color: kTextSub, size: 18),
                 border: InputBorder.none,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 10,
+                ),
                 isDense: true,
               ),
               onSubmitted: (_) => _doMapSearch(),
@@ -1222,9 +1321,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
             const Padding(
               padding: EdgeInsets.only(right: 12),
               child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             )
           else
             IconButton(
@@ -1256,12 +1356,14 @@ class _WorkspacePageState extends State<WorkspacePage> {
     final near = st.toWgs(cam0.center.latitude, cam0.center.longitude);
     List<SearchResult> results;
     try {
-      results = await SearchService.search(q,
-          amapKey: st.amapKey,
-          tdtKey: st.tiandituKey,
-          nearLat: near[0],
-          nearLon: near[1],
-          convertGcj: st.tdtConvertGcj);
+      results = await SearchService.search(
+        q,
+        amapKey: st.amapKey,
+        tdtKey: st.tiandituKey,
+        nearLat: near[0],
+        nearLon: near[1],
+        convertGcj: st.tdtConvertGcj,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _mapSearching = false);
@@ -1302,18 +1404,24 @@ class _WorkspacePageState extends State<WorkspacePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                                r.name.length > 40
-                                    ? '${r.name.substring(0, 40)}…'
-                                    : r.name,
-                                style: const TextStyle(
-                                    color: kTextMain, fontSize: 13.5)),
+                              r.name.length > 40
+                                  ? '${r.name.substring(0, 40)}…'
+                                  : r.name,
+                              style: const TextStyle(
+                                color: kTextMain,
+                                fontSize: 13.5,
+                              ),
+                            ),
                             if (r.address.isNotEmpty)
                               Text(
-                                  r.address.length > 56
-                                      ? '${r.address.substring(0, 56)}…'
-                                      : r.address,
-                                  style: const TextStyle(
-                                      color: kTextSub, fontSize: 11)),
+                                r.address.length > 56
+                                    ? '${r.address.substring(0, 56)}…'
+                                    : r.address,
+                                style: const TextStyle(
+                                  color: kTextSub,
+                                  fontSize: 11,
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -1339,16 +1447,19 @@ class _WorkspacePageState extends State<WorkspacePage> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(r.name,
-              style: const TextStyle(color: kTextMain, fontSize: 14)),
+          Text(r.name, style: const TextStyle(color: kTextMain, fontSize: 14)),
           if (r.address.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text(r.address,
-                style: const TextStyle(color: kTextSub, fontSize: 12)),
+            Text(
+              r.address,
+              style: const TextStyle(color: kTextSub, fontSize: 12),
+            ),
           ],
           const SizedBox(height: 8),
-          Text('坐标：${GeoUtil.formatCoord(d[0], d[1], st.coordFmt)}',
-              style: const TextStyle(color: kTextSub, fontSize: 12)),
+          Text(
+            '坐标：${GeoUtil.formatCoord(d[0], d[1], st.coordFmt)}',
+            style: const TextStyle(color: kTextSub, fontSize: 12),
+          ),
         ],
       ),
       actions: [
@@ -1359,8 +1470,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
         darkTextBtn('加入收藏', () async {
           Navigator.pop(context);
           try {
-            await st.savePointAsCollection(r.name, r.lat, r.lon,
-                note: r.address);
+            await st.savePointAsCollection(
+              r.name,
+              r.lat,
+              r.lon,
+              note: r.address,
+            );
             if (mounted) toast(context, '已加入收藏');
           } catch (e) {
             if (mounted) toast(context, '加入收藏失败：$e');
@@ -1381,7 +1496,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
   /// 也才放得下键盘提示（桌面端的主要操作入口是键盘 + 鼠标）。
   Widget _hintBar(AppState st) {
     final (tag, color, hint, stat) = _hintContent(st);
-    final closable = st.mode == AppMode.measureDist ||
+    final closable =
+        st.mode == AppMode.measureDist ||
         st.mode == AppMode.measureArea ||
         st.mode == AppMode.topoLink ||
         st.mode == AppMode.boxSelect;
@@ -1401,19 +1517,29 @@ class _WorkspacePageState extends State<WorkspacePage> {
               borderRadius: BorderRadius.circular(TokR.s),
               border: Border.all(color: color.withValues(alpha: 0.55)),
             ),
-            child: Text(tag,
-                style: TextStyle(
-                    color: color, fontSize: TokFs.small, fontWeight: FontWeight.w600)),
+            child: Text(
+              tag,
+              style: TextStyle(
+                color: color,
+                fontSize: TokFs.small,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(hint,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kTextSub, fontSize: TokFs.small)),
+            child: Text(
+              hint,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: kTextSub, fontSize: TokFs.small),
+            ),
           ),
           if (stat.isNotEmpty)
-            Text(stat, style: const TextStyle(color: kAccent, fontSize: TokFs.small)),
+            Text(
+              stat,
+              style: const TextStyle(color: kAccent, fontSize: TokFs.small),
+            ),
           if (closable) ...[
             const SizedBox(width: 10),
             _hintBtn('完成 (Esc)', _escape),
@@ -1424,18 +1550,23 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Widget _hintBtn(String text, VoidCallback onTap) => InkWell(
+    borderRadius: BorderRadius.circular(TokR.s),
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: TokC.divider,
         borderRadius: BorderRadius.circular(TokR.s),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: TokC.divider,
-            borderRadius: BorderRadius.circular(TokR.s),
-          ),
-          child: Text(text,
-              style: const TextStyle(color: Color(0xFFD6DEE6), fontSize: TokFs.caption)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFFD6DEE6),
+          fontSize: TokFs.caption,
         ),
-      );
+      ),
+    ),
+  );
 
   /// 各模式的「标签 / 标签色 / 操作提示 / 实时数据」四元组。
   (String, Color, String, String) _hintContent(AppState st) {
@@ -1444,16 +1575,20 @@ class _WorkspacePageState extends State<WorkspacePage> {
       case AppMode.edit:
         // 待定放置优先：此时落点语义与常规采集不同，必须换提示。
         if (st.draggingLabelId != null) {
-          return ('待定放置', const Color(0xFFFFD54F),
-              '点地图把该点放到新位置 · Esc 取消', '');
+          return ('待定放置', const Color(0xFFFFD54F), '点地图把该点放到新位置 · Esc 取消', '');
         }
         var total = 0.0;
         var seg = 0;
         for (final chain in buildLabelChains(st.labels)) {
           for (var i = 1; i < chain.length; i++) {
-            total += chain[i].distanceM ??
-                GeoUtil.haversine(chain[i - 1].lat, chain[i - 1].lon,
-                    chain[i].lat, chain[i].lon);
+            total +=
+                chain[i].distanceM ??
+                GeoUtil.haversine(
+                  chain[i - 1].lat,
+                  chain[i - 1].lon,
+                  chain[i].lat,
+                  chain[i].lon,
+                );
             seg++;
           }
         }
@@ -1485,10 +1620,8 @@ class _WorkspacePageState extends State<WorkspacePage> {
         );
       case AppMode.topoLink:
         // P1-11：分母只计箱体类点位（杆/井等非箱体不计入）。
-        final boxes =
-            st.topoColl.where((l) => l.type.isTopoLinkable).toList();
-        final linked =
-            boxes.where((l) => l.topoParentId.isNotEmpty).length;
+        final boxes = st.topoColl.where((l) => l.type.isTopoLinkable).toList();
+        final linked = boxes.where((l) => l.topoParentId.isNotEmpty).length;
         return (
           '拓扑连线',
           const Color(0xFFFFCC80),
@@ -1515,24 +1648,25 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   Widget _dragDivider(void Function(double dx) onDrag) => MouseRegion(
-        cursor: SystemMouseCursors.resizeColumn,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragUpdate: (d) => onDrag(d.delta.dx),
-          child: Container(
-            width: 6,
-            color: TokC.divider,
-            child: Center(
-              child: Container(width: 1, color: TokC.divider),
-            ),
-          ),
-        ),
-      );
+    cursor: SystemMouseCursors.resizeColumn,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragUpdate: (d) => onDrag(d.delta.dx),
+      child: Container(
+        width: 6,
+        color: TokC.divider,
+        child: Center(child: Container(width: 1, color: TokC.divider)),
+      ),
+    ),
+  );
 
   String _centerText(AppState st) {
-    final c = _cam?.center ??
-        LatLng(st.toDisplay(st.initLat, st.initLon)[0],
-            st.toDisplay(st.initLat, st.initLon)[1]);
+    final c =
+        _cam?.center ??
+        LatLng(
+          st.toDisplay(st.initLat, st.initLon)[0],
+          st.toDisplay(st.initLat, st.initLon)[1],
+        );
     return GeoUtil.formatCoord(c.latitude, c.longitude, st.coordFmt);
   }
 }

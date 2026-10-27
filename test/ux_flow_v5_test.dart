@@ -8,6 +8,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ovimap/models/label_type.dart';
 import 'package:ovimap/models/map_label.dart';
@@ -16,6 +17,8 @@ import 'package:ovimap/services/app_paths.dart';
 import 'package:ovimap/services/store.dart';
 import 'package:ovimap/state/app_state.dart';
 import 'package:ovimap/ui/label_marker.dart';
+import 'package:ovimap/ui/new_project_dialog.dart';
+import 'package:ovimap/ui/route_tools.dart';
 import 'package:ovimap/ui/unsaved_draft_guard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,12 +26,13 @@ import '_fs_cleanup.dart';
 
 final store = LabelStore.instance;
 
-Future<void> _settle() => Future<void>.delayed(const Duration(milliseconds: 80));
+Future<void> _settle() =>
+    Future<void>.delayed(const Duration(milliseconds: 80));
 
 List<MapLabel> labelsN(int n) => [
-      for (var i = 0; i < n; i++)
-        MapLabel(typeId: 'pole', seq: i + 1, lat: 32.0 + i * 0.001, lon: 114.0),
-    ];
+  for (var i = 0; i < n; i++)
+    MapLabel(typeId: 'pole', seq: i + 1, lat: 32.0 + i * 0.001, lon: 114.0),
+];
 
 Future<AppState> makeState() async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -65,8 +69,7 @@ void main() {
       await st.openCollection(st.collections.firstWhere((m) => m.id == cid));
 
       expect(st.labels.length, 2);
-      expect(st.mode, AppMode.view,
-          reason: '打开工程是查看，不应直接进入打点；编辑必须显式点「打点」');
+      expect(st.mode, AppMode.view, reason: '打开工程是查看，不应直接进入打点；编辑必须显式点「打点」');
     });
 
     test('打开工程会清掉上一个工程的标记/拓扑/选择集', () async {
@@ -210,13 +213,11 @@ void main() {
       expect(st.hasUnsavedDraft, isFalse, reason: '空草稿无需提示');
 
       st.labels.addAll(labelsN(2));
-      expect(st.hasUnsavedDraft, isTrue,
-          reason: '有未保存点位，切换工程前必须提示');
+      expect(st.hasUnsavedDraft, isTrue, reason: '有未保存点位，切换工程前必须提示');
 
       st.projectName = '草稿A';
       await st.finishCollection();
-      expect(st.hasUnsavedDraft, isFalse,
-          reason: '已存成工程，草稿已被接管，不再算"未保存"');
+      expect(st.hasUnsavedDraft, isFalse, reason: '已存成工程，草稿已被接管，不再算"未保存"');
       expect(st.activeCollectionId, isEmpty);
       await _settle();
     });
@@ -224,23 +225,32 @@ void main() {
     test('只有 .ovimap 会触发草稿替换护栏', () {
       expect(containsProjectFile(<String>['/tmp/a.ovimap']), isTrue);
       expect(containsProjectFile(<String>['/tmp/A.OVIMAP']), isTrue);
-      expect(containsProjectFile(<String>['/tmp/a.geojson', '/tmp/b.json']),
-          isFalse);
+      expect(
+        containsProjectFile(<String>['/tmp/a.geojson', '/tmp/b.json']),
+        isFalse,
+      );
     });
   });
 
   group('删除工程', () {
     test('外部导入的工程删除后，草稿与地图数据一起清掉', () async {
-      final label =
-          MapLabel(typeId: 'concrete', seq: 1, lat: 32.0, lon: 114.0, name: 'G-1');
+      final label = MapLabel(
+        typeId: 'concrete',
+        seq: 1,
+        lat: 32.0,
+        lon: 114.0,
+        name: 'G-1',
+      );
       final file = File('${dir.path}/外部导入.ovimap');
-      await file.writeAsString(jsonEncode({
-        'id': 'imported',
-        'name': '外部导入',
-        'kind': 'label',
-        'editMode': 'design',
-        'labels': [label.toJson()],
-      }));
+      await file.writeAsString(
+        jsonEncode({
+          'id': 'imported',
+          'name': '外部导入',
+          'kind': 'label',
+          'editMode': 'design',
+          'labels': [label.toJson()],
+        }),
+      );
 
       final st = await makeState();
       final msg = await st.importProjectFile(file.path);
@@ -255,15 +265,16 @@ void main() {
 
       await st.deleteCollection(cid);
 
-      expect(st.labels, isEmpty,
-          reason: '删除当前打开的工程必须同时关闭草稿，否则地图仍显示这些点');
-      expect(st.activeCollectionId, isEmpty,
-          reason: '删除后不能继续把编辑写回已删除的工程');
+      expect(st.labels, isEmpty, reason: '删除当前打开的工程必须同时关闭草稿，否则地图仍显示这些点');
+      expect(st.activeCollectionId, isEmpty, reason: '删除后不能继续把编辑写回已删除的工程');
       expect(st.overlayLabels.containsKey(cid), isFalse);
       expect(st.visibleCids.contains(cid), isFalse);
       expect(st.mode, AppMode.view);
-      expect(st.prefs.getString(AppState.prefVisible) ?? '', isNot(contains(cid)),
-          reason: '可见集合要落盘，重启后不能再加载已删除工程');
+      expect(
+        st.prefs.getString(AppState.prefVisible) ?? '',
+        isNot(contains(cid)),
+        reason: '可见集合要落盘，重启后不能再加载已删除工程',
+      );
       await _settle();
     });
   });
@@ -274,16 +285,21 @@ void main() {
       expect(LabelType.concrete.shape, 'dot');
 
       final named = MapLabel(typeId: 'concrete', name: 'G-1');
-      expect(effectiveSymbolStyle(named).$3, isEmpty,
-          reason: '点名画在圆下方，圆内保持纯圆圈');
+      expect(
+        effectiveSymbolStyle(named).$3,
+        isEmpty,
+        reason: '点名画在圆下方，圆内保持纯圆圈',
+      );
 
       final overridden = MapLabel(typeId: 'concrete', symText: 'G');
-      expect(effectiveSymbolStyle(overridden).$3, 'G',
-          reason: '用户显式设置的符号字仍然生效');
+      expect(
+        effectiveSymbolStyle(overridden).$3,
+        'G',
+        reason: '用户显式设置的符号字仍然生效',
+      );
 
       final pipe = MapLabel(typeId: 'pipe', name: 'P1');
-      expect(effectiveSymbolStyle(pipe).$3, 'P1',
-          reason: '其它杆/管类型维持原口径（名称优先）');
+      expect(effectiveSymbolStyle(pipe).$3, 'P1', reason: '其它杆/管类型维持原口径（名称优先）');
     });
   });
 
@@ -298,8 +314,7 @@ void main() {
       );
       final st1 = await makeState();
       await st1.refreshCollections();
-      await st1.openCollection(
-          st1.collections.firstWhere((m) => m.id == cid));
+      await st1.openCollection(st1.collections.firstWhere((m) => m.id == cid));
       st1.addLabelAtWgs(32.5, 114.5);
       await _settle();
 
@@ -316,8 +331,11 @@ void main() {
       await st2.finishCollection();
 
       final metas = await store.loadIndex();
-      expect(metas.where((m) => m.id == cid).length, 1,
-          reason: '保存应覆盖原工程，不能新增一个同名重复工程');
+      expect(
+        metas.where((m) => m.id == cid).length,
+        1,
+        reason: '保存应覆盖原工程，不能新增一个同名重复工程',
+      );
       expect((await store.loadCollection(cid)).length, 2);
     });
 
@@ -331,8 +349,7 @@ void main() {
       );
       final st1 = await makeState();
       await st1.refreshCollections();
-      await st1.openCollection(
-          st1.collections.firstWhere((m) => m.id == cid));
+      await st1.openCollection(st1.collections.firstWhere((m) => m.id == cid));
       st1.addLabelAtWgs(32.5, 114.5);
       await _settle();
       // 模拟"应用关闭期间工程被删"（直接删文件/索引，不走 AppState）。
@@ -364,8 +381,11 @@ void main() {
       st.visibleCids.add(cid);
       st.overlayLabels[cid] = await st.store.loadCollection(cid);
 
-      expect(st.isOverlayVisible(cid), isFalse,
-          reason: '编辑中的工程由草稿层渲染，叠加层不应再画一份');
+      expect(
+        st.isOverlayVisible(cid),
+        isFalse,
+        reason: '编辑中的工程由草稿层渲染，叠加层不应再画一份',
+      );
       expect(st.isOverlayVisible('other'), isFalse);
       st.visibleCids.add('other');
       expect(st.isOverlayVisible('other'), isTrue);
@@ -382,9 +402,19 @@ void main() {
       final st = await makeState();
       st.labels.addAll([
         MapLabel(
-            typeId: 'concrete', name: 'G-1', lat: 32.0, lon: 114.0, seq: 1),
+          typeId: 'concrete',
+          name: 'G-1',
+          lat: 32.0,
+          lon: 114.0,
+          seq: 1,
+        ),
         MapLabel(
-            typeId: 'concrete', name: 'G-5', lat: 32.0, lon: 114.001, seq: 2),
+          typeId: 'concrete',
+          name: 'G-5',
+          lat: 32.0,
+          lon: 114.001,
+          seq: 2,
+        ),
       ]);
       final path = <List<double>>[
         [32.0, 114.0],
@@ -393,7 +423,11 @@ void main() {
       ];
 
       final n = st.autoPlacePolesAlongPath(
-          path: path, spacingM: 50, typeId: 'concrete', prefix: 'G');
+        path: path,
+        spacingM: 50,
+        typeId: 'concrete',
+        prefix: 'G',
+      );
 
       expect(n, greaterThan(2));
       final added = st.labels.sublist(2);
@@ -406,8 +440,7 @@ void main() {
       for (final l in added) {
         final onFirst = (l.lat - 32.0).abs() < 1e-7;
         final onSecond = (l.lon - 114.01).abs() < 1e-7;
-        expect(onFirst || onSecond, isTrue,
-            reason: '自动布杆点必须落在已画折线上');
+        expect(onFirst || onSecond, isTrue, reason: '自动布杆点必须落在已画折线上');
       }
     });
 
@@ -424,8 +457,7 @@ void main() {
       await _settle();
       st.addLabelAtWgs(32.003, 114.0);
 
-      expect(st.labels.last.name, 'G-4',
-          reason: '编号应按最大号递增；按剩余数量计数会与 G-3 重号');
+      expect(st.labels.last.name, 'G-4', reason: '编号应按最大号递增；按剩余数量计数会与 G-3 重号');
     });
   });
 
@@ -450,6 +482,75 @@ void main() {
 
       expect(st.labels.length, 3, reason: 'Esc 只退出模式，不能丢草稿');
       expect(st.mode, AppMode.view);
+    });
+  });
+
+  group('对话框下半区可点击（实机发现的命中缺陷）', () {
+    void desktopViewport(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+    }
+
+    testWidgets('新建工程：点「开始打点」能生效并进入打点', (tester) async {
+      desktopViewport(tester);
+      final st = await makeState();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () => showNewProjectDialog(ctx, st),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('开始打点'), findsOneWidget);
+
+      // 这里的 tap 会按按钮中心做真实命中测试；旧 AlertDialog 下半区
+      // 点不中时，对话框不会关闭、也不会进入打点。
+      await tester.tap(find.text('开始打点'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('开始打点'), findsNothing, reason: '按钮点击后对话框应关闭');
+      expect(st.mode, AppMode.edit);
+      expect(st.projectName, isNotEmpty);
+      // 让延迟释放 controller 的定时器跑完，避免测试结束时有 pending timer。
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      });
+    });
+
+    testWidgets('自动布杆：点「取消」能关闭（下半区按钮可点）', (tester) async {
+      desktopViewport(tester);
+      final st = await makeState();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () => showAutoPoleDialog(ctx, st),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('自动布杆（等距）'), findsOneWidget);
+
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(find.text('自动布杆（等距）'), findsNothing);
     });
   });
 }

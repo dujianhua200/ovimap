@@ -217,7 +217,9 @@ jobs:
         # 至多重试一次，重试后仍挂才让门禁红。**禁止**改成 `|| true`。
         shell: bash
         run: |
-          flutter test || flutter test
+          # 与 Windows 一致串行执行：并行时落盘/缓存类用例会互相干扰，
+          # 实测 macOS 本机全量并行偶发 reno_state 超时；-j 1 后稳定通过。
+          flutter test -j 1 || flutter test -j 1
 
       - name: 启用 macOS 桌面支持
         run: flutter config --enable-macos-desktop

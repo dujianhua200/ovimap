@@ -67,49 +67,93 @@ class OviMenuGroupDef {
 /// 顶层菜单分组定义。两端渲染器共用，顺序即菜单栏顺序。
 const List<OviMenuGroupDef> oviMenuGroups = <OviMenuGroupDef>[
   OviMenuGroupDef('文件', <OviMenuItemDef>[
-    OviMenuItemDef('new_project', '新建工程',
-        keys: 'Ctrl+N', activator: SingleActivator(LogicalKeyboardKey.keyN, meta: true)),
-    OviMenuItemDef('open_project', '打开工程文件(.ovimap)',
-        keys: 'Ctrl+O', activator: SingleActivator(LogicalKeyboardKey.keyO, meta: true)),
-    OviMenuItemDef('save', '保存收藏',
-        keys: 'Ctrl+S', activator: SingleActivator(LogicalKeyboardKey.keyS, meta: true)),
-    OviMenuItemDef('export_project', '导出工程文件(.ovimap)',
-        keys: 'Shift+Ctrl+S',
-        activator: SingleActivator(LogicalKeyboardKey.keyS, meta: true, shift: true)),
-    OviMenuItemDef('export', '导出成果',
-        dividerBefore: true,
-        keys: 'Ctrl+E',
-        activator: SingleActivator(LogicalKeyboardKey.keyE, meta: true)),
+    OviMenuItemDef(
+      'new_project',
+      '新建工程',
+      keys: 'Ctrl+N',
+      activator: SingleActivator(LogicalKeyboardKey.keyN, meta: true),
+    ),
+    OviMenuItemDef(
+      'open_project',
+      '打开工程文件(.ovimap)',
+      keys: 'Ctrl+O',
+      activator: SingleActivator(LogicalKeyboardKey.keyO, meta: true),
+    ),
+    OviMenuItemDef(
+      'save',
+      '保存收藏',
+      keys: 'Ctrl+S',
+      activator: SingleActivator(LogicalKeyboardKey.keyS, meta: true),
+    ),
+    OviMenuItemDef(
+      'export_project',
+      '导出工程文件(.ovimap)',
+      keys: 'Shift+Ctrl+S',
+      activator: SingleActivator(
+        LogicalKeyboardKey.keyS,
+        meta: true,
+        shift: true,
+      ),
+    ),
+    OviMenuItemDef(
+      'export',
+      '导出成果',
+      dividerBefore: true,
+      keys: 'Ctrl+E',
+      activator: SingleActivator(LogicalKeyboardKey.keyE, meta: true),
+    ),
     OviMenuItemDef('archive', '竣工资料一键成册'),
     OviMenuItemDef('import_kml', '导入对象文件（KML/KMZ/奥维）'),
   ]),
   OviMenuGroupDef('编辑', <OviMenuItemDef>[
-    OviMenuItemDef('undo', '撤销',
-        keys: 'Ctrl+Z', activator: SingleActivator(LogicalKeyboardKey.keyZ, meta: true)),
-    OviMenuItemDef('redo', '重做',
-        keys: 'Ctrl+Y',
-        activator: SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true)),
+    OviMenuItemDef(
+      'undo',
+      '撤销',
+      keys: 'Ctrl+Z',
+      activator: SingleActivator(LogicalKeyboardKey.keyZ, meta: true),
+    ),
+    OviMenuItemDef(
+      'redo',
+      '重做',
+      keys: 'Ctrl+Y',
+      activator: SingleActivator(
+        LogicalKeyboardKey.keyZ,
+        meta: true,
+        shift: true,
+      ),
+    ),
     // 裸键不声明为菜单快捷键（会把 Delete 从文本框抢走），仅作提示。
     OviMenuItemDef('delete_sel', '删除选中', dividerBefore: true, keys: 'Delete'),
     OviMenuItemDef('batch_edit', '批量编辑…'),
     OviMenuItemDef('clear_draft', '清空草稿'),
-    OviMenuItemDef('focus_search', '聚焦左栏搜索',
-        dividerBefore: true,
-        keys: 'Ctrl+F',
-        activator: SingleActivator(LogicalKeyboardKey.keyF, meta: true)),
+    OviMenuItemDef(
+      'focus_search',
+      '聚焦左栏搜索',
+      dividerBefore: true,
+      keys: 'Ctrl+F',
+      activator: SingleActivator(LogicalKeyboardKey.keyF, meta: true),
+    ),
   ]),
   OviMenuGroupDef('工程', <OviMenuItemDef>[
     OviMenuItemDef('collection_settings', '采集设置（自动编号 / 段标前缀）'),
     OviMenuItemDef('template', '工程模板'),
+    // 桌面端此前只有移动端有自动布杆，桌面菜单漏了这个高频动作。
+    OviMenuItemDef('auto_pole', '自动布杆（沿已画线路等距）'),
     OviMenuItemDef('pole_table', '杆路点表'),
     OviMenuItemDef('track_check', '杆路轨迹核查'),
     // 出图体检放在"导出成果"之前的心智位置：先体检、再出图。
     // 快捷键 Alt+Ctrl+K（Check），与 Alt+Ctrl+L/R/M 同族，不与文本框裸键冲突。
-    OviMenuItemDef('inspect', '出图体检（出图前查错）',
-        dividerBefore: true,
-        keys: 'Alt+Ctrl+K',
-        activator:
-            SingleActivator(LogicalKeyboardKey.keyK, meta: true, alt: true)),
+    OviMenuItemDef(
+      'inspect',
+      '出图体检（出图前查错）',
+      dividerBefore: true,
+      keys: 'Alt+Ctrl+K',
+      activator: SingleActivator(
+        LogicalKeyboardKey.keyK,
+        meta: true,
+        alt: true,
+      ),
+    ),
     OviMenuItemDef('auto_seg_label', '按敷设方式生成段标（固化）'),
     OviMenuItemDef('topo_guide', '拓扑连线指引', dividerBefore: true),
     // ODN 拓扑图：扩展点 value 沿用收藏树菜单的 `extra:` 命名空间，避免与既有 id 冲突。
@@ -117,24 +161,58 @@ const List<OviMenuGroupDef> oviMenuGroups = <OviMenuGroupDef>[
     OviMenuItemDef('symbol_lib', '符号库…'),
   ]),
   OviMenuGroupDef('视图', <OviMenuItemDef>[
-    OviMenuItemDef('toggle_left', '折叠 / 展开左栏',
-        keys: 'Alt+Ctrl+L',
-        activator: SingleActivator(LogicalKeyboardKey.keyL, meta: true, alt: true)),
-    OviMenuItemDef('toggle_right', '折叠 / 展开右栏',
-        keys: 'Alt+Ctrl+R',
-        activator: SingleActivator(LogicalKeyboardKey.keyR, meta: true, alt: true)),
-    OviMenuItemDef('focus_map', '专注地图（两侧全收）',
-        dividerBefore: true,
-        keys: 'Alt+Ctrl+M',
-        activator: SingleActivator(LogicalKeyboardKey.keyM, meta: true, alt: true)),
+    OviMenuItemDef(
+      'toggle_left',
+      '折叠 / 展开左栏',
+      keys: 'Alt+Ctrl+L',
+      activator: SingleActivator(
+        LogicalKeyboardKey.keyL,
+        meta: true,
+        alt: true,
+      ),
+    ),
+    OviMenuItemDef(
+      'toggle_right',
+      '折叠 / 展开右栏',
+      keys: 'Alt+Ctrl+R',
+      activator: SingleActivator(
+        LogicalKeyboardKey.keyR,
+        meta: true,
+        alt: true,
+      ),
+    ),
+    OviMenuItemDef(
+      'focus_map',
+      '专注地图（两侧全收）',
+      dividerBefore: true,
+      keys: 'Alt+Ctrl+M',
+      activator: SingleActivator(
+        LogicalKeyboardKey.keyM,
+        meta: true,
+        alt: true,
+      ),
+    ),
     OviMenuItemDef('design_mode', '切到设计模式', dividerBefore: true),
     OviMenuItemDef('completion_mode', '切到竣工模式'),
-    OviMenuItemDef('zoom_in', '放大', dividerBefore: true, keys: 'Ctrl+=',
-        activator: SingleActivator(LogicalKeyboardKey.equal, meta: true)),
-    OviMenuItemDef('zoom_out', '缩小', keys: 'Ctrl+-',
-        activator: SingleActivator(LogicalKeyboardKey.minus, meta: true)),
-    OviMenuItemDef('reset_view', '复位到启动视图', keys: 'Ctrl+0',
-        activator: SingleActivator(LogicalKeyboardKey.digit0, meta: true)),
+    OviMenuItemDef(
+      'zoom_in',
+      '放大',
+      dividerBefore: true,
+      keys: 'Ctrl+=',
+      activator: SingleActivator(LogicalKeyboardKey.equal, meta: true),
+    ),
+    OviMenuItemDef(
+      'zoom_out',
+      '缩小',
+      keys: 'Ctrl+-',
+      activator: SingleActivator(LogicalKeyboardKey.minus, meta: true),
+    ),
+    OviMenuItemDef(
+      'reset_view',
+      '复位到启动视图',
+      keys: 'Ctrl+0',
+      activator: SingleActivator(LogicalKeyboardKey.digit0, meta: true),
+    ),
   ]),
   OviMenuGroupDef('底图', <OviMenuItemDef>[
     OviMenuItemDef('source', '图源 / 图层'),
@@ -278,6 +356,9 @@ Future<void> dispatchOviMenuItem(
     case 'template':
       await showTemplateDialog(context, st);
       break;
+    case 'auto_pole':
+      await showAutoPoleDialog(context, st);
+      break;
     case 'pole_table':
       a.onPoleTable();
       break;
@@ -390,8 +471,7 @@ Future<void> _autoSegLabels(BuildContext context, AppState st) async {
             '全线共 ${segs.length} 段，其中 $blank 段还没有标注。\n'
             '生成后的文字形如「架38」「埋42.5」——前缀取自每段的敷设方式，'
             '距离取实测段距。',
-            style: const TextStyle(
-                color: kTextMain, fontSize: 13, height: 1.6),
+            style: const TextStyle(color: kTextMain, fontSize: 13, height: 1.6),
           ),
           const SizedBox(height: 10),
           Container(
@@ -399,7 +479,10 @@ Future<void> _autoSegLabels(BuildContext context, AppState st) async {
             decoration: BoxDecoration(
               color: kWarn.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: kWarn.withValues(alpha: 0.5), width: 0.5),
+              border: Border.all(
+                color: kWarn.withValues(alpha: 0.5),
+                width: 0.5,
+              ),
             ),
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -412,7 +495,10 @@ Future<void> _autoSegLabels(BuildContext context, AppState st) async {
                     '想省事又不出错，请改用「编辑 → 批量编辑 → 敷设方式」，'
                     '让段标由敷设方式自动带前缀。',
                     style: TextStyle(
-                        color: kTextSub, fontSize: 11.5, height: 1.55),
+                      color: kTextSub,
+                      fontSize: 11.5,
+                      height: 1.55,
+                    ),
                   ),
                 ),
               ],
@@ -421,15 +507,19 @@ Future<void> _autoSegLabels(BuildContext context, AppState st) async {
           CheckboxListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            title: const Text('覆盖已有标注（连手填的也重写）',
-                style: TextStyle(color: kTextMain, fontSize: 13)),
+            title: const Text(
+              '覆盖已有标注（连手填的也重写）',
+              style: TextStyle(color: kTextMain, fontSize: 13),
+            ),
             value: overwrite,
             activeColor: kAccent,
             onChanged: (v) => setSt(() => overwrite = v ?? false),
           ),
           if (blank == 0 && !overwrite)
-            const Text('当前没有空白段可填；如需重写请勾选上面的选项。',
-                style: TextStyle(color: kTextHint, fontSize: 11.5)),
+            const Text(
+              '当前没有空白段可填；如需重写请勾选上面的选项。',
+              style: TextStyle(color: kTextHint, fontSize: 11.5),
+            ),
         ],
       ),
     ),
@@ -438,8 +528,7 @@ Future<void> _autoSegLabels(BuildContext context, AppState st) async {
       darkTextBtn(overwrite ? '覆盖生成' : '只填空白段', () {
         Navigator.pop(context);
         final n = st.autoFillSegLabels(overwrite: overwrite);
-        toast(context,
-            n > 0 ? '已固化 $n 段标注（Ctrl+Z 可整批撤销）' : '没有需要处理的段');
+        toast(context, n > 0 ? '已固化 $n 段标注（Ctrl+Z 可整批撤销）' : '没有需要处理的段');
       }),
     ],
   );
@@ -452,19 +541,22 @@ Future<void> _confirmClearDraft(BuildContext context, AppState st) async {
   }
   // 打开收藏编辑时，草稿即收藏内容——清空会同步写回收藏文件，文案必须如实。
   final editing = st.activeCollectionId.isNotEmpty;
-  await showDarkDialog(context,
-      title: editing ? '清空收藏内容' : '清空草稿',
-      content: Text(
-          editing
-              ? '「${st.projectName}」的 ${st.labels.length} 个点将被清空，'
-                  '并同步写回收藏（误清可 Ctrl+Z 撤销）。'
-              : '确定删除当前 ${st.labels.length} 个未保存的点？',
-          style: const TextStyle(color: kTextMain, fontSize: 13)),
-      actions: [
-        darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
-        darkTextBtn('清空', () {
-          st.clearDraft();
-          Navigator.pop(context);
-        }, color: kDanger),
-      ]);
+  await showDarkDialog(
+    context,
+    title: editing ? '清空收藏内容' : '清空草稿',
+    content: Text(
+      editing
+          ? '「${st.projectName}」的 ${st.labels.length} 个点将被清空，'
+                '并同步写回收藏（误清可 Ctrl+Z 撤销）。'
+          : '确定删除当前 ${st.labels.length} 个未保存的点？',
+      style: const TextStyle(color: kTextMain, fontSize: 13),
+    ),
+    actions: [
+      darkTextBtn('取消', () => Navigator.pop(context), color: kTextSub),
+      darkTextBtn('清空', () {
+        st.clearDraft();
+        Navigator.pop(context);
+      }, color: kDanger),
+    ],
+  );
 }

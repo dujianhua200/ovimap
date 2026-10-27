@@ -38,6 +38,9 @@ class MainFlutterWindow: NSWindow {
     }
     self.contentMinSize = MainFlutterWindow.minimumSize
     self.center()
+    // Xcode 模板在 MainMenu.xib 里把标题写成占位符 APP_NAME；
+    // 不覆盖的话窗口标题栏会一直显示 APP_NAME（实机走查发现）。
+    self.title = "滑洲云图"
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
