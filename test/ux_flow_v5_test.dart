@@ -626,5 +626,29 @@ void main() {
       expect(find.text('作业流程（按顺序做）'), findsNothing);
       expect(st.mode, AppMode.edit);
     });
+
+    testWidgets('工程模板：点「关闭」能关闭', (tester) async {
+      desktopViewport(tester);
+      final st = await makeState();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () => showTemplateDialog(ctx, st),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('工程模板'), findsOneWidget);
+
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      expect(find.text('工程模板'), findsNothing);
+    });
   });
 }

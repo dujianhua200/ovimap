@@ -1962,6 +1962,7 @@ Future<double?> _promptCustomRange(BuildContext context, double current) async {
   await showDarkDialog(
     context,
     title: '自定义底图范围（米）',
+    width: 460,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2018,6 +2019,7 @@ Future<void> showAddCustomSource(BuildContext context, AppState st) async {
   await showDarkDialog(
     context,
     title: '添加自定义图源',
+    width: 480,
     content: StatefulBuilder(
       builder: (ctx, setSt) => SingleChildScrollView(
         child: Column(
@@ -2305,6 +2307,7 @@ Future<void> showCollectionSettings(BuildContext context, AppState st) async {
   await showDarkDialog(
     context,
     title: '采集设置',
+    width: 460,
     content: StatefulBuilder(
       builder: (ctx, setSt) => Column(
         mainAxisSize: MainAxisSize.min,
@@ -2354,6 +2357,7 @@ Future<void> showTiandituKeyDialog(BuildContext context, AppState st) async {
   await showDarkDialog(
     context,
     title: '天地图 Key',
+    width: 480,
     content: StatefulBuilder(
       builder: (ctx, setSt) => Column(
         mainAxisSize: MainAxisSize.min,
@@ -2422,6 +2426,7 @@ Future<void> showAmapKeyDialog(BuildContext context, AppState st) async {
   await showDarkDialog(
     context,
     title: '高德 Key',
+    width: 440,
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2480,6 +2485,7 @@ Future<void> showOverpassEndpointsDialog(
   await showDarkDialog(
     context,
     title: 'Overpass 端点（底图数据源）',
+    width: 560,
     content: StatefulBuilder(
       builder: (ctx, setSt) => SingleChildScrollView(
         child: Column(
@@ -2561,6 +2567,7 @@ Future<void> showOverpassEndpointsDialog(
 Future<void> showDatumHelp(BuildContext context, AppState st) => showDarkDialog(
   context,
   title: '坐标系说明',
+  width: 520,
   content: Text(
     '本图当前按 ${GeoConvert.datumName(st.datum)} 显示。\n\n'
     '· GPS 原始坐标为 WGS-84；国内卫星/街道图通常带 GCJ-02 偏移。\n'
@@ -2574,6 +2581,7 @@ Future<void> showDatumHelp(BuildContext context, AppState st) => showDarkDialog(
 Future<void> showAbout(BuildContext context) => showDarkDialog(
   context,
   title: '滑洲云图 3.0',
+  width: 520,
   content: const Text(
     '面向通信工程勘察设计与竣工测量的地图工具。\n\n'
     '· 设计/竣工双模式 · 符号库对齐联通线路图例\n'
@@ -2588,6 +2596,7 @@ Future<void> showAbout(BuildContext context) => showDarkDialog(
 Future<void> showTopoGuide(BuildContext context) => showDarkDialog(
   context,
   title: '拓扑连线怎么用',
+  width: 560,
   content: SingleChildScrollView(
     child: Text(
       '1. 画杆路：正常放置水泥杆/人孔等，自动连线。\n\n'

@@ -200,6 +200,7 @@ Future<void> showTemplateDialog(BuildContext context, AppState st) async {
   await showDarkDialog(
     context,
     title: '工程模板',
+    width: 480,
     content: StatefulBuilder(
       builder: (ctx, setSt) => Column(
         mainAxisSize: MainAxisSize.min,

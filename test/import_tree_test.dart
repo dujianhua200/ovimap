@@ -44,52 +44,62 @@ void main() {
     return c;
   }
 
-  MapLabel pt(String name,
-          {String gid = '', double lat = 31.0, double lon = 121.0}) =>
-      MapLabel(
-          typeId: 'concrete', lat: lat, lon: lon, name: name, lineGroupId: gid);
+  MapLabel pt(
+    String name, {
+    String gid = '',
+    double lat = 31.0,
+    double lon = 121.0,
+  }) => MapLabel(
+    typeId: 'concrete',
+    lat: lat,
+    lon: lon,
+    name: name,
+    lineGroupId: gid,
+  );
 
   /// 两层 Folder 路径 + 根级单元混合：
   /// 北京/朝阳（2 线点 + 1 单点）、北京/海淀（1 单点）、根级工程（1 单点）。
-  ImportParseResult sample() => ImportParseResult(units: [
-        ImportUnit(
-          folderPath: const ['北京', '朝阳'],
-          name: '朝阳',
-          labels: [
-            pt('G001', gid: 'g1', lat: 31.0, lon: 121.0),
-            pt('G002', gid: 'g1', lat: 31.001, lon: 121.001),
-            pt('单点A', lat: 31.002, lon: 121.002),
-          ],
-        ),
-        ImportUnit(
-          folderPath: const ['北京', '海淀'],
-          name: '海淀',
-          labels: [pt('单点B', lat: 31.01, lon: 121.01)],
-        ),
-        ImportUnit(
-          folderPath: const [],
-          name: '根级工程',
-          labels: [pt('根点', lat: 31.02, lon: 121.02)],
-        ),
-      ]);
+  ImportParseResult sample() => ImportParseResult(
+    units: [
+      ImportUnit(
+        folderPath: const ['北京', '朝阳'],
+        name: '朝阳',
+        labels: [
+          pt('G001', gid: 'g1', lat: 31.0, lon: 121.0),
+          pt('G002', gid: 'g1', lat: 31.001, lon: 121.001),
+          pt('单点A', lat: 31.002, lon: 121.002),
+        ],
+      ),
+      ImportUnit(
+        folderPath: const ['北京', '海淀'],
+        name: '海淀',
+        labels: [pt('单点B', lat: 31.01, lon: 121.01)],
+      ),
+      ImportUnit(
+        folderPath: const [],
+        name: '根级工程',
+        labels: [pt('根点', lat: 31.02, lon: 121.02)],
+      ),
+    ],
+  );
 
   /// 把整棵树拍平成：文件夹名 → 直属子节点（"folder:名" / "project:名"）。
   Future<Map<String, List<String>>> flatTree(FavTreeController c) async {
     final out = <String, List<String>>{};
     Future<void> walk(FavNode node) async {
       final kids = await c.childrenOf(node.id);
-      out[node.name] =
-          kids.map((k) => '${k.kind.name}:${k.name}').toList()..sort();
+      out[node.name] = kids.map((k) => '${k.kind.name}:${k.name}').toList()
+        ..sort();
       for (final k in kids) {
         if (k.kind == FavKind.folder) await walk(k);
       }
     }
+
     for (final r in c.roots) {
       if (r.kind == FavKind.folder) {
         await walk(r);
       } else {
-        out['<root>'] = (out['<root>'] ?? [])
-          ..add('${r.kind.name}:${r.name}');
+        out['<root>'] = (out['<root>'] ?? [])..add('${r.kind.name}:${r.name}');
       }
     }
     return out;
@@ -104,6 +114,7 @@ void main() {
         if (k.kind == FavKind.folder) await walk(k);
       }
     }
+
     for (final r in c.roots) {
       if (r.kind == FavKind.folder) await walk(r);
     }
@@ -139,8 +150,7 @@ void main() {
     final labels = await store.loadCollection(r.projectIds[0]);
     expect(labels, hasLength(3));
     expect(labels.where((l) => l.lineGroupId == 'g1'), hasLength(2));
-    expect(labels.map((l) => l.name),
-        containsAll(['G001', 'G002', '单点A']));
+    expect(labels.map((l) => l.name), containsAll(['G001', 'G002', '单点A']));
   });
 
   test('一条撤销完全回退：本次建的文件夹/工程全部消失', () async {
@@ -168,5 +178,23 @@ void main() {
     await st.refreshCollections();
     final c3 = await makeController();
     expect(await allFolderNames(c3), contains('北京'));
+  });
+
+  test('单工程导入后自动显示到地图', () async {
+    final c = await makeController();
+    final r = await importParsedResult(
+      c,
+      ImportParseResult(
+        units: [
+          ImportUnit(folderPath: const [], name: '单工程', labels: [pt('P1')]),
+        ],
+      ),
+    );
+    expect(r.ok, isTrue);
+    expect(r.projectCount, 1);
+
+    final meta = st.collections.firstWhere((m) => m.name == '单工程');
+    expect(st.visibleCids.contains(meta.id), isTrue, reason: '只导入一个工程时应直接上图');
+    expect(st.overlayLabels[meta.id], isNotNull);
   });
 }
