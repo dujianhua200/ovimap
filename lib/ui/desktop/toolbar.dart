@@ -37,6 +37,7 @@ class Toolbar extends StatelessWidget {
     required this.onExport,
     required this.onSync,
     required this.onInspect,
+    required this.onWorkflow,
     required this.leftCollapsed,
     required this.rightCollapsed,
     required this.onToggleLeft,
@@ -59,6 +60,9 @@ class Toolbar extends StatelessWidget {
 
   /// 出图体检（放在「导出成果」旁边：先体检、再出图）。
   final VoidCallback onInspect;
+
+  /// 作业流程引导（新建 → 打点 → 布杆 → 体检 → 导出）。
+  final VoidCallback onWorkflow;
   final bool leftCollapsed;
   final bool rightCollapsed;
   final VoidCallback onToggleLeft;
@@ -82,63 +86,84 @@ class Toolbar extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 6),
-          _btn(Icons.add_location_alt_outlined,
-              tooltip: st.mode == AppMode.edit
-                  ? '结束打点（Esc）'
-                  : '打点：连续落点并自动连线',
-              active: st.mode == AppMode.edit,
-              onTap: () => st.setMode(
-                  st.mode == AppMode.edit ? AppMode.view : AppMode.edit)),
+          _btn(
+            Icons.add_location_alt_outlined,
+            tooltip: st.mode == AppMode.edit ? '结束打点（Esc）' : '打点：连续落点并自动连线',
+            active: st.mode == AppMode.edit,
+            onTap: () => st.setMode(
+              st.mode == AppMode.edit ? AppMode.view : AppMode.edit,
+            ),
+          ),
           _symbolBtn(context),
           _modeBtn(context),
-          _btn(Icons.push_pin_outlined,
-              tooltip: '单点标记：点地图放一个独立标记并自动保存到收藏夹「标记」，放完自动退出',
-              active: st.markMode,
-              onTap: () {
-                st.toggleMarkMode();
-                toast(context,
-                    st.markMode ? '单点标记：点地图放置一个标记（自动保存后退出）' : '已退出标记模式');
-              }),
+          _btn(
+            Icons.push_pin_outlined,
+            tooltip: '单点标记：点地图放一个独立标记并自动保存到收藏夹「标记」，放完自动退出',
+            active: st.markMode,
+            onTap: () {
+              st.toggleMarkMode();
+              toast(
+                context,
+                st.markMode ? '单点标记：点地图放置一个标记（自动保存后退出）' : '已退出标记模式',
+              );
+            },
+          ),
           _sep(),
-          _btn(Icons.account_tree_outlined,
-              tooltip: '连线路（拓扑）',
-              active: st.mode == AppMode.topoLink,
-              onTap: onTopo),
+          _btn(
+            Icons.checklist_rtl,
+            tooltip: '作业流程：新建 → 打点 → 布杆 → 体检 → 导出',
+            onTap: onWorkflow,
+          ),
+          _btn(
+            Icons.account_tree_outlined,
+            tooltip: '连线路（拓扑）',
+            active: st.mode == AppMode.topoLink,
+            onTap: onTopo,
+          ),
           _measureBtn(context),
           _btn(Icons.route, tooltip: '轨迹记录', onTap: onTrack),
           _btn(Icons.my_location, tooltip: '定位', onTap: onLocate),
           _sep(),
-          _btn(Icons.save_outlined,
-              tooltip: '保存到收藏夹 Ctrl+S',
-              active: st.labels.isNotEmpty,
-              onTap: onSave),
+          _btn(
+            Icons.save_outlined,
+            tooltip: '保存到收藏夹 Ctrl+S',
+            active: st.labels.isNotEmpty,
+            onTap: onSave,
+          ),
           _btn(Icons.undo, tooltip: '撤销 Ctrl+Z', onTap: onUndo),
           _btn(Icons.redo, tooltip: '重做 Ctrl+Y', onTap: onRedo),
-          _btn(Icons.delete_outline,
-              tooltip: '删除选中 Delete',
-              enabled: st.selectedIds.isNotEmpty,
-              onTap: onDeleteSelection),
+          _btn(
+            Icons.delete_outline,
+            tooltip: '删除选中 Delete',
+            enabled: st.selectedIds.isNotEmpty,
+            onTap: onDeleteSelection,
+          ),
           _sep(),
           _btn(Icons.add, tooltip: '放大', onTap: onZoomIn),
           _btn(Icons.remove, tooltip: '缩小', onTap: onZoomOut),
           _sep(),
-          _btn(Icons.layers_outlined,
-              tooltip: '图源 / 图层',
-              onTap: () => showSourceDialog(context, st)),
+          _btn(
+            Icons.layers_outlined,
+            tooltip: '图源 / 图层',
+            onTap: () => showSourceDialog(context, st),
+          ),
           // 体检放在导出左侧：把"先查错、再出图"变成肌肉记忆。
           // 图标用 fact_check（清单打勾），比"放大镜"更像"逐项核对"而不是"搜索"。
-          _btn(Icons.fact_check_outlined,
-              tooltip: '出图体检 Alt+Ctrl+K（查段距/敷设方式/编号/标注一致性）',
-              enabled: st.labels.isNotEmpty,
-              onTap: onInspect),
+          _btn(
+            Icons.fact_check_outlined,
+            tooltip: '出图体检 Alt+Ctrl+K（查段距/敷设方式/编号/标注一致性）',
+            enabled: st.labels.isNotEmpty,
+            onTap: onInspect,
+          ),
           _btn(Icons.ios_share, tooltip: '导出成果 Ctrl+E', onTap: onExport),
           _syncBtn(context),
           const Spacer(),
           // 左栏收起按钮已删（v3.7）：收藏夹图标轨道本身就是收展入口，两个入口重复。
           _btn(
-              rightCollapsed ? Icons.chevron_left : Icons.chevron_right,
-              tooltip: rightCollapsed ? '展开右栏' : '收起右栏',
-              onTap: onToggleRight),
+            rightCollapsed ? Icons.chevron_left : Icons.chevron_right,
+            tooltip: rightCollapsed ? '展开右栏' : '收起右栏',
+            onTap: onToggleRight,
+          ),
           const SizedBox(width: 6),
         ],
       ),
@@ -169,8 +194,7 @@ class Toolbar extends StatelessWidget {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: t.color.withValues(alpha: 0.85),
-                borderRadius: BorderRadius.circular(
-                    t.shape == 'box' ? 3 : 999),
+                borderRadius: BorderRadius.circular(t.shape == 'box' ? 3 : 999),
               ),
               // 水泥杆等 dot 类型：中间只画一个白点（纯圆圈），不塞“水/电”字。
               child: t.shape == 'dot' && t.symbol.isEmpty
@@ -178,13 +202,18 @@ class Toolbar extends StatelessWidget {
                       width: 9,
                       height: 9,
                       decoration: const BoxDecoration(
-                          color: Colors.white, shape: BoxShape.circle),
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
                     )
-                  : Text(glyph,
+                  : Text(
+                      glyph,
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: TokFs.small,
-                          height: 1.1)),
+                        color: Colors.white,
+                        fontSize: TokFs.small,
+                        height: 1.1,
+                      ),
+                    ),
             ),
           ),
         ),
@@ -213,8 +242,10 @@ class Toolbar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(TokR.m),
                 border: Border.all(color: color.withValues(alpha: 0.7)),
               ),
-              child: Text(completion ? '竣工' : '设计',
-                  style: TextStyle(color: color, fontSize: TokFs.small)),
+              child: Text(
+                completion ? '竣工' : '设计',
+                style: TextStyle(color: color, fontSize: TokFs.small),
+              ),
             ),
           ),
         ),
@@ -234,18 +265,23 @@ class Toolbar extends StatelessWidget {
       },
       itemBuilder: (ctx) => const [
         PopupMenuItem(
-            value: 'dist',
-            child: Text('测距', style: TextStyle(color: kTextMain))),
+          value: 'dist',
+          child: Text('测距', style: TextStyle(color: kTextMain)),
+        ),
         PopupMenuItem(
-            value: 'area',
-            child: Text('测面积', style: TextStyle(color: kTextMain))),
+          value: 'area',
+          child: Text('测面积', style: TextStyle(color: kTextMain)),
+        ),
       ],
       child: SizedBox(
         width: 40,
         height: barHeight,
         child: Center(
-          child: Icon(Icons.straighten,
-              size: 20, color: active ? kAccent : kTextMain),
+          child: Icon(
+            Icons.straighten,
+            size: 20,
+            color: active ? kAccent : kTextMain,
+          ),
         ),
       ),
     );
@@ -256,7 +292,8 @@ class Toolbar extends StatelessWidget {
     final status = sync?.aggregateStatus ?? SyncStatus.localOnly;
     final dot = Color(status.argb);
     final pending = sync?.pendingCount ?? 0;
-    final tip = '云同步 · ${status.label}'
+    final tip =
+        '云同步 · ${status.label}'
         '${pending > 0 ? ' · 待上传 $pending' : ''}';
     return Tooltip(
       message: tip,
@@ -290,11 +327,13 @@ class Toolbar extends StatelessWidget {
     );
   }
 
-  Widget _btn(IconData icon,
-      {required String tooltip,
-      required VoidCallback onTap,
-      bool active = false,
-      bool enabled = true}) {
+  Widget _btn(
+    IconData icon, {
+    required String tooltip,
+    required VoidCallback onTap,
+    bool active = false,
+    bool enabled = true,
+  }) {
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -303,13 +342,15 @@ class Toolbar extends StatelessWidget {
           width: 40,
           height: barHeight,
           child: Center(
-            child: Icon(icon,
-                size: 20,
-                color: !enabled
-                    ? TokC.divider
-                    : active
-                        ? kAccent
-                        : kTextMain),
+            child: Icon(
+              icon,
+              size: 20,
+              color: !enabled
+                  ? TokC.divider
+                  : active
+                  ? kAccent
+                  : kTextMain,
+            ),
           ),
         ),
       ),
@@ -317,8 +358,9 @@ class Toolbar extends StatelessWidget {
   }
 
   Widget _sep() => Container(
-      width: 1,
-      height: 22,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      color: TokC.divider);
+    width: 1,
+    height: 22,
+    margin: const EdgeInsets.symmetric(horizontal: 4),
+    color: TokC.divider,
+  );
 }

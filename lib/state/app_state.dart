@@ -43,6 +43,7 @@ class AppState extends ChangeNotifier {
   static const prefCustom = 'customSources';
   static const prefFmt = 'coordFmt';
   static const prefVisible = 'visibleCids';
+
   /// mark 级地图显隐：隐藏的 label id 集合（逗号分隔），D2。
   static const prefHiddenLabelIds = 'hiddenLabelIds';
   static const prefCam = 'camera';
@@ -79,13 +80,14 @@ class AppState extends ChangeNotifier {
       await refreshCollections();
       // 若该工程正在编辑器中打开，重载其点位（云端版本生效）。
       if (activeCollectionId == cid) {
-        labels =
-            (await store.loadCollection(cid)).map((e) => e.clone()).toList();
+        labels = (await store.loadCollection(cid))
+            .map((e) => e.clone())
+            .toList();
         // P1-18：连线与拓扑关系同属工程数据，必须一起重载，否则同步后
         // 导出仍用旧连线/旧拓扑。
         fiberLinks = [
           for (final j in await store.loadCollectionFiberLinks(cid))
-            FiberLink.fromJson(j)
+            FiberLink.fromJson(j),
         ];
       }
       if (visibleCids.contains(cid)) {
@@ -142,16 +144,16 @@ class AppState extends ChangeNotifier {
   MapSourceEntry curSource = MapSources.sydtSatelliteAnn;
 
   List<MapSourceEntry> get allSources => [
-        ...MapSources.presets(),
-        ...MapSources.tianditu(tiandituKey),
-        ...customSources,
-      ];
+    ...MapSources.presets(),
+    ...MapSources.tianditu(tiandituKey),
+    ...customSources,
+  ];
 
   List<MapSourceEntry> get allOverlays => [
-        ...MapSources.overlays(),
-        ...MapSources.tianditu(tiandituKey).where((e) => e.overlay),
-        ...customSources.where((e) => e.overlay),
-      ];
+    ...MapSources.overlays(),
+    ...MapSources.tianditu(tiandituKey).where((e) => e.overlay),
+    ...customSources.where((e) => e.overlay),
+  ];
 
   int get datum => curSource.datum;
 
@@ -257,7 +259,7 @@ class AppState extends ChangeNotifier {
     final restoredCid = meta.activeCid;
     labels = await store.loadDraft();
     fiberLinks = [
-      for (final j in await store.loadFiberLinks()) FiberLink.fromJson(j)
+      for (final j in await store.loadFiberLinks()) FiberLink.fromJson(j),
     ];
 
     // 工程模板默认值恢复（持久化，下次进入沿用）
@@ -328,17 +330,23 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
-  void addCustomSource(String name, String url, int datumSel, int maxZoom,
-      {bool overlay = false}) {
+  void addCustomSource(
+    String name,
+    String url,
+    int datumSel,
+    int maxZoom, {
+    bool overlay = false,
+  }) {
     final id = 'custom-${DateTime.now().millisecondsSinceEpoch}';
     final e = MapSourceEntry(
-        id: id,
-        name: name.trim(),
-        url: url.trim(),
-        datum: datumSel,
-        maxZoom: maxZoom,
-        overlay: overlay,
-        custom: true);
+      id: id,
+      name: name.trim(),
+      url: url.trim(),
+      datum: datumSel,
+      maxZoom: maxZoom,
+      overlay: overlay,
+      custom: true,
+    );
     customSources.add(e);
     _saveCustom();
     notifyListeners();
@@ -355,7 +363,9 @@ class AppState extends ChangeNotifier {
 
   void _saveCustom() {
     prefs.setString(
-        prefCustom, jsonEncode(customSources.map((e) => e.toJson()).toList()));
+      prefCustom,
+      jsonEncode(customSources.map((e) => e.toJson()).toList()),
+    );
   }
 
   /// 已配置的天地图开发者 key。用户没填时用内置默认 key 兜底（保证开箱即用）。
@@ -380,8 +390,7 @@ class AppState extends ChangeNotifier {
   static const String tdtCoordGcj02 = 'gcj02';
   static const String tdtCoordWgs84 = 'wgs84';
 
-  String get tdtCoordSys =>
-      prefs.getString(prefTdtCoordSys) ?? tdtCoordGcj02;
+  String get tdtCoordSys => prefs.getString(prefTdtCoordSys) ?? tdtCoordGcj02;
 
   /// 是否对天地图检索结果做 GCJ-02→WGS-84 纠偏（默认 true）。
   bool get tdtConvertGcj => tdtCoordSys != tdtCoordWgs84;
@@ -584,10 +593,13 @@ class AppState extends ChangeNotifier {
   ///
   /// 返回落点 label 与所在收藏 cid，供调用方弹名称/备注输入框后更新。
   Future<({MapLabel label, String cid})> addMarkAtWgs(
-      double lat, double lon) async {
+    double lat,
+    double lon,
+  ) async {
     // 轨迹/无标签没有可显示的符号，回退为管道口符号，保证落点可见。
-    final typeId =
-        (curType.id == 'track' || curType.id == 'none') ? 'pipe' : curType.id;
+    final typeId = (curType.id == 'track' || curType.id == 'none')
+        ? 'pipe'
+        : curType.id;
     final l = MapLabel(
       typeId: typeId,
       seq: 1,
@@ -607,7 +619,11 @@ class AppState extends ChangeNotifier {
 
   /// 把某个标记点从原收藏移到目标文件夹（落到该层的「标记」收藏里；
   /// 目标层没有就新建一个）。用于「所有条目都可拖拽/移动到文件夹」。
-  Future<void> moveMarkToFolder(String fromCid, MapLabel l, String toFolder) async {
+  Future<void> moveMarkToFolder(
+    String fromCid,
+    MapLabel l,
+    String toFolder,
+  ) async {
     // 目标层的「标记」收藏（没有则建）。
     CollectionMeta? target;
     for (final m in collections) {
@@ -620,11 +636,12 @@ class AppState extends ChangeNotifier {
     final String toCid;
     if (target == null) {
       toCid = await store.finishCollection(
-          name: kMarkBook,
-          kind: 'mark',
-          folderId: toFolder,
-          editMode: 'design',
-          labels: <MapLabel>[]);
+        name: kMarkBook,
+        kind: 'mark',
+        folderId: toFolder,
+        editMode: 'design',
+        labels: <MapLabel>[],
+      );
       await refreshCollections();
     } else {
       toCid = target.id;
@@ -705,7 +722,8 @@ class AppState extends ChangeNotifier {
   Future<String> _appendToMarkBook(MapLabel l) async {
     CollectionMeta? meta;
     for (final m in collections) {
-      final isMark = m.kind == 'mark' || (m.name == kMarkBook && m.folder.isEmpty);
+      final isMark =
+          m.kind == 'mark' || (m.name == kMarkBook && m.folder.isEmpty);
       if (isMark && m.folder.isEmpty) {
         meta = m;
         break;
@@ -718,12 +736,13 @@ class AppState extends ChangeNotifier {
     if (meta == null) {
       ls = [l];
       cid = await store.finishCollection(
-          name: kMarkBook,
-          kind: 'mark',
-          folderId: '',
-          editMode: 'design',
-          labels: ls,
-          fiberLinks: keepLinks);
+        name: kMarkBook,
+        kind: 'mark',
+        folderId: '',
+        editMode: 'design',
+        labels: ls,
+        fiberLinks: keepLinks,
+      );
     } else {
       cid = meta.id;
       ls = await store.loadCollection(cid);
@@ -731,13 +750,14 @@ class AppState extends ChangeNotifier {
       l.seq = ls.length + 1;
       ls.add(l);
       await store.finishCollection(
-          existingId: cid,
-          name: kMarkBook,
-          kind: 'mark',
-          folderId: '',
-          editMode: 'design',
-          labels: ls,
-          fiberLinks: keepLinks);
+        existingId: cid,
+        name: kMarkBook,
+        kind: 'mark',
+        folderId: '',
+        editMode: 'design',
+        labels: ls,
+        fiberLinks: keepLinks,
+      );
     }
     await refreshCollections();
     // 自动在地图上显示（首点自动开显，后续保持）。
@@ -757,7 +777,8 @@ class AppState extends ChangeNotifier {
   Future<void> _initMarkCount() async {
     var maxN = 0;
     for (final m in collections) {
-      final isMark = m.kind == 'mark' || (m.name == kMarkBook && m.folder.isEmpty);
+      final isMark =
+          m.kind == 'mark' || (m.name == kMarkBook && m.folder.isEmpty);
       if (!isMark) continue;
       try {
         final ls = await store.loadCollection(m.id);
@@ -799,8 +820,7 @@ class AppState extends ChangeNotifier {
   /// 破坏性操作前调用：压入当前草稿快照（JSON 深拷贝，上限 20 步）。
   /// 新的编辑动作会清空重做栈（标准撤销/重做语义）。
   void pushUndoSnapshot() {
-    _undoSnapshots
-        .add(jsonEncode(labels.map((e) => e.toJson()).toList()));
+    _undoSnapshots.add(jsonEncode(labels.map((e) => e.toJson()).toList()));
     if (_undoSnapshots.length > _undoLimit) _undoSnapshots.removeAt(0);
     _redoSnapshots.clear();
     lastDraftUndoPushAt = DateTime.now();
@@ -948,7 +968,10 @@ class AppState extends ChangeNotifier {
 
   void setAutoNumber(bool v, String prefix) {
     prefs.setBool(prefAutoNum, v);
-    prefs.setString(prefNumPrefix, prefix.trim().isEmpty ? 'GK' : prefix.trim());
+    prefs.setString(
+      prefNumPrefix,
+      prefix.trim().isEmpty ? 'GK' : prefix.trim(),
+    );
     notifyListeners();
   }
 
@@ -1001,12 +1024,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _doSaveDraft() async {
-    await store.saveDraft(labels, projectName, folderId, editModeName,
-        [for (final l in fiberLinks) l.toJson()], activeCollectionId);
+    await store.saveDraft(labels, projectName, folderId, editModeName, [
+      for (final l in fiberLinks) l.toJson(),
+    ], activeCollectionId);
     if (activeCollectionId.isNotEmpty && topoCid.isEmpty) {
       // 2026-10-08：收藏工程同步存纤拓扑，导出才有配线图
-      await store.saveCollectionLabels(activeCollectionId, labels,
-          fiberLinks: [for (final l in fiberLinks) l.toJson()]);
+      await store.saveCollectionLabels(
+        activeCollectionId,
+        labels,
+        fiberLinks: [for (final l in fiberLinks) l.toJson()],
+      );
       // 叠加层缓存同步更新：切换到别的工程/退出编辑后，这个工程重新作为
       // 背景层渲染时必须是最新数据，不能还是打开时的旧副本（幽灵点/旧线）。
       if (visibleCids.contains(activeCollectionId)) {
@@ -1141,7 +1168,8 @@ class AppState extends ChangeNotifier {
       },
       () async {
         final old = MapLabel.fromJson(
-            Map<String, dynamic>.from(jsonDecode(oldJson) as Map));
+          Map<String, dynamic>.from(jsonDecode(oldJson) as Map),
+        );
         final cur = overlayLabels[cid] ?? await store.loadCollection(cid);
         final j = cur.indexWhere((e) => e.id == old.id);
         if (j >= 0) {
@@ -1180,7 +1208,8 @@ class AppState extends ChangeNotifier {
       },
       () async {
         final restored = MapLabel.fromJson(
-            Map<String, dynamic>.from(jsonDecode(labelJson) as Map));
+          Map<String, dynamic>.from(jsonDecode(labelJson) as Map),
+        );
         final cur = overlayLabels[cid] ?? await store.loadCollection(cid);
         // 幂等：点已在（重复撤销）则不再插入。
         if (cur.any((e) => e.id == restored.id)) return true;
@@ -1270,8 +1299,12 @@ class AppState extends ChangeNotifier {
   }
 
   /// 框选：按"显示坐标系"矩形范围选入草稿点（仅草稿，不跨收藏）。
-  void selectInDisplayBounds(double minDispLat, double minDispLon,
-      double maxDispLat, double maxDispLon) {
+  void selectInDisplayBounds(
+    double minDispLat,
+    double minDispLon,
+    double maxDispLat,
+    double maxDispLon,
+  ) {
     selectedIds.clear();
     for (final l in labels) {
       final d = toDisplay(l.lat, l.lon);
@@ -1448,18 +1481,31 @@ class AppState extends ChangeNotifier {
   }
 
   /// 沿已画线组（折线）等距布杆：L 形/折返线路不切角，杆位落在路径上。
+  ///
+  /// [removeIds] 非空时，布杆完成后删除这些原始点（通常传粗路由线组的 id），
+  /// 避免粗路由和成品杆路在地图上叠两份。删除与新增共用同一个撤销快照。
   int autoPlacePolesAlongPath({
     required List<List<double>> path,
     required double spacingM,
     required String typeId,
     required String prefix,
+    Set<String> removeIds = const {},
   }) {
     final pts = RouteLayout.autoPolesAlongPath(path, spacingM);
-    return _appendAutoPoles(pts, typeId: typeId, prefix: prefix);
+    return _appendAutoPoles(
+      pts,
+      typeId: typeId,
+      prefix: prefix,
+      removeIds: removeIds,
+    );
   }
 
-  int _appendAutoPoles(List<List<double>> pts,
-      {required String typeId, required String prefix}) {
+  int _appendAutoPoles(
+    List<List<double>> pts, {
+    required String typeId,
+    required String prefix,
+    Set<String> removeIds = const {},
+  }) {
     if (pts.isEmpty) return 0;
     pushUndoSnapshot(); // 布杆 = 破坏性操作，先压快照（一次撤销）
     final gid = MapLabel().id; // 本次布杆独立成一条新线组
@@ -1481,6 +1527,10 @@ class AppState extends ChangeNotifier {
       }
       l.name = '$pfx-${startNo + i}';
       labels.add(l);
+    }
+    // 删除粗路由：与新增共用同一个快照，Ctrl+Z 一步还原。
+    if (removeIds.isNotEmpty) {
+      labels.removeWhere((l) => removeIds.contains(l.id));
     }
     _saveDraft();
     notifyListeners();
@@ -1585,8 +1635,9 @@ class AppState extends ChangeNotifier {
   /// mark 级地图显隐（D2）：visible=false → 加入隐藏集（地图不渲染、不点中），
   /// true → 移出。prefs 持久化 + 通知。
   void setLabelHidden(String labelId, bool hidden) {
-    final changed =
-        hidden ? hiddenLabelIds.add(labelId) : hiddenLabelIds.remove(labelId);
+    final changed = hidden
+        ? hiddenLabelIds.add(labelId)
+        : hiddenLabelIds.remove(labelId);
     if (!changed) return;
     prefs.setString(prefHiddenLabelIds, hiddenLabelIds.join(','));
     notifyListeners();
@@ -1607,15 +1658,16 @@ class AppState extends ChangeNotifier {
     // 随后一次 _saveDraft 会把 A 的连线写进 B 的文件（跨工程泄漏）。
     fiberLinks = [
       for (final j in await store.loadCollectionFiberLinks(meta.id))
-        FiberLink.fromJson(j)
+        FiberLink.fromJson(j),
     ];
     // 打开工程默认「浏览」而不是直接进入打点：避免用户只是查看时，
     // 一次误点就把新点写回收藏（编辑需显式点工具栏「打点」）。
     mode = AppMode.view;
     // 收藏打开即作为草稿继续编辑（保存时覆盖原收藏）；同时把归属 cid
     // 写进草稿，重启后才能恢复"正在编辑哪个工程"。
-    await store.saveDraft(labels, projectName, folderId, editModeName,
-        [for (final l in fiberLinks) l.toJson()], meta.id);
+    await store.saveDraft(labels, projectName, folderId, editModeName, [
+      for (final l in fiberLinks) l.toJson(),
+    ], meta.id);
     notifyListeners();
     // 打开工程时拉取该工程最新（若服务端 rev 更新，落盘后经 onRemoteApplied 重载）。
     unawaited(syncController?.pullProject(meta.id) ?? Future<void>.value());
@@ -1766,8 +1818,10 @@ class AppState extends ChangeNotifier {
       case 'geojson':
       case 'json':
         try {
-          final bm = await BasemapFileImporter.importFromPath(path,
-              sourceName: name);
+          final bm = await BasemapFileImporter.importFromPath(
+            path,
+            sourceName: name,
+          );
           return '已导入底图「$name」：道路 ${bm.roads.length} · '
               '建筑 ${bm.buildings.length} · 地名 ${bm.places.length}（项目级离线复用）';
         } on BasemapImportException catch (e) {
@@ -1851,7 +1905,8 @@ class AppState extends ChangeNotifier {
     final nm = await store.loadCollectionName(cid);
     final dir = await store.exportDir();
     final f = File(
-        '${dir.path}/${sanitizeName(nm.isEmpty ? '未命名工程' : nm)}.ovimap');
+      '${dir.path}/${sanitizeName(nm.isEmpty ? '未命名工程' : nm)}.ovimap',
+    );
     await robustWriteAsString(f, raw);
     return f;
   }
@@ -1866,11 +1921,11 @@ class AppState extends ChangeNotifier {
   /// 注意：未保存的新草稿（无 cid）不在本方法覆盖范围，仍走内存；但 _saveDraft
   /// 每次编辑都同步落盘，草稿文件与内存一致。
   Future<({List<MapLabel> labels, List<FiberLink> fiberLinks, String name})>
-      resolveExportData(String cid) async {
+  resolveExportData(String cid) async {
     final labels = await store.loadCollection(cid);
     final fiberLinks = [
       for (final j in await store.loadCollectionFiberLinks(cid))
-        FiberLink.fromJson(j)
+        FiberLink.fromJson(j),
     ];
     final name = await store.loadCollectionName(cid);
     return (labels: labels, fiberLinks: fiberLinks, name: name);
@@ -1883,8 +1938,13 @@ class AppState extends ChangeNotifier {
   /// - 保存后该收藏自动在地图上显示（与新建保存后的默认显示一致）。
   ///
   /// 返回新收藏的 id。[note] 可选，存点备注（搜索结果地址等）。
-  Future<String> savePointAsCollection(String name, double lat, double lon,
-      {String kind = 'label', String note = ''}) async {
+  Future<String> savePointAsCollection(
+    String name,
+    double lat,
+    double lon, {
+    String kind = 'label',
+    String note = '',
+  }) async {
     final clean = name.trim().isEmpty ? '收藏点' : name.trim();
     final finalName = await _uniqueName(clean);
     final pt = MapLabel(
@@ -1929,8 +1989,9 @@ class AppState extends ChangeNotifier {
   /// [overwriteSame] 如果为 true，则当目标工程中存在同坐标同类型的点时，使用来源点的属性覆盖目标点的属性（不改变 id、seq、typeId、lat、lon、lineGroupId）。
   /// 如果为 false（默认），则跳过与目标工程中坐标和类型都相同的点。
   Future<int> importBoxesToCollection(
-      String targetCid, String sourceCid, {
-      bool overwriteSame = false,
+    String targetCid,
+    String sourceCid, {
+    bool overwriteSame = false,
   }) async {
     final target = await store.loadCollection(targetCid);
     final source = await store.loadCollection(sourceCid);
@@ -1952,7 +2013,13 @@ class AppState extends ChangeNotifier {
     if (activeCollectionId == targetCid) {
       labels = merged.map((e) => e.clone()).toList();
       await store.saveDraft(
-          labels, projectName, folderId, editModeName, null, targetCid);
+        labels,
+        projectName,
+        folderId,
+        editModeName,
+        null,
+        targetCid,
+      );
     }
     await refreshCollections();
     notifyListeners();
@@ -1964,8 +2031,10 @@ class AppState extends ChangeNotifier {
   /// （相当于本项目直接增加箱体节点，草稿为空时也可导入，快速建项目）。
   /// 同坐标同类型的已有点按 [overwriteSame] 决定覆盖属性或跳过；
   /// 其余克隆加入 labels 并续 seq。返回实际新增数量。
-  Future<int> importBoxesToDraft(String sourceCid,
-      {bool overwriteSame = false}) async {
+  Future<int> importBoxesToDraft(
+    String sourceCid, {
+    bool overwriteSame = false,
+  }) async {
     final source = await store.loadCollection(sourceCid);
     final boxes = source
         .where((l) => l.type.isTopoLinkable)
@@ -2006,7 +2075,10 @@ class AppState extends ChangeNotifier {
   /// 命中且 [overwriteSame] 时原地覆盖属性（不改变 id、seq、typeId、lat、lon、
   /// lineGroupId）；否则该目标点视为已存在、跳过；未命中的箱体克隆后续 seq 返回。
   List<MapLabel> _mergeBoxes(
-      List<MapLabel> target, List<MapLabel> boxes, bool overwriteSame) {
+    List<MapLabel> target,
+    List<MapLabel> boxes,
+    bool overwriteSame,
+  ) {
     const samePosMeters = 5.0;
     final toAdd = <MapLabel>[];
     var updatedCount = 0;
@@ -2057,12 +2129,14 @@ class AppState extends ChangeNotifier {
 
   void addMeasurePoint(double dispLat, double dispLon) {
     final w = toWgs(dispLat, dispLon);
-    measurePts.add(MapLabel(
-      typeId: 'none',
-      seq: measurePts.length + 1,
-      lat: w[0],
-      lon: w[1],
-    ));
+    measurePts.add(
+      MapLabel(
+        typeId: 'none',
+        seq: measurePts.length + 1,
+        lat: w[0],
+        lon: w[1],
+      ),
+    );
     notifyListeners();
   }
 
@@ -2076,8 +2150,12 @@ class AppState extends ChangeNotifier {
   double measureTotal() {
     var t = 0.0;
     for (var i = 1; i < measurePts.length; i++) {
-      t += LocService.distanceM(measurePts[i - 1].lat, measurePts[i - 1].lon,
-          measurePts[i].lat, measurePts[i].lon);
+      t += LocService.distanceM(
+        measurePts[i - 1].lat,
+        measurePts[i - 1].lon,
+        measurePts[i].lat,
+        measurePts[i].lon,
+      );
     }
     return t;
   }
@@ -2086,7 +2164,8 @@ class AppState extends ChangeNotifier {
     if (measurePts.length < 2) return;
     final isArea = mode == AppMode.measureArea;
     await store.finishCollection(
-      name: '测量-${DateTime.now().toIso8601String().substring(0, 16).replaceAll('T', ' ')}',
+      name:
+          '测量-${DateTime.now().toIso8601String().substring(0, 16).replaceAll('T', ' ')}',
       kind: isArea ? LabelStore.kindData : LabelStore.kindLabel,
       folderId: '',
       editMode: editModeName,
@@ -2123,12 +2202,9 @@ class AppState extends ChangeNotifier {
       if (d < 1.5) return; // 抖动过滤
       recordDistance += d;
     }
-    recordPts.add(MapLabel(
-      typeId: 'track',
-      seq: recordPts.length + 1,
-      lat: lat,
-      lon: lon,
-    ));
+    recordPts.add(
+      MapLabel(typeId: 'track', seq: recordPts.length + 1, lat: lat, lon: lon),
+    );
     notifyListeners();
   }
 
@@ -2195,8 +2271,10 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return '已取消起点选择';
     }
-    final src = topoColl.firstWhere((e) => e.id == topoSelId,
-        orElse: () => MapLabel());
+    final src = topoColl.firstWhere(
+      (e) => e.id == topoSelId,
+      orElse: () => MapLabel(),
+    );
     topoUndoStack.add('${target.id}|${target.topoParentId}');
     target.topoParentId = topoSelId!;
     topoSelId = null;

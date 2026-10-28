@@ -25,13 +25,18 @@ void main() {
         for (final g in oviMenuGroups)
           for (final it in g.items) it.id,
       ];
-      expect(ids.toSet().length, equals(ids.length),
-          reason: '菜单项 id 出现重复：$ids');
+      expect(
+        ids.toSet().length,
+        equals(ids.length),
+        reason: '菜单项 id 出现重复：$ids',
+      );
     });
 
     test('七个业务分组齐全且顺序固定', () {
-      expect(oviMenuGroups.map((g) => g.label).toList(),
-          equals(<String>['文件', '编辑', '工程', '视图', '底图', '同步', '帮助']));
+      expect(
+        oviMenuGroups.map((g) => g.label).toList(),
+        equals(<String>['文件', '编辑', '工程', '视图', '底图', '同步', '帮助']),
+      );
     });
 
     test('本轮修复涉及的入口都在菜单里（防再次丢失）', () {
@@ -53,16 +58,18 @@ void main() {
       for (final g in oviMenuGroups) {
         for (final it in g.items) {
           if (it.keys == 'Delete') {
-            expect(it.activator, isNull,
-                reason: '${it.id} 声明了裸键 Delete 的原生快捷键，会吞掉文本框删除');
+            expect(
+              it.activator,
+              isNull,
+              reason: '${it.id} 声明了裸键 Delete 的原生快捷键，会吞掉文本框删除',
+            );
           }
         }
       }
     });
   });
 
-  testWidgets('macOS：实际交给系统的菜单是一排中文（含应用菜单与窗口菜单）',
-      (tester) async {
+  testWidgets('macOS：实际交给系统的菜单是一排中文（含应用菜单与窗口菜单）', (tester) async {
     // ⚠️ 必须覆写目标平台：`flutter_test` 默认把 `defaultTargetPlatform` 伪装成
     // **android**，而 `PlatformProvidedMenuItem.hasMenu` 恰恰是按它判定的
     // （它看 `defaultTargetPlatform`，不是 `dart:io` 的 `Platform`，
@@ -84,95 +91,89 @@ void main() {
 /// 断言体（抽成独立函数，才能用 try/finally 把平台覆写复位于测试体之内）。
 Future<void> _verifyMacosMenus(WidgetTester tester) async {
   final st = AppState();
-    const noop = _Noop();
-    final actions = OviMenuActions(
-      onNewProject: noop.call,
-      onOpenProject: noop.call,
-      onExportProject: noop.call,
-      onSave: noop.call,
-      onExport: noop.call,
-      onUndo: noop.call,
-      onRedo: noop.call,
-      onDeleteSelection: noop.call,
-      onPoleTable: noop.call,
-      onTrackCheck: noop.call,
-      onOffline: noop.call,
-      onStorageCleanup: noop.call,
-      onSync: noop.call,
-      onToggleLeft: noop.call,
-      onToggleRight: noop.call,
-      onFocusMap: noop.call,
-      onInspect: noop.call,
-      onOdnTopo: noop.call,
-      onZoomIn: noop.call,
-      onZoomOut: noop.call,
-      onResetView: noop.call,
-      onFocusSearch: noop.call,
-    );
+  const noop = _Noop();
+  final actions = OviMenuActions(
+    onNewProject: noop.call,
+    onOpenProject: noop.call,
+    onExportProject: noop.call,
+    onSave: noop.call,
+    onExport: noop.call,
+    onUndo: noop.call,
+    onRedo: noop.call,
+    onDeleteSelection: noop.call,
+    onPoleTable: noop.call,
+    onTrackCheck: noop.call,
+    onOffline: noop.call,
+    onRetryTiles: noop.call,
+    onStorageCleanup: noop.call,
+    onSync: noop.call,
+    onToggleLeft: noop.call,
+    onToggleRight: noop.call,
+    onFocusMap: noop.call,
+    onInspect: noop.call,
+    onWorkflow: noop.call,
+    onOdnTopo: noop.call,
+    onZoomIn: noop.call,
+    onZoomOut: noop.call,
+    onResetView: noop.call,
+    onFocusSearch: noop.call,
+  );
 
-    await tester.pumpWidget(MaterialApp(
+  await tester.pumpWidget(
+    MaterialApp(
       home: AppPlatformMenuBar(
         st: st,
         actions: actions,
         child: const SizedBox.expand(),
       ),
-    ));
+    ),
+  );
 
-    if (!PlatformCaps.isMacOS) {
-      // Windows / Linux：该组件刻意透传 child（菜单由窗口内自绘菜单栏承担）。
-      expect(find.byType(PlatformMenuBar), findsNothing);
-      return;
-    }
+  if (!PlatformCaps.isMacOS) {
+    // Windows / Linux：该组件刻意透传 child（菜单由窗口内自绘菜单栏承担）。
+    expect(find.byType(PlatformMenuBar), findsNothing);
+    return;
+  }
 
-    final bar = tester.widget<PlatformMenuBar>(find.byType(PlatformMenuBar));
-    final labels = bar.menus.map((m) => m.label).toList();
+  final bar = tester.widget<PlatformMenuBar>(find.byType(PlatformMenuBar));
+  final labels = bar.menus.map((m) => m.label).toList();
 
-    // 应用菜单（以应用名命名）在最前，随后是业务菜单 + 窗口菜单。
-    expect(
-        labels,
-        equals(<String?>[
-          '滑洲云图',
-          '文件',
-          '编辑',
-          '工程',
-          '视图',
-          '底图',
-          '同步',
-          '窗口',
-          '帮助',
-        ]));
+  // 应用菜单（以应用名命名）在最前，随后是业务菜单 + 窗口菜单。
+  expect(
+    labels,
+    equals(<String?>['滑洲云图', '文件', '编辑', '工程', '视图', '底图', '同步', '窗口', '帮助']),
+  );
 
-    // 「上面一排英文菜单」的回归护栏：绝不能出现这些英文顶层菜单。
-    for (final bad in const ['Edit', 'View', 'Window', 'Help', 'File']) {
-      expect(labels, isNot(contains(bad)),
-          reason: '顶层菜单不应再出现英文「$bad」');
-    }
+  // 「上面一排英文菜单」的回归护栏：绝不能出现这些英文顶层菜单。
+  for (final bad in const ['Edit', 'View', 'Window', 'Help', 'File']) {
+    expect(labels, isNot(contains(bad)), reason: '顶层菜单不应再出现英文「$bad」');
+  }
 
-    // 应用菜单必须自带「退出」—— PlatformMenuBar 接管整个主菜单后，
-    // 系统不会替我们生成它，漏掉等于用户失去 ⌘Q。
-    // 注意系统项是包在 `PlatformMenuItemGroup` 里的（分隔线用），
-    // 所以要递归进分组，而不是只看菜单的直接子项。
-    final appMenu = bar.menus.first as PlatformMenu;
-    final appMenuTypes = _providedTypesOf(appMenu);
-    expect(appMenuTypes, contains(PlatformProvidedMenuItemType.quit));
-    expect(appMenuTypes, contains(PlatformProvidedMenuItemType.hide));
+  // 应用菜单必须自带「退出」—— PlatformMenuBar 接管整个主菜单后，
+  // 系统不会替我们生成它，漏掉等于用户失去 ⌘Q。
+  // 注意系统项是包在 `PlatformMenuItemGroup` 里的（分隔线用），
+  // 所以要递归进分组，而不是只看菜单的直接子项。
+  final appMenu = bar.menus.first as PlatformMenu;
+  final appMenuTypes = _providedTypesOf(appMenu);
+  expect(appMenuTypes, contains(PlatformProvidedMenuItemType.quit));
+  expect(appMenuTypes, contains(PlatformProvidedMenuItemType.hide));
 
-    // 业务菜单的项也必须是中文、且带 id 对应的实现（抽查本轮修复项）。
-    final fileMenu = bar.menus[1] as PlatformMenu;
-    expect(_labelsOf(fileMenu), contains('新建工程'));
-    final viewMenu = bar.menus[4] as PlatformMenu;
-    expect(_labelsOf(viewMenu), contains('切到竣工模式'));
-    expect(_labelsOf(viewMenu), contains('专注地图（两侧全收）'));
+  // 业务菜单的项也必须是中文、且带 id 对应的实现（抽查本轮修复项）。
+  final fileMenu = bar.menus[1] as PlatformMenu;
+  expect(_labelsOf(fileMenu), contains('新建工程'));
+  final viewMenu = bar.menus[4] as PlatformMenu;
+  expect(_labelsOf(viewMenu), contains('切到竣工模式'));
+  expect(_labelsOf(viewMenu), contains('专注地图（两侧全收）'));
 }
 
 /// 取一个菜单下所有条目的文案（含分组展开）。
 List<String?> _labelsOf(PlatformMenu menu) => <String?>[
-      for (final m in menu.menus)
-        if (m is PlatformMenuItemGroup)
-          for (final s in m.members) s.label
-        else
-          m.label,
-    ];
+  for (final m in menu.menus)
+    if (m is PlatformMenuItemGroup)
+      for (final s in m.members) s.label
+    else
+      m.label,
+];
 
 /// 取一个菜单里出现的**系统提供项**类型（递归进分组，系统项都包在分组里）。
 Set<PlatformProvidedMenuItemType> _providedTypesOf(PlatformMenu menu) {

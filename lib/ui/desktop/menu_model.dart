@@ -135,6 +135,7 @@ const List<OviMenuGroupDef> oviMenuGroups = <OviMenuGroupDef>[
     ),
   ]),
   OviMenuGroupDef('工程', <OviMenuItemDef>[
+    OviMenuItemDef('workflow', '作业流程（新建→打点→布杆→体检→导出）', dividerBefore: true),
     OviMenuItemDef('collection_settings', '采集设置（自动编号 / 段标前缀）'),
     OviMenuItemDef('template', '工程模板'),
     // 桌面端此前只有移动端有自动布杆，桌面菜单漏了这个高频动作。
@@ -221,6 +222,8 @@ const List<OviMenuGroupDef> oviMenuGroups = <OviMenuGroupDef>[
     OviMenuItemDef('tianditu_key', '天地图 Key 设置', dividerBefore: true),
     OviMenuItemDef('amap_key', '高德 Key 设置'),
     OviMenuItemDef('overpass', 'Overpass 端点', dividerBefore: true),
+    // 底图出现白块（个别瓦片失败）时手动重载；自动回退失败瓦片已内置。
+    OviMenuItemDef('retry_tiles', '重试失败瓦片（白块）'),
     OviMenuItemDef('storage_cleanup', '存储清理'),
   ]),
   OviMenuGroupDef('同步', <OviMenuItemDef>[
@@ -249,8 +252,10 @@ class OviMenuActions {
     required this.onPoleTable,
     required this.onTrackCheck,
     required this.onInspect,
+    required this.onWorkflow,
     required this.onOdnTopo,
     required this.onOffline,
+    required this.onRetryTiles,
     required this.onStorageCleanup,
     required this.onSync,
     required this.onToggleLeft,
@@ -276,10 +281,14 @@ class OviMenuActions {
   /// 出图体检：由壳注入，因为"定位到某一档"需要地图相机控制权（菜单层不持相机）。
   final VoidCallback onInspect;
 
+  /// 作业流程引导：把新建/打点/布杆/体检/导出串成一条可见流程。
+  final VoidCallback onWorkflow;
+
   /// ODN 拓扑图：由壳注入，节点点击定位同样需要地图相机控制权。
   /// 选工程是异步对话框，壳实现里自行 unawaited(openOdnTopoViewer(...))。
   final VoidCallback onOdnTopo;
   final VoidCallback onOffline;
+  final VoidCallback onRetryTiles;
   final VoidCallback onStorageCleanup;
   final VoidCallback onSync;
   final VoidCallback onToggleLeft;
@@ -350,6 +359,9 @@ Future<void> dispatchOviMenuItem(
       break;
 
     // ---- 工程 ----
+    case 'workflow':
+      a.onWorkflow();
+      break;
     case 'collection_settings':
       await showCollectionSettings(context, st);
       break;
@@ -417,6 +429,9 @@ Future<void> dispatchOviMenuItem(
       break;
     case 'offline':
       a.onOffline();
+      break;
+    case 'retry_tiles':
+      a.onRetryTiles();
       break;
     case 'tianditu_key':
       await showTiandituKeyDialog(context, st);

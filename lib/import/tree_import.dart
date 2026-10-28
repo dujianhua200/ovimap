@@ -146,6 +146,11 @@ Future<ImportTreeResult> importParsedResult(
       lineCount += unit.labels.length - pts;
     }
     await st.refreshCollections();
+    // 只导入一个工程时直接上图：导入 KML/奥维后第一眼就能看到结果，
+    // 不用再去收藏树里点眼睛。多个工程仍保持隐藏，避免一次糊满地图。
+    if (cids.length == 1) {
+      await st.showCollectionOnMap(cids.first);
+    }
     return true;
   }
 

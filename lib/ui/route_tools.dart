@@ -42,6 +42,8 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
   var typeId = poleTypes.any((t) => t.id == st.curType.id)
       ? st.curType.id
       : LabelType.concrete.id;
+  // 沿已画线组布杆时，默认删掉那条粗路由，避免地图上叠两份。
+  var removeRough = true;
 
   final screenW = MediaQuery.of(context).size.width;
   await showDarkDialog(
@@ -123,6 +125,25 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
                   ),
               ],
             ),
+            if (path != null) ...[
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text(
+                  '布杆后删除原粗路由（推荐）',
+                  style: TextStyle(color: kTextMain, fontSize: 13),
+                ),
+                subtitle: const Text(
+                  '只删本次用来布杆的那条线组；撤销可整步还原',
+                  style: TextStyle(color: kTextSub, fontSize: 11),
+                ),
+                value: removeRough,
+                activeColor: kAccent,
+                onChanged: (v) => setSt(() => removeRough = v ?? false),
+              ),
+            ],
           ],
         ),
       ),
@@ -145,6 +166,9 @@ Future<void> showAutoPoleDialog(BuildContext context, AppState st) async {
             spacingM: sp,
             typeId: typeId,
             prefix: usePrefix,
+            removeIds: removeRough
+                ? {for (final l in chain!) l.id}
+                : const <String>{},
           );
         } else {
           final s = GeoUtil.parseCoordInput(startCtl.text);

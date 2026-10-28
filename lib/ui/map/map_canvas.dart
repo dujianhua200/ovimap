@@ -172,10 +172,11 @@ class _MapCanvasState extends State<MapCanvas> {
     final cam = _mc.camera;
     final pan = e.localPanDelta;
     if (pan.distanceSquared > 0) {
-      final mpp =
-          GeoUtil.metersPerPixel(cam.center.latitude, cam.zoom);
+      final mpp = GeoUtil.metersPerPixel(cam.center.latitude, cam.zoom);
       final dLat = pan.dy * mpp / 111320.0;
-      final dLon = pan.dx * mpp /
+      final dLon =
+          pan.dx *
+          mpp /
           (111320.0 * math.cos(cam.center.latitude * math.pi / 180.0));
       final nl = (cam.center.latitude - dLat).clamp(-85.0, 85.0);
       _mc.move(LatLng(nl, cam.center.longitude - dLon), cam.zoom);
@@ -221,8 +222,10 @@ class _MapCanvasState extends State<MapCanvas> {
           if (l != null) {
             final w = st.toWgs(point.latitude, point.longitude);
             st.moveLabelToWgs(l, w[0], w[1]);
-            toast(context,
-                '已移动「${l.name.isEmpty ? l.type.name : l.name}」，相邻段距自动重算');
+            toast(
+              context,
+              '已移动「${l.name.isEmpty ? l.type.name : l.name}」，相邻段距自动重算',
+            );
           }
           return;
         }
@@ -255,7 +258,9 @@ class _MapCanvasState extends State<MapCanvas> {
       case AppMode.topoLink:
         _lastHitKey = null;
         final target = _hitTestGeo(
-            st.topoColl.where((l) => l.type.isTopoLinkable).toList(), point);
+          st.topoColl.where((l) => l.type.isTopoLinkable).toList(),
+          point,
+        );
         if (target == null) return;
         final msg = st.topoTap(target);
         if (msg.isNotEmpty) toast(context, msg);
@@ -305,11 +310,15 @@ class _MapCanvasState extends State<MapCanvas> {
       // 长按点到已画点位：同样直接编辑（比短按更不易误触），覆盖草稿+可见收藏
       final near = _hitTestAny(point);
       if (near != null) {
-        showLabelProperties(context, st, near.$1,
-            sourceCid: near.$2,
-            title: near.$1.name.trim().isNotEmpty
-                ? near.$1.name.trim()
-                : near.$1.type.name);
+        showLabelProperties(
+          context,
+          st,
+          near.$1,
+          sourceCid: near.$2,
+          title: near.$1.name.trim().isNotEmpty
+              ? near.$1.name.trim()
+              : near.$1.type.name,
+        );
         return;
       }
       showContextCard(context, st, point.latitude, point.longitude);
@@ -321,15 +330,21 @@ class _MapCanvasState extends State<MapCanvas> {
   /// 设备像素比都不会影响，比旧的屏幕像素命中法可靠。
   MapLabel? _hitTestGeo(List<MapLabel> list, LatLng point) {
     final mpp = GeoUtil.metersPerPixel(
-        st.toDisplay(point.latitude, point.longitude)[0], _mc.camera.zoom);
+      st.toDisplay(point.latitude, point.longitude)[0],
+      _mc.camera.zoom,
+    );
     var best = 35.0 * mpp;
     if (best > 50) best = 50;
     if (best < 3) best = 3;
     MapLabel? hit;
     for (final l in list) {
       final d = st.toDisplay(l.lat, l.lon);
-      final dist =
-          GeoUtil.haversine(d[0], d[1], point.latitude, point.longitude);
+      final dist = GeoUtil.haversine(
+        d[0],
+        d[1],
+        point.latitude,
+        point.longitude,
+      );
       if (dist < best) {
         best = dist;
         hit = l;
@@ -347,8 +362,10 @@ class _MapCanvasState extends State<MapCanvas> {
       final list = st.overlayLabels[cid];
       if (list == null || list.isEmpty) continue;
       // D2：隐藏的点点不中（草稿不受 mark 显隐影响，仍可点中编辑）。
-      final hit =
-          _hitTestGeo(withoutHiddenLabels(list, st.hiddenLabelIds), point);
+      final hit = _hitTestGeo(
+        withoutHiddenLabels(list, st.hiddenLabelIds),
+        point,
+      );
       if (hit != null) return (hit, cid);
     }
     return null;
@@ -376,8 +393,10 @@ class _MapCanvasState extends State<MapCanvas> {
         Polyline(
           points: [
             for (final m in st.measurePts)
-              LatLng(st.toDisplay(m.lat, m.lon)[0],
-                  st.toDisplay(m.lat, m.lon)[1]),
+              LatLng(
+                st.toDisplay(m.lat, m.lon)[0],
+                st.toDisplay(m.lat, m.lon)[1],
+              ),
           ],
           strokeWidth: 2.6,
           color: const Color(0xFF00BCD4),
@@ -386,8 +405,10 @@ class _MapCanvasState extends State<MapCanvas> {
         Polyline(
           points: [
             for (final m in st.recordPts)
-              LatLng(st.toDisplay(m.lat, m.lon)[0],
-                  st.toDisplay(m.lat, m.lon)[1]),
+              LatLng(
+                st.toDisplay(m.lat, m.lon)[0],
+                st.toDisplay(m.lat, m.lon)[1],
+              ),
           ],
           strokeWidth: 3,
           color: const Color(0xFFFFC107),
@@ -402,7 +423,8 @@ class _MapCanvasState extends State<MapCanvas> {
     //   每次单击落点都要等 250ms 双击判定窗口（详见
     //   [defaultFlagsForCurrentPlatform] 的「250ms 代价」）。
     // - 移动：保持原口径（双指缩放 + 旋转）。
-    final int flags = widget.interactionFlags ?? defaultFlagsForCurrentPlatform();
+    final int flags =
+        widget.interactionFlags ?? defaultFlagsForCurrentPlatform();
 
     return Listener(
       // macOS 触控板（用户反馈「触控板功能全部失效」）：Flutter 把 trackpad
@@ -413,138 +435,154 @@ class _MapCanvasState extends State<MapCanvas> {
       },
       onPointerPanZoomUpdate: _onTrackpad,
       child: Stack(
-      children: [
-        FlutterMap(
-          mapController: _mc,
-          options: MapOptions(
-            initialCenter: LatLng(st.toDisplay(st.initLat, st.initLon)[0],
-                st.toDisplay(st.initLat, st.initLon)[1]),
-            initialZoom: st.initZoom,
-            minZoom: 3,
-            maxZoom: 21.5,
-            backgroundColor: TokC.panelSolid,
-            onPositionChanged: _onPositionChanged,
-            onMapReady: () {
-              _mapReady = true;
-              _onPositionChanged(_mc.camera, false);
-              widget.onMapReady?.call();
-              if (mounted) setState(() {});
-            },
-            onTap: _onTap,
-            onLongPress: _onLongPress,
-            onSecondaryTap: widget.onSecondaryTap,
-            onPointerHover: (e, point) {
-              // 悬停点位的坐标系与其它回调一致（显示基准）；交回调用方前转成 WGS-84。
-              final w = st.toWgs(point.latitude, point.longitude);
-              widget.onPointerGeo?.call(w[0], w[1]);
-            },
-            interactionOptions: InteractionOptions(
-              flags: flags,
-              // ⚠️ 桌面必须关掉「按住 Ctrl 移动鼠标 = 旋转地图」：
-              // flutter_map 的 `CursorKeyboardRotationOptions` 默认把 Control 键当旋转触发键，
-              // 于是 Ctrl+Z / Ctrl+S / Ctrl+E 等桌面快捷键在鼠标移动时会顺带把地图转掉。
-              // 移动端无此冲突，保持默认。
-              cursorKeyboardRotationOptions: PlatformCaps.isDesktop
-                  ? CursorKeyboardRotationOptions.disabled()
-                  : const CursorKeyboardRotationOptions(),
-            ),
-          ),
-          children: [
-            TileLayer(
-              key: ValueKey(
-                  'base-${st.curSource.id}-${widget.baseProvider.generation}'),
-              tileProvider: widget.baseProvider,
-              maxNativeZoom: st.curSource.maxZoom,
+        children: [
+          FlutterMap(
+            mapController: _mc,
+            options: MapOptions(
+              initialCenter: LatLng(
+                st.toDisplay(st.initLat, st.initLon)[0],
+                st.toDisplay(st.initLat, st.initLon)[1],
+              ),
+              initialZoom: st.initZoom,
+              minZoom: 3,
               maxZoom: 21.5,
-              errorImage: MemoryImage(Uint8List.fromList(kTransparentPng)),
+              backgroundColor: TokC.panelSolid,
+              onPositionChanged: _onPositionChanged,
+              onMapReady: () {
+                _mapReady = true;
+                _onPositionChanged(_mc.camera, false);
+                widget.onMapReady?.call();
+                if (mounted) setState(() {});
+              },
+              onTap: _onTap,
+              onLongPress: _onLongPress,
+              onSecondaryTap: widget.onSecondaryTap,
+              onPointerHover: (e, point) {
+                // 悬停点位的坐标系与其它回调一致（显示基准）；交回调用方前转成 WGS-84。
+                final w = st.toWgs(point.latitude, point.longitude);
+                widget.onPointerGeo?.call(w[0], w[1]);
+              },
+              interactionOptions: InteractionOptions(
+                flags: flags,
+                // ⚠️ 桌面必须关掉「按住 Ctrl 移动鼠标 = 旋转地图」：
+                // flutter_map 的 `CursorKeyboardRotationOptions` 默认把 Control 键当旋转触发键，
+                // 于是 Ctrl+Z / Ctrl+S / Ctrl+E 等桌面快捷键在鼠标移动时会顺带把地图转掉。
+                // 移动端无此冲突，保持默认。
+                cursorKeyboardRotationOptions: PlatformCaps.isDesktop
+                    ? CursorKeyboardRotationOptions.disabled()
+                    : const CursorKeyboardRotationOptions(),
+              ),
             ),
-            if (widget.overlayProvider != null && ovl != null)
+            children: [
               TileLayer(
                 key: ValueKey(
-                    'ovl-${st.overlayId}-${widget.overlayProvider!.generation}'),
-                tileProvider: widget.overlayProvider!,
-                maxNativeZoom: ovl.maxZoom,
-                maxZoom: 21.5,
-                errorImage: MemoryImage(Uint8List.fromList(kTransparentPng)),
-              ),
-            PolylineLayer(polylines: polylines),
-            if (st.mode == AppMode.measureArea && st.measurePts.length >= 3)
-              PolygonLayer(polygons: [
-                Polygon(
-                  points: [
-                    for (final m in st.measurePts)
-                      LatLng(st.toDisplay(m.lat, m.lon)[0],
-                          st.toDisplay(m.lat, m.lon)[1]),
-                  ],
-                  color: const Color(0x33AB47BC),
-                  borderColor: const Color(0xFFAB47BC),
-                  borderStrokeWidth: 1.5,
+                  'base-${st.curSource.id}-${widget.baseProvider.generation}',
                 ),
-              ]),
-            // 壳注入的业务符号 / 搜索临时标记等
-            ...widget.extraLayers,
-            // 段距离文字叠加层：每帧按屏幕坐标绘制，永远与线平行
-            Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: SegTextPainter(
+                tileProvider: widget.baseProvider,
+                maxNativeZoom: st.curSource.maxZoom,
+                maxZoom: 21.5,
+                errorImage: MemoryImage(Uint8List.fromList(kErrorTilePng)),
+              ),
+              if (widget.overlayProvider != null && ovl != null)
+                TileLayer(
+                  key: ValueKey(
+                    'ovl-${st.overlayId}-${widget.overlayProvider!.generation}',
+                  ),
+                  tileProvider: widget.overlayProvider!,
+                  maxNativeZoom: ovl.maxZoom,
+                  maxZoom: 21.5,
+                  errorImage: MemoryImage(Uint8List.fromList(kTransparentPng)),
+                ),
+              PolylineLayer(polylines: polylines),
+              if (st.mode == AppMode.measureArea && st.measurePts.length >= 3)
+                PolygonLayer(
+                  polygons: [
+                    Polygon(
+                      points: [
+                        for (final m in st.measurePts)
+                          LatLng(
+                            st.toDisplay(m.lat, m.lon)[0],
+                            st.toDisplay(m.lat, m.lon)[1],
+                          ),
+                      ],
+                      color: const Color(0x33AB47BC),
+                      borderColor: const Color(0xFFAB47BC),
+                      borderStrokeWidth: 1.5,
+                    ),
+                  ],
+                ),
+              // 壳注入的业务符号 / 搜索临时标记等
+              ...widget.extraLayers,
+              // 段距离文字叠加层：每帧按屏幕坐标绘制，永远与线平行
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: SegTextPainter(
                       _mapReady && cam != null
                           ? collectSegTexts(st, cam)
-                          : const []),
-                ),
-              ),
-            ),
-            // 用户位置
-            if (userDisp != null)
-              MarkerLayer(markers: [
-                Marker(
-                  point: LatLng(userDisp[0], userDisp[1]),
-                  width: (st.curAcc ?? 20) *
-                      2 *
-                      (1.0 / GeoUtil.metersPerPixel(userDisp[0], zoomForAcc)),
-                  height: (st.curAcc ?? 20) *
-                      2 *
-                      (1.0 / GeoUtil.metersPerPixel(userDisp[0], zoomForAcc)),
-                  alignment: Alignment.center,
-                  child: CustomPaint(
-                      painter: const AccuracyCirclePainter(),
-                      child: const SizedBox.expand()),
-                ),
-                Marker(
-                  point: LatLng(userDisp[0], userDisp[1]),
-                  width: 26,
-                  height: 26,
-                  alignment: Alignment.center,
-                  child: Transform.rotate(
-                    angle: deg2rad(widget.heading - (cam?.rotation ?? 0)),
-                    child: const CustomPaint(
-                      size: Size(24, 24),
-                      painter: UserArrowPainter(),
+                          : const [],
                     ),
                   ),
                 ),
-              ]),
-          ],
-        ),
-
-        // ---- 框选覆盖层（仅 boxSelect 模式）：拖出矩形选择草稿点 ----
-        if (st.mode == AppMode.boxSelect)
-          Positioned.fill(
-            child: _MarqueeLayer(
-              onDone: (rect) {
-                final c = _mc.camera;
-                final a = c.offsetToCrs(rect.topLeft);
-                final b = c.offsetToCrs(rect.bottomRight);
-                final minLat = math.min(a.latitude, b.latitude);
-                final maxLat = math.max(a.latitude, b.latitude);
-                final minLon = math.min(a.longitude, b.longitude);
-                final maxLon = math.max(a.longitude, b.longitude);
-                st.selectInDisplayBounds(minLat, minLon, maxLat, maxLon);
-                toast(context, '已选 ${st.selectedIds.length} 点');
-              },
-            ),
+              ),
+              // 用户位置
+              if (userDisp != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: LatLng(userDisp[0], userDisp[1]),
+                      width:
+                          (st.curAcc ?? 20) *
+                          2 *
+                          (1.0 /
+                              GeoUtil.metersPerPixel(userDisp[0], zoomForAcc)),
+                      height:
+                          (st.curAcc ?? 20) *
+                          2 *
+                          (1.0 /
+                              GeoUtil.metersPerPixel(userDisp[0], zoomForAcc)),
+                      alignment: Alignment.center,
+                      child: CustomPaint(
+                        painter: const AccuracyCirclePainter(),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                    Marker(
+                      point: LatLng(userDisp[0], userDisp[1]),
+                      width: 26,
+                      height: 26,
+                      alignment: Alignment.center,
+                      child: Transform.rotate(
+                        angle: deg2rad(widget.heading - (cam?.rotation ?? 0)),
+                        child: const CustomPaint(
+                          size: Size(24, 24),
+                          painter: UserArrowPainter(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
-      ],
+
+          // ---- 框选覆盖层（仅 boxSelect 模式）：拖出矩形选择草稿点 ----
+          if (st.mode == AppMode.boxSelect)
+            Positioned.fill(
+              child: _MarqueeLayer(
+                onDone: (rect) {
+                  final c = _mc.camera;
+                  final a = c.offsetToCrs(rect.topLeft);
+                  final b = c.offsetToCrs(rect.bottomRight);
+                  final minLat = math.min(a.latitude, b.latitude);
+                  final maxLat = math.max(a.latitude, b.latitude);
+                  final minLon = math.min(a.longitude, b.longitude);
+                  final maxLon = math.max(a.longitude, b.longitude);
+                  st.selectInDisplayBounds(minLat, minLon, maxLat, maxLon);
+                  toast(context, '已选 ${st.selectedIds.length} 点');
+                },
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -610,8 +648,11 @@ int defaultFlagsForCurrentPlatform() {
 // ================= 共享图层构建（两套壳复用） =================
 
 /// 杆路 / 收藏折线（统一链口径；箱体/文字不打断杆路，与导出一致）。
-List<Polyline> buildSegLines(AppState st, List<MapLabel> pts,
-    {bool isDraft = false}) {
+List<Polyline> buildSegLines(
+  AppState st,
+  List<MapLabel> pts, {
+  bool isDraft = false,
+}) {
   final lines = <Polyline>[];
   for (final chain in buildLabelChains(pts)) {
     for (var i = 1; i < chain.length; i++) {
@@ -645,21 +686,31 @@ List<Polyline> buildSegLines(AppState st, List<MapLabel> pts,
         for (var k = 0; k < n; k++) {
           if (k % 2 == 1) continue;
           final t0 = k / n, t1 = (k + 1) / n;
-          lines.add(Polyline(
-            points: [
-              LatLng(pa[0] + (pb[0] - pa[0]) * t0, pa[1] + (pb[1] - pa[1]) * t0),
-              LatLng(pa[0] + (pb[0] - pa[0]) * t1, pa[1] + (pb[1] - pa[1]) * t1),
-            ],
-            strokeWidth: width,
-            color: color,
-          ));
+          lines.add(
+            Polyline(
+              points: [
+                LatLng(
+                  pa[0] + (pb[0] - pa[0]) * t0,
+                  pa[1] + (pb[1] - pa[1]) * t0,
+                ),
+                LatLng(
+                  pa[0] + (pb[0] - pa[0]) * t1,
+                  pa[1] + (pb[1] - pa[1]) * t1,
+                ),
+              ],
+              strokeWidth: width,
+              color: color,
+            ),
+          );
         }
       } else {
-        lines.add(Polyline(
-          points: [LatLng(pa[0], pa[1]), LatLng(pb[0], pb[1])],
-          strokeWidth: width,
-          color: color,
-        ));
+        lines.add(
+          Polyline(
+            points: [LatLng(pa[0], pa[1]), LatLng(pb[0], pb[1])],
+            strokeWidth: width,
+            color: color,
+          ),
+        );
       }
     }
   }
@@ -690,18 +741,26 @@ List<Polyline> buildTopoLines(AppState st) {
 ///
 /// marker / 段注记 / 点选共用；polyline **不用**它——隐藏点仍参与连线，
 /// 线链保持连续不断（只不画点、不注记、不点中）。
-List<MapLabel> withoutHiddenLabels(
-        Iterable<MapLabel> ls, Set<String> hidden) =>
-    [for (final l in ls) if (!hidden.contains(l.id)) l];
+List<MapLabel> withoutHiddenLabels(Iterable<MapLabel> ls, Set<String> hidden) =>
+    [
+      for (final l in ls)
+        if (!hidden.contains(l.id)) l,
+    ];
 
-List<Marker> buildBusinessMarkers(AppState st, MapCamera cam,
-    {required bool mapReady}) {
-
+List<Marker> buildBusinessMarkers(
+  AppState st,
+  MapCamera cam, {
+  required bool mapReady,
+}) {
   final markers = <Marker>[];
   if (!mapReady) return markers;
 
-  void addFor(MapLabel l,
-      {bool selected = false, bool draft = false, bool batchSel = false}) {
+  void addFor(
+    MapLabel l, {
+    bool selected = false,
+    bool draft = false,
+    bool batchSel = false,
+  }) {
     // 轨迹/无标签：不画符号，只保留连线与距离
     if (l.typeId == 'track' || l.typeId == 'none') return;
     final d = st.toDisplay(l.lat, l.lon);
@@ -710,13 +769,15 @@ List<Marker> buildBusinessMarkers(AppState st, MapCamera cam,
       label: skipName ? (l.clone()..name = '') : l,
       selected: selected || batchSel,
     );
-    markers.add(Marker(
-      point: LatLng(d[0], d[1]),
-      width: LabelSymbol.symbolSize,
-      height: LabelSymbol.symbolSize,
-      alignment: Alignment.center,
-      child: child,
-    ));
+    markers.add(
+      Marker(
+        point: LatLng(d[0], d[1]),
+        width: LabelSymbol.symbolSize,
+        height: LabelSymbol.symbolSize,
+        alignment: Alignment.center,
+        child: child,
+      ),
+    );
   }
 
   // 可见收藏（底层）：D2——hiddenLabelIds 的点不画符号。
@@ -740,27 +801,32 @@ List<Marker> buildBusinessMarkers(AppState st, MapCamera cam,
   for (var i = 0; i < st.measurePts.length; i++) {
     final l = st.measurePts[i];
     final d = st.toDisplay(l.lat, l.lon);
-    markers.add(Marker(
-      point: LatLng(d[0], d[1]),
-      width: 40,
-      height: 40,
-      alignment: Alignment.center,
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: const Color(0xFF00BCD4),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 1.6),
-        ),
-        child: Center(
-          child: Text('${i + 1}',
+    markers.add(
+      Marker(
+        point: LatLng(d[0], d[1]),
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF00BCD4),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 1.6),
+          ),
+          child: Center(
+            child: Text(
+              '${i + 1}',
               style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold)),
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
         ),
       ),
-    ));
+    );
   }
 
   return markers;
@@ -794,13 +860,21 @@ List<SegText> collectSegTexts(AppState st, MapCamera cam) {
       // 段标走 segTextFor（真源）：distLabel 未手填时，前缀**实时**取自本段敷设方式
       // （架空→架 / 埋地→埋 / 管道→管），退而用全局段标前缀。距离用 segDistText
       // 去掉整数的 ".0" 毛刺，与 DXF 标注、左侧段落表口径一致。
-      final segText = GeoUtil.segTextFor(b, GeoUtil.segDistText(dist),
-          prefix: st.segPrefix);
+      final segText = GeoUtil.segTextFor(
+        b,
+        GeoUtil.segDistText(dist),
+        prefix: st.segPrefix,
+      );
       if (segText.isEmpty) continue;
       var ang = math.atan2(dy, dx);
       if (ang > math.pi / 2 || ang < -math.pi / 2) ang += math.pi;
-      out.add(SegText(
-          Offset((spa.dx + spb.dx) / 2, (spa.dy + spb.dy) / 2), ang, segText));
+      out.add(
+        SegText(
+          Offset((spa.dx + spb.dx) / 2, (spa.dy + spb.dy) / 2),
+          ang,
+          segText,
+        ),
+      );
     }
   }
 
@@ -824,11 +898,14 @@ List<SegText> collectSegTexts(AppState st, MapCamera cam) {
       final dist = GeoUtil.haversine(a.lat, a.lon, b.lat, b.lon);
       var ang = math.atan2(dy, dx);
       if (ang > math.pi / 2 || ang < -math.pi / 2) ang += math.pi;
-      out.add(SegText(
+      out.add(
+        SegText(
           Offset((spa.dx + spb.dx) / 2, (spa.dy + spb.dy) / 2),
           ang,
           // 测量线没有敷设方式，只统一数字口径（去整数 ".0"）。
-          GeoUtil.segDistText(dist)));
+          GeoUtil.segDistText(dist),
+        ),
+      );
     }
   }
   return out;
@@ -899,12 +976,147 @@ class _MarqueePainter extends CustomPainter {
 
 /// 1x1 透明 PNG（瓦片加载失败时的占位图）。
 final Uint8List kTransparentPng = Uint8List.fromList(const [
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
-  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
-  0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
-  0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x62,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
+]);
+
+/// 1x1 浅灰 PNG（底图瓦片加载失败时的占位，避免纯白空洞看不出是缺图）。
+final Uint8List kErrorTilePng = Uint8List.fromList(const [
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0xDA,
+  0x63,
+  0xB8,
+  0x77,
+  0xEF,
+  0xDE,
+  0x7F,
+  0x00,
+  0x08,
+  0xD2,
+  0x03,
+  0x9A,
+  0xFF,
+  0x68,
+  0xB9,
+  0x9F,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
 ]);
 
 /// 比例尺（简易）：按当前级别取 nice 米数画一段线。
@@ -916,8 +1128,24 @@ class ScaleBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final mpp = GeoUtil.metersPerPixel(camera.center.latitude, camera.zoom);
     const steps = [
-      1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0,
-      5000.0, 10000.0, 20000.0, 50000.0, 100000.0, 200000.0, 500000.0
+      1.0,
+      2.0,
+      5.0,
+      10.0,
+      20.0,
+      50.0,
+      100.0,
+      200.0,
+      500.0,
+      1000.0,
+      2000.0,
+      5000.0,
+      10000.0,
+      20000.0,
+      50000.0,
+      100000.0,
+      200000.0,
+      500000.0,
     ];
     var best = steps.first;
     for (final s in steps) {
@@ -934,8 +1162,10 @@ class ScaleBar extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(GeoUtil.fmtScaleLabel(best),
-              style: const TextStyle(color: Colors.white, fontSize: 10)),
+          Text(
+            GeoUtil.fmtScaleLabel(best),
+            style: const TextStyle(color: Colors.white, fontSize: 10),
+          ),
           Container(
             width: px,
             height: 4,

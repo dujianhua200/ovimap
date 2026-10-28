@@ -28,6 +28,7 @@ import '../export_center.dart';
 import '../favorites/tree_keys.dart';
 import '../map/map_canvas.dart';
 import '../new_project_dialog.dart';
+import '../workflow_guide.dart';
 import '../sync/sync_panel.dart';
 import '../unsaved_draft_guard.dart';
 import 'app_menu_bar.dart';
@@ -265,6 +266,29 @@ class _WorkspacePageState extends State<WorkspacePage> {
   }
 
   void _export() => openExportCenter(context, _st);
+
+  /// 作业流程引导：把新建/打点/布杆/体检/导出串成一条可见流程。
+  void _showWorkflow() {
+    unawaited(
+      showWorkflowGuide(
+        context,
+        _st,
+        onNewProject: () => unawaited(_newProject()),
+        onInspect: _inspect,
+        onExport: _export,
+      ),
+    );
+  }
+
+  /// 底图白块抢救：bump provider generation → TileLayer key/ImageProvider key 变化，
+  /// 失败瓦片重新走网络（成功瓦片仍读磁盘缓存）。自动回退已内置，这里是手动兜底。
+  void _retryTiles() {
+    setState(() {
+      _baseProvider?.generation++;
+      _overlayProvider?.generation++;
+    });
+    toast(context, '正在重新加载底图瓦片…');
+  }
 
   void _focusSearch() => _searchFocus.requestFocus();
 
@@ -966,6 +990,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
       _baseProvider = CacheTileProvider(
         sourceId: st.curSource.id,
         urlTemplate: st.curSource.normalizedUrl,
+        // OSM 反代个别瓦片 404/超时时回落官方源（同为 WGS-84，不会错位）。
+        fallbackUrlTemplate: st.curSource.id == 'osm-proxy'
+            ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+            : null,
       );
       _baseProviderFor = st.curSource.id;
     }
@@ -1033,6 +1061,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
                 onExport: _export,
                 onSync: _showSyncInfo,
                 onInspect: _inspect,
+                onWorkflow: _showWorkflow,
                 leftCollapsed: !_favOpen,
                 rightCollapsed: _rightCollapsed,
                 onToggleLeft: () => setState(() => _favOpen = !_favOpen),
@@ -1073,8 +1102,10 @@ class _WorkspacePageState extends State<WorkspacePage> {
     onPoleTable: _showPoleTable,
     onTrackCheck: _showTrackCheck,
     onInspect: _inspect,
+    onWorkflow: _showWorkflow,
     onOdnTopo: _showOdnTopo,
     onOffline: _onOffline,
+    onRetryTiles: _retryTiles,
     onStorageCleanup: _storageCleanup,
     onSync: _showSyncInfo,
     onToggleLeft: () => setState(() => _favOpen = !_favOpen),

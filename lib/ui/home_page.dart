@@ -334,7 +334,10 @@ class _HomePageState extends State<HomePage> {
     if (_baseProviderFor != st.curSource.id || _baseProvider == null) {
       _baseProvider = CacheTileProvider(
           sourceId: st.curSource.id,
-          urlTemplate: st.curSource.normalizedUrl);
+          urlTemplate: st.curSource.normalizedUrl,
+          fallbackUrlTemplate: st.curSource.id == 'osm-proxy'
+              ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+              : null);
       _baseProviderFor = st.curSource.id;
     }
     final ovl = st.currentOverlay();

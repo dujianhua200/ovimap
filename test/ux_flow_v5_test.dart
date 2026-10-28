@@ -20,6 +20,7 @@ import 'package:ovimap/ui/label_marker.dart';
 import 'package:ovimap/ui/new_project_dialog.dart';
 import 'package:ovimap/ui/route_tools.dart';
 import 'package:ovimap/ui/unsaved_draft_guard.dart';
+import 'package:ovimap/ui/workflow_guide.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '_fs_cleanup.dart';
@@ -444,6 +445,48 @@ void main() {
       }
     });
 
+    test('布杆后可删除原粗路由，撤销一步整步还原', () async {
+      final st = await makeState();
+      final a = MapLabel(
+        typeId: 'concrete',
+        name: 'A',
+        lat: 32.0,
+        lon: 114.0,
+        lineGroupId: 'g',
+      );
+      final b = MapLabel(
+        typeId: 'concrete',
+        name: 'B',
+        lat: 32.0,
+        lon: 114.01,
+        lineGroupId: 'g',
+      );
+      st.labels.addAll([a, b]);
+
+      final n = st.autoPlacePolesAlongPath(
+        path: <List<double>>[
+          [32.0, 114.0],
+          [32.0, 114.01],
+        ],
+        spacingM: 50,
+        typeId: 'concrete',
+        prefix: 'G',
+        removeIds: {a.id, b.id},
+      );
+
+      expect(n, greaterThan(1));
+      expect(
+        st.labels.any((l) => l.id == a.id || l.id == b.id),
+        isFalse,
+        reason: '粗路由应被删除，避免和成品杆路叠两份',
+      );
+      expect(st.labels.length, n);
+
+      st.undoDraft();
+      expect(st.labels.length, 2, reason: '一次撤销应恢复粗路由并撤掉新杆');
+      await _settle();
+    });
+
     test('用已有最大号 +1，删掉中间点后不复用编号', () async {
       final st = await makeState();
       st.setAutoNumber(true, 'G');
@@ -551,6 +594,37 @@ void main() {
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
       expect(find.text('自动布杆（等距）'), findsNothing);
+    });
+
+    testWidgets('作业流程引导：点「开始」进入打点', (tester) async {
+      desktopViewport(tester);
+      final st = await makeState();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () => showWorkflowGuide(
+                  ctx,
+                  st,
+                  onNewProject: () {},
+                  onInspect: () {},
+                  onExport: () {},
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('作业流程（按顺序做）'), findsOneWidget);
+
+      await tester.tap(find.text('开始'));
+      await tester.pumpAndSettle();
+      expect(find.text('作业流程（按顺序做）'), findsNothing);
+      expect(st.mode, AppMode.edit);
     });
   });
 }
