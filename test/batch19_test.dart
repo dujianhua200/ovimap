@@ -94,7 +94,7 @@ void main() {
       TiandituClient.httpGetOverride = null;
     });
 
-    test('默认（convertGcj=true）：返回的 SearchResult 已被纠偏', () async {
+    test('默认不纠偏：返回坐标与接口原始值一致（天地图 POI 本为 WGS-84）', () async {
       TiandituClient.httpGetOverride = (uri) async {
         uris.add(uri);
         return mockOk(jsonEncode({
@@ -111,6 +111,28 @@ void main() {
       };
       final res = await TiandituClient.search('丰乐园', 'k',
           mapBound: TiandituClient.nationalBound);
+      expect(res, hasLength(1));
+      expect(res.first.lat, 32.10);
+      expect(res.first.lon, 114.08);
+    });
+
+    test('convertGcj=true（旧配置兼容）：返回的 SearchResult 被按 GCJ 纠偏', () async {
+      TiandituClient.httpGetOverride = (uri) async {
+        uris.add(uri);
+        return mockOk(jsonEncode({
+          'status': {'infocode': 1000, 'cndesc': '成功'},
+          'pois': [
+            {
+              'name': '丰乐园',
+              'address': '河南省信阳市浉河区',
+              'lonlat': '114.080000,32.100000',
+            }
+          ],
+          'area': null,
+        }));
+      };
+      final res = await TiandituClient.search('丰乐园', 'k',
+          mapBound: TiandituClient.nationalBound, convertGcj: true);
       expect(res, hasLength(1));
       final r = res.first;
       // 已被转换：与原始返回坐标 (32.10, 114.08) 不同，且偏移量级合理
@@ -150,7 +172,7 @@ void main() {
       expect(res[1].lon, 114.06);
     });
 
-    test('area 行政区划命中默认也被纠偏', () async {
+    test('area 行政区划命中默认原样返回（不纠偏）', () async {
       TiandituClient.httpGetOverride = (uri) async {
         uris.add(uri);
         return mockOk(jsonEncode({
@@ -162,7 +184,8 @@ void main() {
       final res = await TiandituClient.search('浉河区', 'k',
           mapBound: TiandituClient.nationalBound);
       expect(res, hasLength(1));
-      expect(res.first.lat, isNot(32.12));
+      expect(res.first.lat, 32.12);
+      expect(res.first.lon, 114.06);
     });
 
     test('R2 有基准点：mapBound 为基准点 ±0.3°，count 默认 15', () async {
@@ -221,7 +244,7 @@ void main() {
       expect(postOf(uris[0])['mapBound'], '113,31,115,33');
     });
 
-    test('poiInBounds：范围与 count 不变（行为兼容），出口纠偏生效', () async {
+    test('poiInBounds：范围与 count 不变（行为兼容），默认原样返回', () async {
       TiandituClient.httpGetOverride = (uri) async {
         uris.add(uri);
         return mockOk(jsonEncode({
@@ -239,23 +262,23 @@ void main() {
       // mapBound = minLon,minLat,maxLon,maxLat
       expect(postOf(uris[0])['mapBound'], '113.9,32.0,114.3,32.3');
       expect(postOf(uris[0])['count'], 20);
-      expect(res.first.lat, isNot(32.100)); // 已纠偏
+      expect(res.first.lat, 32.100); // 默认原样（天地图 POI 即 WGS-84）
     });
   });
 
   group('R1/R2 接线（设置项 + 消费端源级断言）', () {
-    test('AppState.tdtConvertGcj：默认纠偏；wgs84 档关闭并持久化', () async {
+    test('AppState.tdtConvertGcj：默认不纠偏；gcj02 档打开并持久化', () async {
       SharedPreferences.setMockInitialValues({});
       final st = AppState();
       st.setPrefsForTest(await SharedPreferences.getInstance());
-      expect(st.tdtCoordSys, AppState.tdtCoordGcj02);
-      expect(st.tdtConvertGcj, isTrue);
-
-      st.setTdtCoordSys(AppState.tdtCoordWgs84);
+      // 天地图 v2/search 实测为 WGS-84，默认不纠偏（见 app_state 注释）。
       expect(st.tdtCoordSys, AppState.tdtCoordWgs84);
       expect(st.tdtConvertGcj, isFalse);
-      expect(st.prefs.getString(AppState.prefTdtCoordSys),
-          AppState.tdtCoordWgs84);
+
+      st.setTdtCoordSys(AppState.tdtCoordGcj02);
+      expect(st.tdtCoordSys, AppState.tdtCoordGcj02);
+      expect(st.tdtConvertGcj, isTrue);
+      expect(st.prefs.getString(AppState.prefTdtCoordSys), AppState.tdtCoordGcj02);
     });
 
     test('home_page 搜索：传基准点 + 用户设置的纠偏开关', () async {

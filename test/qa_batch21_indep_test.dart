@@ -145,8 +145,9 @@ void main() {
       addTearDown(() => dir.deleteSync(recursive: true));
 
       OverpassClient.httpGetOverride = _emptyOverpass;
+      // 高德接口返回 GCJ-02：mock 也按 GCJ 给，消费端恒定纠偏回 _near/_far。
       AmapClient.httpGetOverride =
-          (url) async => _ok(_amapBody([..._near, ..._far]));
+          (url) async => _ok(_amapBody(_asGcj([..._near, ..._far])));
       TiandituClient.httpGetOverride =
           (url) async => throw StateError('高德有结果时不得回落天地图');
 

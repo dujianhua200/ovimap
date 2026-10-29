@@ -246,6 +246,7 @@ class _DxfBatchOptions {
     final amapKey = userAmapKey.isEmpty ? AppState.builtinAmapKey : userAmapKey;
     final overpass =
         prefs.getString(AppState.prefOverpassEndpoints)?.trim() ?? '';
+    // 天地图检索 POI 实测为 WGS-84，默认不纠偏（高德固定纠偏，不受此开关影响）。
     final convertGcj =
         prefs.getString(AppState.prefTdtCoordSys) != AppState.tdtCoordWgs84;
 

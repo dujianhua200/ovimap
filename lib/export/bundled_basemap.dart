@@ -19,6 +19,13 @@ const int kBundledRoadsVersion = 1;
 const String kBundledRoadsAsset = 'assets/buildings/xinyang_roads.geojson.gz';
 const String kBundledPlacesAsset = 'assets/buildings/xinyang_places.geojson.gz';
 
+/// 天地图补充包（信阳）：村名/小队名（v2/search 网格扫描）+
+/// 干线道路（WFS LRDL 1:100 万）。由 `tool/tdt_pack.py` 生成。
+const String kBundledPlacesTdtAsset =
+    'assets/buildings/xinyang_places_tdt.geojson.gz';
+const String kBundledRoadsTdtAsset =
+    'assets/buildings/xinyang_roads_tdt.geojson.gz';
+
 /// 信阳市大致范围（WGS84），用于判断是否用内置数据。
 const double kXinyangLonMin = 113.7;
 const double kXinyangLonMax = 115.6;
@@ -102,6 +109,120 @@ class BundledBasemap {
           isArea: false,
         ));
       }
+    } catch (_) {}
+
+    await _loadTdtExtras();
+  }
+
+  /// 合并天地图补充包（村名/小队名 + 干线道路）。
+  ///
+  /// 定位是**补充**不是替换：
+  /// - 地名：与已有地名「同名且相距 ≤110m」视为同一处跳过；同名异地
+  ///   （信阳到处是「李家塆」）照常保留，这正是要补的东西；
+  /// - 道路：天地图 WFS 是 1:100 万数据，几何比内置 OSM 粗。若该段道路
+  ///   七成以上采样点 300m 内已有 OSM 道路顶点，判定为同一条路，跳过——
+  ///   否则 DXF 里会出现一条与真实道路平行、偏移几百米的"幽灵路"。
+  ///   实测（信阳 945 段）：按此规则丢弃 145 段、保留 800 段（约 7,190 km），
+  ///   OSM 道路覆盖不到的路段（约 65% 的采样点 3km 内无 OSM 道路）都会补上。
+  Future<void> _loadTdtExtras() async {
+    // ---- 地名 ----
+    try {
+      final data = await rootBundle.load(kBundledPlacesTdtAsset);
+      final text = utf8.decode(gzip.decode(data.buffer.asUint8List()));
+      final json = jsonDecode(text) as Map<String, dynamic>;
+      // 同名地名索引：name → "格号" 集合（0.001° ≈ 110m）
+      const cell = 0.001;
+      final cells = <String, Set<String>>{};
+      for (final p in _places) {
+        (cells[p.name] ??= <String>{})
+            .add('${(p.lat / cell).round()},${(p.lon / cell).round()}');
+      }
+      for (final f in (json['features'] as List)) {
+        final fm = f as Map<String, dynamic>;
+        final props = fm['properties'] as Map<String, dynamic>;
+        final coords = (fm['geometry'] as Map<String, dynamic>)['coordinates']
+            as List;
+        final name = (props['name'] as String?) ?? '';
+        if (name.isEmpty) continue;
+        final lon = (coords[0] as num).toDouble();
+        final lat = (coords[1] as num).toDouble();
+        final i = (lat / cell).round(), j = (lon / cell).round();
+        final set = cells[name];
+        var dup = false;
+        if (set != null) {
+          for (var a = -1; a <= 1 && !dup; a++) {
+            for (var b = -1; b <= 1; b++) {
+              if (set.contains('${i + a},${j + b}')) {
+                dup = true;
+                break;
+              }
+            }
+          }
+        }
+        if (dup) continue;
+        (cells[name] ??= <String>{}).add('$i,$j');
+        _places.add(PlaceFeature(
+          name: name,
+          lat: lat,
+          lon: lon,
+          level: _levelOf((props['kind'] as String?) ?? ''),
+          isArea: false,
+        ));
+      }
+    } catch (_) {}
+
+    // ---- 干线道路 ----
+    try {
+      final data = await rootBundle.load(kBundledRoadsTdtAsset);
+      final text = utf8.decode(gzip.decode(data.buffer.asUint8List()));
+      final json = jsonDecode(text) as Map<String, dynamic>;
+      // 现有道路顶点网格（0.005° ≈ 550m），用于"已被覆盖"判定
+      const cell = 0.005;
+      final grid = <String, List<List<double>>>{};
+      for (final r in _roads) {
+        for (final p in r.pts) {
+          (grid['${(p[0] / cell).floor()}_${(p[1] / cell).floor()}'] ??= [])
+              .add(p);
+        }
+      }
+      bool covered(double lat, double lon) {
+        final gx = (lat / cell).floor(), gy = (lon / cell).floor();
+        for (var a = -1; a <= 1; a++) {
+          for (var b = -1; b <= 1; b++) {
+            for (final p
+                in grid['${gx + a}_${gy + b}'] ?? const <List<double>>[]) {
+              if (_distM(lat, lon, p[0], p[1]) <= 300) return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      final added = <RoadPoly>[];
+      for (final f in (json['features'] as List)) {
+        final fm = f as Map<String, dynamic>;
+        final props = fm['properties'] as Map<String, dynamic>;
+        final coords = ((fm['geometry'] as Map<String, dynamic>)['coordinates']
+                as List)
+            .map((c) => [(c[1] as num).toDouble(), (c[0] as num).toDouble()])
+            .toList();
+        if (coords.length < 2) continue;
+        // 均匀取至多 7 个采样点；七成以上被覆盖则判定为同一条路
+        var hit = 0, n = 0;
+        final step = math.max(1, coords.length ~/ 7);
+        for (var k = 0; k < coords.length; k += step) {
+          if (n >= 7) break;
+          n++;
+          if (covered(coords[k][0], coords[k][1])) hit++;
+        }
+        if (n > 0 && hit * 10 >= n * 7) continue; // OSM 已覆盖，跳过
+        added.add(RoadPoly(
+          coords,
+          OverpassClient.gradeOf((props['highway'] as String?) ?? ''),
+          (props['name'] as String?) ?? '',
+        ));
+      }
+      _roads.addAll(cleanRoads(added));
     } catch (_) {}
   }
 

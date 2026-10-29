@@ -137,7 +137,32 @@ void main() {
     setUp(() => uris.clear());
     tearDown(() => TiandituClient.httpGetOverride = null);
 
-    test('默认 convertGcj=true：poi 坐标还原为原 wgs（<2e-4°）', () async {
+    test('默认不纠偏：poi 坐标与接口原始值一致（天地图 POI 即 WGS-84）', () async {
+      const wgs = [32.1234, 114.0567];
+      TiandituClient.httpGetOverride = (uri) async {
+        uris.add(uri);
+        return mockOk(jsonEncode({
+          'status': {'infocode': 1000, 'cndesc': '成功'},
+          'pois': [
+            {
+              'name': 'QA测试小区',
+              'address': '信阳',
+              'lonlat': '${wgs[1].toStringAsFixed(6)},${wgs[0].toStringAsFixed(6)}',
+            }
+          ],
+          'area': null,
+        }));
+      };
+      final res = await TiandituClient.search('QA测试', 'k',
+          mapBound: TiandituClient.nationalBound);
+      expect(res, hasLength(1));
+      expect((res.first.lat - wgs[0]).abs(), lessThan(1e-6),
+          reason: '默认不应做任何纠偏（原样返回）');
+      expect((res.first.lon - wgs[1]).abs(), lessThan(1e-6),
+          reason: '默认不应做任何纠偏（原样返回）');
+    });
+
+    test('convertGcj=true（旧配置）：按 GCJ-02 还原为原 wgs（<2e-4°）', () async {
       const wgs = [32.1234, 114.0567];
       final gcj = refWgsToGcj(wgs[0], wgs[1]);
       TiandituClient.httpGetOverride = (uri) async {
@@ -155,7 +180,7 @@ void main() {
         }));
       };
       final res = await TiandituClient.search('QA测试', 'k',
-          mapBound: TiandituClient.nationalBound);
+          mapBound: TiandituClient.nationalBound, convertGcj: true);
       expect(res, hasLength(1));
       expect((res.first.lat - wgs[0]).abs(), lessThan(2e-4),
           reason: 'poi lat 未还原到原 wgs');
@@ -190,9 +215,8 @@ void main() {
       expect((res.first.lat - wgs[0]).abs(), greaterThan(0.001));
     });
 
-    test('area 行政区划命中：默认同样被纠偏', () async {
+    test('area 行政区划命中：默认同样原样返回', () async {
       const wgs = [32.4321, 114.0912];
-      final gcj = refWgsToGcj(wgs[0], wgs[1]);
       TiandituClient.httpGetOverride = (uri) async {
         uris.add(uri);
         return mockOk(jsonEncode({
@@ -200,17 +224,17 @@ void main() {
           'pois': [],
           'area': {
             'name': 'QA区',
-            'lonlat': '${gcj[1].toStringAsFixed(6)},${gcj[0].toStringAsFixed(6)}',
+            'lonlat': '${wgs[1].toStringAsFixed(6)},${wgs[0].toStringAsFixed(6)}',
           },
         }));
       };
       final res = await TiandituClient.search('QA区', 'k',
           mapBound: TiandituClient.nationalBound);
       expect(res, hasLength(1));
-      expect((res.first.lat - wgs[0]).abs(), lessThan(2e-4),
-          reason: 'area lat 未还原');
-      expect((res.first.lon - wgs[1]).abs(), lessThan(2e-4),
-          reason: 'area lon 未还原');
+      expect((res.first.lat - wgs[0]).abs(), lessThan(1e-6),
+          reason: 'area 默认不纠偏');
+      expect((res.first.lon - wgs[1]).abs(), lessThan(1e-6),
+          reason: 'area 默认不纠偏');
     });
   });
 

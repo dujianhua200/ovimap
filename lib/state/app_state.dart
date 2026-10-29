@@ -385,16 +385,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 天地图检索地名坐标系设置（第十九批新增）。
-  /// 'gcj02'（默认，自动纠偏为 WGS84）/ 'wgs84'（不转换，保留原始返回坐标）。
-  /// 用户为测绘出身，留开关便于对照验证。
+  /// 天地图检索地名坐标系设置。
+  /// 'wgs84'（默认，不转换）/ 'gcj02'（纠偏为 WGS84，旧默认，仅兼容保留）。
+  ///
+  /// **默认值依据（2026-10 实测）**：天地图 v2/search 返回的是 WGS-84/CGCS2000，
+  /// 不是 GCJ-02。在信阳用 40 个 OSM 村落点做对照，20 个匹配点上原始坐标
+  /// 中位误差 97m，按 GCJ-02 纠偏后反而变成 594m——旧默认把地名整体推偏约 600m。
+  /// 天地图**瓦片**是 GCJ-02，检索 POI 不是，两者不能混用同一开关。
   static const prefTdtCoordSys = 'tdtCoordSys';
   static const String tdtCoordGcj02 = 'gcj02';
   static const String tdtCoordWgs84 = 'wgs84';
 
-  String get tdtCoordSys => prefs.getString(prefTdtCoordSys) ?? tdtCoordGcj02;
+  String get tdtCoordSys => prefs.getString(prefTdtCoordSys) ?? tdtCoordWgs84;
 
-  /// 是否对天地图检索结果做 GCJ-02→WGS-84 纠偏（默认 true）。
+  /// 是否对天地图检索结果做 GCJ-02→WGS-84 纠偏（默认 false）。
   bool get tdtConvertGcj => tdtCoordSys != tdtCoordWgs84;
 
   void setTdtCoordSys(String sys) {

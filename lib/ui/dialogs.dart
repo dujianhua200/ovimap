@@ -1183,7 +1183,8 @@ Future<void> showDxfOptions(
   // Overpass 端点（底图数据源）：用户自定义优先、内置兜底；留空=全走内置境外镜像
   final overpassEndpoints =
       prefs.getString(AppState.prefOverpassEndpoints)?.trim() ?? '';
-  // 高德/天地图检索 POI 实测为 GCJ-02；按用户设置决定是否纠偏（默认开）
+  // 只作用于天地图检索 POI（实测为 WGS-84，默认不纠偏）；高德恒为 GCJ-02，
+  // 由 AmapClient 内部固定纠偏，不读这个开关。
   final convertGcj =
       prefs.getString(AppState.prefTdtCoordSys) != AppState.tdtCoordWgs84;
 
@@ -2373,33 +2374,34 @@ Future<void> showTiandituKeyDialog(BuildContext context, AppState st) async {
             '天地图地名坐标系',
             style: TextStyle(color: kTextSub, fontSize: 12),
           ),
-          // 天地图检索 POI 实测为 GCJ-02 火星坐标（瓦片才是 WGS84），
-          // 默认自动纠偏；测绘用户可关掉对照原始返回坐标。
+          // 天地图**检索 POI** 实测为 WGS-84/CGCS2000（本图/地名底图同一椭球），
+          // 默认不转换；只有早期版本按 GCJ-02 纠偏，会整体推偏约 600m。
+          // 保留 GCJ-02 选项仅为兼容旧配置与对照排查。
           RadioListTile<String>(
             dense: true,
             contentPadding: EdgeInsets.zero,
             title: const Text(
-              'GCJ-02 火星坐标（自动纠偏为 WGS-84）',
-              style: TextStyle(color: kTextMain, fontSize: 13),
-            ),
-            value: AppState.tdtCoordGcj02,
-            groupValue: coordSys,
-            activeColor: kAccent,
-            onChanged: (v) =>
-                setSt(() => coordSys = v ?? AppState.tdtCoordGcj02),
-          ),
-          RadioListTile<String>(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text(
-              'WGS-84（不转换，保留原始返回坐标）',
+              'WGS-84（默认，不转换）',
               style: TextStyle(color: kTextMain, fontSize: 13),
             ),
             value: AppState.tdtCoordWgs84,
             groupValue: coordSys,
             activeColor: kAccent,
             onChanged: (v) =>
-                setSt(() => coordSys = v ?? AppState.tdtCoordGcj02),
+                setSt(() => coordSys = v ?? AppState.tdtCoordWgs84),
+          ),
+          RadioListTile<String>(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'GCJ-02 火星坐标（纠偏为 WGS-84，旧版默认）',
+              style: TextStyle(color: kTextMain, fontSize: 13),
+            ),
+            value: AppState.tdtCoordGcj02,
+            groupValue: coordSys,
+            activeColor: kAccent,
+            onChanged: (v) =>
+                setSt(() => coordSys = v ?? AppState.tdtCoordWgs84),
           ),
         ],
       ),

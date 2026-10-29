@@ -883,12 +883,17 @@ void main() {
 
     test('配了高德 key → 兜底走高德（source 记 +amap，天地图不调用）', () async {
       var tdtCalls = 0;
+      // 高德接口返回的是 GCJ-02；mock 也按 GCJ 给，纠偏后落回线路旁
+      // (32.1266, 114.0915)。高德恒定纠偏（由 AmapClient 内部处理），
+      // 不随「天地图地名坐标系」设置变化。
+      final g = Gcj02Converter.wgs84ToGcj02(32.1266, 114.0915);
+      final amapLoc = '${g[1].toStringAsFixed(6)},${g[0].toStringAsFixed(6)}';
       AmapClient.httpGetOverride = (uri) async => _ok(jsonEncode({
             'status': '1',
             'info': 'OK',
             'infocode': '10000',
             'pois': [
-              {'name': '高德花园', 'address': '', 'location': '114.0915,32.1266'}
+              {'name': '高德花园', 'address': '', 'location': amapLoc}
             ],
           }), status: 200);
       TiandituClient.httpGetOverride = (uri) async {
@@ -978,10 +983,11 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final st = AppState();
       st.setPrefsForTest(await SharedPreferences.getInstance());
-      expect(st.tdtCoordSys, AppState.tdtCoordGcj02);
-      expect(st.tdtConvertGcj, isTrue);
-      st.setTdtCoordSys(AppState.tdtCoordWgs84);
+      // 默认 WGS-84（不纠偏）；gcj02 档为旧配置兼容保留。
+      expect(st.tdtCoordSys, AppState.tdtCoordWgs84);
       expect(st.tdtConvertGcj, isFalse);
+      st.setTdtCoordSys(AppState.tdtCoordGcj02);
+      expect(st.tdtConvertGcj, isTrue);
       expect(st.tiandituKey, AppState.builtinTdtKey);
     });
   });

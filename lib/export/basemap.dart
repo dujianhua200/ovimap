@@ -744,12 +744,15 @@ class BasemapFetcher {
       final extra = <PlaceFeature>[];
       String suffix = '';
       if (amapKey.isNotEmpty) {
+        // 高德 POI 恒为 GCJ-02，必须纠偏；「天地图地名坐标系」开关只管天地图，
+        // 不能因为用户把天地图设成 WGS-84 就把高德结果也一起弄偏。
         extra.addAll(await _poiByKeywords(
             bbox, (kw) => AmapClient.poiInBounds(bbox, kw, amapKey,
-                convertGcj: convertGcj)));
+                convertGcj: true)));
         if (extra.isNotEmpty) suffix = '+amap';
       }
       if (extra.isEmpty && useTdt && tdtKey.isNotEmpty) {
+        // 天地图 v2/search 返回 WGS-84/CGCS2000（实测），默认不纠偏。
         extra.addAll(await _poiByKeywords(bbox,
             (kw) => TiandituClient.poiInBounds(bbox, kw, tdtKey,
                 convertGcj: convertGcj)));

@@ -37,3 +37,31 @@
 1. 县城/乡镇的 OSM **建筑轮廓**本身稀缺（不是我们漏查：查询已经是 `way[building]` + `relation[building]` 全量）
 2. 沿线路缓冲裁剪（v3.9.3）会把远离轨迹的要素裁掉——这是刻意的，范围可调
 3. 公共 Overpass 镜像常限流/超时 → 建议走 A 或 B
+
+## 四、2026-10 复核：天地图 WFS 与 v2/search 的真实可得内容
+
+上面「四类要素需单独申请」的说法只对**天地图数据 API（商业接口）**成立；
+免费的 **OGC WFS 服务**另有 1:100 万国家核心要素图层，实测可直接取：
+
+- 端点：`https://gisserver.tianditu.gov.cn/TDTService/wfs`
+- 图层：`LRDL`（道路）、`RESA`（居民地面）、`RESP`（居民地点）、
+  `HYDL/HYDA`（水系）、`LRRL`（铁路）、`AGNP/AANP`（政区）。
+- 实际质量（bbox = 信阳全域）：
+  - `LRDL`：1,010 条要素，943 条有名称，属性 `NAME`（起讫点式，如「北京-深圳」）、
+    `RTEG`（高/一/二/三/四）。**比例尺 1:100 万**，只够画干线，村道没有。
+  - `RESA`：每 0.5°×0.5° 只有 2 个多边形，**过粗，不可用**。
+  - `RESP`：只有 `OBJECTID/GB/ANGLE`，**没有名称字段**，不能当地名用。
+
+- `v2/search` POI（`queryType=2` 周边检索）才是**村庄/小队名的有效来源**：
+  - 单次最多取 600 条（`start` 仅接受 0/300，`count` 上限 300，`radius` 不生效）；
+  - **`pointLonlat` 与 `level` 对返回集合毫无影响**——同一关键词在相距 100km 的
+    两个点上返回同一批 600 条，按地理位置扫描全无意义；
+  - 返回坐标为 **WGS-84/CGCS2000**（实测中位误差 97m；若按 GCJ-02 纠偏反而变成 594m）；
+  - 扩大覆盖只能**换关键词**：8 个通名 × 100 个姓氏 × 「姓+家+通名」× 60 个
+    方位/地形前缀，共 1,832 个关键词，节流 1.6s，约 1.5 小时跑完，得 23,392 条
+    去重地名（与 OSM 包合并后 30,861 条）。
+
+采集/打包脚本：`tool/tdt_pack.py`（密钥只读环境变量 `TDT_KEY`，不进仓库）。
+产物：`assets/buildings/xinyang_places_tdt.geojson.gz`（村名/小队名）、
+`assets/buildings/xinyang_roads_tdt.geojson.gz`（干线道路），由
+`BundledBasemap` 与 OSM 包交叉去重合并。

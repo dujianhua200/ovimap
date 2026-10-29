@@ -19,6 +19,7 @@ import 'package:ovimap/export/basemap.dart';
 import 'package:ovimap/export/dxf.dart';
 import 'package:ovimap/export/dxf_version.dart';
 import 'package:ovimap/export/overpass.dart';
+import 'package:ovimap/geo/gcj02.dart';
 import 'package:ovimap/models/map_label.dart';
 import 'package:ovimap/services/amap.dart';
 import 'package:ovimap/services/tianditu.dart';
@@ -72,6 +73,9 @@ String _tdtBody(List<(String, double, double)> pts) => jsonEncode({
     });
 
 /// 高德 v5/place/polygon 应答（location = "经度,纬度"）。
+///
+/// 入参是**意图上的 WGS-84** 点；高德真实接口返回 GCJ-02，故这里先正向加密
+/// 成 GCJ 再发出——消费端会纠偏回原 WGS 点（高德恒定纠偏，与天地图开关无关）。
 String _amapBody(List<(String, double, double)> pts) => jsonEncode({
       'status': '1',
       'info': 'OK',
@@ -79,7 +83,13 @@ String _amapBody(List<(String, double, double)> pts) => jsonEncode({
       'count': '${pts.length}',
       'pois': [
         for (final p in pts)
-          {'id': 'B0FF${p.$1}', 'name': p.$1, 'address': '', 'location': '${p.$3},${p.$2}'},
+          {
+            'id': 'B0FF${p.$1}',
+            'name': p.$1,
+            'address': '',
+            'location':
+                '${Gcj02Converter.wgs84ToGcj02(p.$2, p.$3)[1]},${Gcj02Converter.wgs84ToGcj02(p.$2, p.$3)[0]}',
+          },
       ],
     });
 

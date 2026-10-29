@@ -1088,10 +1088,12 @@ void main() {
       var amapCalls = 0;
       OverpassClient.httpGetOverride =
           (url, {headers}) async => qaOk(qaLegitEmpty);
+      // 高德接口为 GCJ-02：mock 按 GCJ 给，纠偏后落回线路旁 (32.1264, 114.0913)。
+      final g = Gcj02Converter.wgs84ToGcj02(32.1264, 114.0913);
       AmapClient.httpGetOverride = (url) async {
         amapCalls++;
         return qaOk(amapBody([
-          ['114.0913', '32.1264']
+          [g[1].toStringAsFixed(6), g[0].toStringAsFixed(6)]
         ]));
       };
       TiandituClient.httpGetOverride = (url) async {

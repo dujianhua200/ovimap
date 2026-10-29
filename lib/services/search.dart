@@ -27,9 +27,9 @@ class SearchService {
   /// 同时作为天地图本地检索范围的中心（±0.3°，约 ±30km；本地无结果
   /// 再用全国范围兜底）——避免本地小区被全国同名 POI 淹没。
   ///
-  /// [convertGcj] 控制天地图检索结果是否做 GCJ-02→WGS-84 纠偏
-  /// （天地图检索 POI 实测为 GCJ-02；由设置项「天地图地名坐标系」决定，
-  /// 默认开启）。
+  /// [convertGcj] 只作用于**天地图**结果（天地图检索 POI 实测为 WGS-84，
+  /// 默认不纠偏，见设置项「天地图地名坐标系」）。
+  /// 高德结果恒为 GCJ-02，始终纠偏，不受该参数影响。
   static Future<List<SearchResult>> search(String q,
       {String tdtKey = '',
       String amapKey = '',
@@ -42,7 +42,7 @@ class SearchService {
     if (amapKey.isNotEmpty) {
       try {
         final r = await AmapClient.search(q, amapKey,
-            convertGcj: convertGcj,
+            convertGcj: true, // 高德恒为 GCJ-02，必须纠偏（与天地图开关无关）
             nearLat: nearLat,
             nearLon: nearLon);
         if (r.isNotEmpty) results = r;

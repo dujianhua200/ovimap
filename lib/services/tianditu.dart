@@ -29,12 +29,11 @@ class SearchResult {
 
 /// 天地图地名搜索 2.0 客户端（从 `SearchService._tianditu` 抽取的公共方法）。
 ///
-/// - **瓦片**为 CGCS2000 ≈ WGS84；但 **v2/search 的 POI 检索数据实测是
-///   GCJ-02 火星坐标**（信阳地区偏移约 300~600 米）。官方"无需纠偏"仅指
-///   瓦片——因此本客户端在出口统一把检索结果过 `Gcj02Converter.gcj02ToWgs84`
-///   （可用 [search] 的 `convertGcj` 关闭，配合设置项「天地图地名坐标系」），
-///   保证 app 内存储统一 WGS84（第十九批实测修正，原注释"不做 GCJ 转换"
-///   属错误认知）。
+/// - **瓦片与 v2/search 的 POI 检索数据都是 CGCS2000 ≈ WGS84**。
+///   2026-10 复测（信阳，40 个 OSM 村落点、20 个匹配点）：原始坐标中位误差
+///   97m；若按 GCJ-02 纠偏反而变成 594m——**默认不纠偏**。第十九批曾据抽样
+///   误判 POI 为 GCJ-02 并默认纠偏，导致地名整体推偏约 600m，已改回。
+///   [search] 的 `convertGcj` 仅为兼容旧配置保留（设置项「天地图地名坐标系」）。
 /// - 端点 `/v2/search` 支持 `mapBound` 矩形限定；`queryType=1` 为关键字查询。
 ///   传入基准点（`nearLat/nearLon`）时优先以 ±0.3°（约 ±30km）本地范围检索，
 ///   本地无结果再用全国范围兜底重试——避免全国检索时本地小区被外地同名
@@ -64,14 +63,15 @@ class TiandituClient {
   /// 不传且给了 [nearLat]/[nearLon]（WGS84 基准点，一般传当前地图中心）时，
   /// 先用本地 ±0.3° 范围检索，结果为空再用全国范围重试一次（本地优先、
   /// 全国兜底）；都不满足时用全国范围。
-  /// [convertGcj] 为 false 时不做 GCJ-02→WGS-84 纠偏（保留原始返回坐标）。
+  /// [convertGcj] 为 true 时把返回坐标按 GCJ-02→WGS-84 纠偏（默认 false：
+  /// 天地图 POI 本身即 WGS-84，仅在旧配置/对照排查时打开）。
   static Future<List<SearchResult>> search(
     String q,
     String key, {
     String? mapBound,
     int level = 12,
     int count = 15,
-    bool convertGcj = true,
+    bool convertGcj = false,
     double? nearLat,
     double? nearLon,
   }) async {
@@ -154,7 +154,7 @@ class TiandituClient {
     List<double> bbox,
     String keyword,
     String key, {
-    bool convertGcj = true,
+    bool convertGcj = false,
   }) async {
     final mapBound = '${bbox[1]},${bbox[0]},${bbox[3]},${bbox[2]}';
     return search(keyword, key,
