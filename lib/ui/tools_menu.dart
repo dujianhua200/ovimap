@@ -7,6 +7,7 @@ import 'export_center.dart';
 import 'new_project_dialog.dart';
 import 'route_tools.dart';
 import 'topo_editor.dart';
+import 'workflow_guide.dart';
 
 /// ⋯工具 面板：低频业务，分「成果与资料 / 专业工具」两组。
 ///
@@ -18,6 +19,10 @@ Future<void> showToolsMenu(
   required Future<void> Function() onPoleTable,
   required Future<void> Function() onTrackCheck,
   required VoidCallback onOdnTopo,
+  // 出图体检与「重试失败瓦片」需要地图相机 / 瓦片 provider，由移动端壳注入。
+  // 不传时对应入口不显示，避免点了没反应。
+  Future<void> Function()? onInspect,
+  VoidCallback? onRetryTiles,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -29,9 +34,27 @@ Future<void> showToolsMenu(
           // 移动端此前没有"新建工程"入口，只能清空草稿后直接画；
           // 统一走与桌面同一个引导（名称/模板/编号一次设完）。
           sheetGroupTitle('工程'),
+          // 与桌面「作业流程」同一套引导：移动端也有入口，不再只能靠记忆找菜单。
+          sheetTile(context, '作业流程（新建→打点→布杆→体检→导出）', () {
+            showWorkflowGuide(
+              context,
+              st,
+              onNewProject: () => showNewProjectDialog(context, st),
+              onInspect: () {
+                if (onInspect != null) {
+                  onInspect();
+                } else {
+                  toast(context, '当前端不支持出图体检');
+                }
+              },
+              onExport: () => openExportCenter(context, st),
+            );
+          }),
           sheetTile(context, '新建工程（名称 / 模板 / 编号）',
               () => showNewProjectDialog(context, st)),
           sheetGroupTitle('成果与资料'),
+          if (onInspect != null)
+            sheetTile(context, '出图体检（出图前查错）', () => onInspect()),
           sheetTile(context, '导出成果（当前草稿 / 配线）',
               () => openExportCenter(context, st)),
           sheetTile(context, '导入对象文件（KML/KMZ/奥维）',
@@ -49,6 +72,10 @@ Future<void> showToolsMenu(
               shareFile(context, files.first);
             }
           }),
+          if (onRetryTiles != null) ...[
+            sheetGroupTitle('地图'),
+            sheetTile(context, '重试失败瓦片（白块 / 加载失败）', onRetryTiles),
+          ],
           sheetGroupTitle('专业工具'),
           // P1-2：人工拓扑提到专业工具组顶部，并改名与 ODN 拓扑连线区分。
           sheetTile(context, '人工光缆拓扑（逐条连线）', () {

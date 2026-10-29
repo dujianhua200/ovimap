@@ -456,11 +456,19 @@ class FavTreeController extends ChangeNotifier {
           '移动工程「${node.name}」',
           () async {
             ok = await _moveToFolderRaw(node, folderId);
+            // 正在编辑的工程被移到别的文件夹：编辑器里的归属层同步，
+            // 否则下一次保存会把工程搬回原来的文件夹。
+            if (ok && node.id == _st.activeCollectionId) {
+              _st.syncActiveCollectionMeta(folderId: folderId);
+            }
             return ok;
           },
           () async {
             await _store.moveCollection(node.id, oldFolder);
             await _st.refreshCollections();
+            if (node.id == _st.activeCollectionId) {
+              _st.syncActiveCollectionMeta(folderId: oldFolder);
+            }
             return true;
           },
         );
@@ -816,12 +824,19 @@ class FavTreeController extends ChangeNotifier {
       () async {
         await _store.renameCollection(cid, newName);
         await _st.refreshCollections();
+        // 正在编辑的就是这个工程：编辑器里的名称跟着改，否则下次保存会改名回去。
+        if (cid == _st.activeCollectionId) {
+          _st.syncActiveCollectionMeta(name: newName);
+        }
         ok = true;
         return true;
       },
       () async {
         await _store.renameCollection(cid, oldName);
         await _st.refreshCollections();
+        if (cid == _st.activeCollectionId) {
+          _st.syncActiveCollectionMeta(name: oldName);
+        }
         return true;
       },
     );

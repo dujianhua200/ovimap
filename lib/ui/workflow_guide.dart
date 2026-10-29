@@ -95,7 +95,7 @@ Future<void> showWorkflowGuide(
           onTap: () {
             Navigator.pop(context);
             st.setMode(AppMode.edit);
-            toast(context, '打点模式：左键连续落点，Esc 结束');
+            toast(context, '打点模式：点地图连续落点（桌面按 Esc、手机点「完成」结束）');
           },
         ),
         step(

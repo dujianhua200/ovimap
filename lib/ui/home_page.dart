@@ -18,6 +18,7 @@ import '../services/track_check.dart';
 import '../state/app_state.dart';
 import 'batch_edit.dart';
 import 'compass_widget.dart';
+import 'desktop/inspect_dialog.dart';
 import 'dialogs.dart';
 import 'drawer_panel.dart';
 import 'export_center.dart';
@@ -1060,7 +1061,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  /// ⋯工具面板（成果与资料 + 专业工具）。
+  /// ⋯工具面板（工程 / 成果与资料 / 地图 / 专业工具）。
   void _showToolsMenu(AppState st) {
     showToolsMenu(
       context,
@@ -1068,7 +1069,39 @@ class _HomePageState extends State<HomePage> {
       onPoleTable: () => _showPoleTable(st),
       onTrackCheck: () => _showTrackCheck(st),
       onOdnTopo: () => _showOdnTopo(st),
+      onInspect: () => _inspect(st),
+      onRetryTiles: _retryTiles,
     );
+  }
+
+  /// 出图体检（与桌面同一套引擎/面板）：移动端之前没有入口，
+  /// 外业收工前想查一遍段距/编号/敷设方式只能回桌面。
+  Future<void> _inspect(AppState st) async {
+    if (st.labels.isEmpty) {
+      toast(context, '当前项目没有点，无需体检');
+      return;
+    }
+    await showRouteInspectDialog(context, st, onLocate: _locateByIds);
+  }
+
+  /// 体检「定位」：选中报出的点并把地图移过去（多点多边形取整体范围）。
+  void _locateByIds(List<String> ids) {
+    final st = context.read<AppState>();
+    final hits = labelsByIds(st, ids);
+    if (hits.isEmpty) return;
+    st.selectedIds
+      ..clear()
+      ..addAll(ids);
+    _locateLabels(hits);
+  }
+
+  /// 底图/叠加图源出现白块时重建 provider（generation 变 → 换新实例重试）。
+  void _retryTiles() {
+    setState(() {
+      _baseProvider?.generation++;
+      _overlayProvider?.generation++;
+    });
+    toast(context, '正在重新加载底图瓦片…');
   }
 
   /// 点位定位（收藏树 / ODN 拓扑图共用）：把相机移到该点位；

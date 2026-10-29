@@ -828,6 +828,17 @@ class AppState extends ChangeNotifier {
 
   bool get canUndoSnapshot => _undoSnapshots.isNotEmpty;
 
+  /// 切换"正在编辑的文档"（打开别的工程 / 新建工程 / 删除当前工程）时清空快照栈。
+  ///
+  /// 快照只存点位的 JSON，不带工程身份 —— 若不清空，打开 B 之后按 Ctrl+Z 会把
+  /// A 的点整批恢复进 B，并被 [_saveDraft] 写进 B 的文件（跨工程串数据）。
+  /// 新建工程同理：清空前会压入旧工程快照，不清就会"撤销把上一个工程撤回来"。
+  void _resetDraftUndo() {
+    _undoSnapshots.clear();
+    _redoSnapshots.clear();
+    lastDraftUndoPushAt = DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   /// 是否可重做。
   bool get canRedo => _redoSnapshots.isNotEmpty;
 
@@ -837,27 +848,25 @@ class AppState extends ChangeNotifier {
   }
 
   void undoDraft() {
-    // 优先回退快照（覆盖删除/清空/拖动/插点/导入），栈空时退化为撤销末点
+    // 只按快照回退（覆盖打点/删除/清空/拖动/插点/导入）。
+    //
+    // 旧实现在栈空时"删掉末点"兜底：打开一个已保存工程后误按 Ctrl+Z，
+    // 会在没有任何快照的情况下把最后一个点删掉并落盘；新建工程/切换工程后
+    // 更会把上一个文档的数据当成本文档的末点。现在所有破坏性操作都会压快照，
+    // 栈空就代表"没有可撤销的动作"，什么都不做才是对的。
+    if (_undoSnapshots.isEmpty) return;
     final currentSnapshot = jsonEncode(labels.map((e) => e.toJson()).toList());
-    if (_undoSnapshots.isNotEmpty) {
-      try {
-        final arr = jsonDecode(_undoSnapshots.removeLast()) as List;
-        _pushRedo(currentSnapshot);
-        labels = arr
-            .map((e) => MapLabel.fromJson(e as Map<String, dynamic>))
-            .toList();
-        _saveDraft();
-        notifyListeners();
-        return;
-      } catch (_) {
-        _undoSnapshots.clear(); // 快照损坏：清空防止反复失败
-      }
+    try {
+      final arr = jsonDecode(_undoSnapshots.removeLast()) as List;
+      _pushRedo(currentSnapshot);
+      labels = arr
+          .map((e) => MapLabel.fromJson(e as Map<String, dynamic>))
+          .toList();
+      _saveDraft();
+      notifyListeners();
+    } catch (_) {
+      _undoSnapshots.clear(); // 快照损坏：清空防止反复失败
     }
-    if (labels.isEmpty) return;
-    _pushRedo(currentSnapshot);
-    labels.removeLast();
-    _saveDraft();
-    notifyListeners();
   }
 
   /// 重做上一次撤销（与 [undoDraft] 对偶）。
@@ -1023,6 +1032,18 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// 把「删除草稿文件」排到保存队列末尾。
+  ///
+  /// 保存收藏后直接调 store.clearDraft 不足以说明最终状态：保存前排队中的
+  /// `_doSaveDraft` 可能随后才执行，把草稿再写回来（重启后多出一份带标题的
+  /// 空草稿/重复草稿）。排到队尾才能保证"最后一次动作是清空"。
+  void _clearDraftQueued() {
+    _saveChain = _saveChain.then((_) => store.clearDraft());
+    _saveChain = _saveChain.catchError((Object e) {
+      debugPrint('[ovimap] 保存队列捕获异常（已隔离，不影响后续保存）：$e');
+    });
+  }
+
   Future<void> _doSaveDraft() async {
     await store.saveDraft(labels, projectName, folderId, editModeName, [
       for (final l in fiberLinks) l.toJson(),
@@ -1065,6 +1086,9 @@ class AppState extends ChangeNotifier {
     _openedForEdit = false;
     _chainBroken = true; // 新建空白工程：从零开始画
     clearDraft(); // 含 fiberLinks = []（P0-1：不留上一个工程的连线）
+    // clearDraft 会把旧工程点位压进快照栈，新建工程后必须清空，
+    // 否则第一次「撤销」会把上一个工程的点整批拉回新工程。
+    _resetDraftUndo();
     projectName = '';
     folderId = '';
     _saveDraft();
@@ -1450,14 +1474,27 @@ class AppState extends ChangeNotifier {
   ///
   /// 手点、自动布杆、沿路径布杆共用这一处口径；按数量计数会在删点后重号。
   int _nextNumberForPrefix(String prefix) {
-    final head = '$prefix-';
     var maxN = 0;
     for (final e in labels) {
-      if (!e.name.startsWith(head)) continue;
-      final n = int.tryParse(e.name.substring(head.length));
+      final n = _numberAfterPrefix(e.name, prefix);
       if (n != null && n > maxN) maxN = n;
     }
     return maxN + 1;
+  }
+
+  /// 从名称里取出「前缀后面的号码」。
+  ///
+  /// 兼容现场常见的几种写法：`G-12`（本软件格式）、`G12`、`G001`、`G 7`、
+  /// `G_3`。旧实现只认 `前缀-数字`，导入工程（杆号多为 `G1` / `G001`）后
+  /// 自动编号会从 1 重新开始，和存量杆号撞号。
+  static int? _numberAfterPrefix(String name, String prefix) {
+    if (prefix.isEmpty || !name.startsWith(prefix)) return null;
+    final rest = name
+        .substring(prefix.length)
+        .replaceFirst(RegExp(r'^[\s\-_#.、]*'), '');
+    final m = RegExp(r'^(\d+)').firstMatch(rest);
+    if (m == null) return null;
+    return int.tryParse(m.group(1)!);
   }
 
   int autoPlacePoles({
@@ -1654,6 +1691,9 @@ class AppState extends ChangeNotifier {
     _openedForEdit = true;
     _chainBroken = true; // 打开收藏：新打的第一笔绝不接在收藏末端
     _resetTransientModes();
+    // 快照栈属于上一个文档：切换时清空。打开后、动手前按撤销应当无事发生，
+    // 而不是把上一个工程的点恢复进来。
+    _resetDraftUndo();
     // P0-1：打开工程必须加载它自己的连线，否则内存里还是上一个工程的，
     // 随后一次 _saveDraft 会把 A 的连线写进 B 的文件（跨工程泄漏）。
     fiberLinks = [
@@ -1696,10 +1736,17 @@ class AppState extends ChangeNotifier {
     activeCollectionId = '';
     _openedForEdit = false;
     labels = [];
+    // 保存完成即文档结束：撤销栈若留着，Ctrl+Z 会把刚保存的点又拉回一个
+    // 空草稿（projectName 还在），再保存一次就多出一个重名工程。
+    _resetDraftUndo();
     // P0-1：内存连线随工程一起复位，否则打开下一个工程时仍是这批连线。
     fiberLinks = [];
     _resetTransientModes();
     mode = AppMode.view;
+    // 保存完成后确保草稿文件最终为空：store.finishCollection 会删 draft.json，
+    // 但保存前排队中的 _saveDraft 可能随后才执行、把旧点又写回去；
+    // 把删除动作排到队尾，保证重启后不会多出一份重复草稿。
+    _clearDraftQueued();
     await refreshCollections();
     if (updating) {
       // 编辑已有工程：只有它本来就在显示列表里才刷新数据；
@@ -1723,6 +1770,18 @@ class AppState extends ChangeNotifier {
 
   bool _openedForEdit = false;
 
+  /// 收藏里重命名/移动了「正在编辑的工程」时，把编辑器里的名称/文件夹同步过来。
+  ///
+  /// 不同步的后果：编辑器还拿着旧名称，下一次自动保存（或点「保存」）会用
+  /// 旧值把收藏刚改好的名称/归属**改回去**，用户会看到"重命名又自己变回来了"。
+  void syncActiveCollectionMeta({String? name, String? folderId}) {
+    if (activeCollectionId.isEmpty) return;
+    if (name != null) projectName = name;
+    if (folderId != null) this.folderId = folderId;
+    _saveDraft();
+    notifyListeners();
+  }
+
   /// 删除收藏工程（统一入口，含软删除同步通知）。
   ///
   /// 与直接调用 `store.deleteCollection` 相比，额外：清理可见集合、刷新列表、
@@ -1741,6 +1800,7 @@ class AppState extends ChangeNotifier {
       folderId = '';
       _chainBroken = true;
       _resetTransientModes();
+      _resetDraftUndo(); // 已删除工程的快照不能留给下一个文档
       mode = AppMode.view;
       _saveDraft(); // 此时 activeCollectionId 已空，只会清 draft.json
     } else if (topoCid == cid) {
@@ -1776,6 +1836,7 @@ class AppState extends ChangeNotifier {
       folderId = '';
       _chainBroken = true;
       _resetTransientModes();
+      _resetDraftUndo();
       mode = AppMode.view;
       _saveDraft();
     } else if (set.contains(topoCid)) {
