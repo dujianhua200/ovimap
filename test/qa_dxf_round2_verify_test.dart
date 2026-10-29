@@ -342,7 +342,7 @@ void main() {
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
-  test('F1（连带）：有 ODN 拓扑时走新配线图（下方、走向一致），不再用老拉直图', () async {
+  test('F1（连带）：有 ODN 拓扑时走新配线图（拓扑+避让），不再用老拉直图', () async {
     final dir = Directory.systemTemp.createTempSync('qa2_wire');
     final labels = _topoLabels();
     // 无拓扑的对照组：去掉 topoParentId
@@ -362,10 +362,14 @@ void main() {
     final entsW = _entities(withWire);
     final gW = _bounds(entsW);
 
-    // 2026-10-10：有 ODN 拓扑（topoParentId）时走新配线图（下方），
-    // 不再画老拉直图（右侧）。新配线图向下方扩展 → 下边界变小（更负）。
-    expect(gW[1], lessThan(gNo[1] - 1),
-        reason: '新配线图未向下方扩展（ODN 拓扑应走新逻辑）');
+    // 2026-10-29：配线图改为「纯拓扑 + 自动避让」，落点由扩幅面积决定
+    // （右/上/下/左四选一），不再固定下置。这里只断言图幅确实向外扩展
+    // （证明配线图已画出并参与图幅计算），方向不再固定。
+    final grew = gW[0] < gNo[0] - 1 ||
+        gW[1] < gNo[1] - 1 ||
+        gW[2] > gNo[2] + 1 ||
+        gW[3] > gNo[3] + 1;
+    expect(grew, isTrue, reason: '新配线图未扩展图幅（ODN 拓扑应走新逻辑）');
 
     // PeiXianTu 层有实体（新配线图）
     final peiEnts = _on(entsW, 'LINE', 'PeiXianTu');

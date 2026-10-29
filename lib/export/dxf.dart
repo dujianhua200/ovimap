@@ -208,9 +208,11 @@ class DxfExporter {
       if (y < extMinY) extMinY = y;
       if (y > extMaxY) extMaxY = y;
     }
-    // 线路-only 包络（改造注记定位用，不被底图外扩污染）
+    // 线路-only 包络（改造注记定位、配线图尺寸用，不被底图外扩污染）
+    final routeMinX = extMinX;
     final routeMinY = extMinY;
     final routeMaxX = extMaxX;
+    final routeMaxY = extMaxY;
 
     // 改造工程量：新增/拆除长度分别统计（米），原有不计入
     var renoNewLenM = 0.0;
@@ -599,8 +601,8 @@ class DxfExporter {
     }
     final useNewWiring = effectiveFiberLinks.isNotEmpty;
 
-    // 新配线图：走向与路由完全一致，整体缩小（uniformScale=0.5），放路由图下方。
-    // 配线图 = 纤拓扑结构：只含连线两端的设备。
+    // 配线图（纯拓扑）：只画设备 + 光缆连线，走向沿路由、长度统一压缩，
+    // 落点自动避让路由/底图/图例，不再把整条杆路缩小后压在路由图上。
     if (useNewWiring) {
       try {
         final topoIds = <String>{};
@@ -612,39 +614,91 @@ class DxfExporter {
           for (final d in labels)
             if (topoIds.contains(d.id)) d
         ];
-        // 走向与路由一致，整体缩小（uniformScale=0.5）
-        final layout = layoutWiringDiagram(topoDevices, effectiveFiberLinks, labels,
-            segLen: 40, uniformScale: 0.5);
-        if (layout.nodes.isNotEmpty && layout.path.length >= 2) {
-          // 配线图原点：路由图下方干净处
-          // 2026-10-09 用户：距离按 1:3000 真实比例，wiringScale=1.0 不压缩
-          const wiringScale = 1.0;
-          final ox = extMinX;
-          final oy = extMinY - 120;
+        // 光缆改造工程量：只统计两端设备都在当前项目内的连线
+        final deviceIds = {for (final d in topoDevices) d.id};
+        for (final l in effectiveFiberLinks) {
+          if (!deviceIds.contains(l.fromDeviceId) ||
+              !deviceIds.contains(l.toDeviceId)) {
+            continue;
+          }
+          if (l.reno == RenoState.added) {
+            fiberNewLenM += l.lengthM;
+          } else if (l.reno == RenoState.removed) {
+            fiberRemoveLenM += l.lengthM;
+          }
+        }
+
+        // 纸面口径：配线图最长边取路由的 18%，并限制在 35~55mm，
+        // 既保证拓扑可读，又不把图幅撑出 A3；四周留白 15mm 容纳符号与文字。
+        final routeSpanM = math.max(
+            routeMaxX - routeMinX, routeMaxY - routeMinY);
+        final targetSpanM = (routeSpanM * 0.18)
+            .clamp(_mmOf(35, routeScale), _mmOf(55, routeScale))
+            .toDouble();
+        final layout = layoutWiringDiagram(
+          topoDevices,
+          effectiveFiberLinks,
+          labels,
+          targetSpanM: targetSpanM,
+          padM: _mmOf(15, routeScale),
+        );
+        if (layout.nodes.isNotEmpty && layout.edges.isNotEmpty) {
+          // 改造注记占线路下方约 16mm，配线图不得压它。
+          final hasReno0 = renoNewLenM > 0 ||
+              renoRemoveLenM > 0 ||
+              fiberNewLenM > 0 ||
+              fiberRemoveLenM > 0;
+          final safeMinY = hasReno0
+              ? math.min(extMinY, routeMinY - _mmOf(16, routeScale))
+              : extMinY;
+          // 图例在左下角，下置时右移让开。
+          final origin = _pickWiringOrigin(
+            extMinX,
+            safeMinY,
+            extMaxX,
+            extMaxY,
+            layout.width,
+            layout.height,
+            _mmOf(15, routeScale),
+            showLegend ? _mmOf(55, routeScale) : 0.0,
+          );
+          final ox = origin[0], oy = origin[1];
+
+          final symScale = routeScale / 1000.0; // 块基准 = 1:1000 纸面 mm
           final fontM = _mmOf(2.5, routeScale);
           final smallFontM = _mmOf(2.0, routeScale);
-          // 画缩小路径（配线图走向与路由完全一致，只是整体缩小）
-          for (var i = 1; i < layout.path.length; i++) {
-            final p1 = layout.path[i - 1];
-            final p2 = layout.path[i];
-            _appendLine(c, 'PeiXianTu', ox + p1.x * wiringScale,
-                oy + p1.y * wiringScale, ox + p2.x * wiringScale,
-                oy + p2.y * wiringScale);
+          final boxHalfW = 5.0 * symScale; // HZ_FIBERBOX 半宽
+          const boxHalfH = 2.2; // HZ_FIBERBOX 半高（块单位）
+
+          // 标题：一眼区分路由图与配线图
+          _text(c, 'PeiXianTu', ox + _mmOf(2, routeScale),
+              oy + _mmOf(3, routeScale), fontM, '配线图（拓扑）');
+
+          // 光缆连线：沿压缩路由的折线（保留拐点），线宽 0.6mm
+          for (final e in layout.edges) {
+            _appendPolyline(
+              c,
+              'PeiXianTu',
+              [
+                for (final p in e.path) [ox + p.x, oy + p.y]
+              ],
+              width: _mmOf(0.6, routeScale),
+              version: version,
+            );
           }
-          // 找出端点（无出边的节点）：标成端处
+
+          // 端点（无出边）：标成端处
           final hasOut = <String>{};
           for (final e in layout.edges) {
             hasOut.add(e.from.device.id);
           }
-          // 画节点箱体（在路径点上）
-          // 2026-10-09 真 1:1：符号按真实尺寸落图（HZ_FIBERBOX 10×4.4）
-          const wiringSymScale = 1.0;
+
           for (final n in layout.nodes) {
-            final cx = ox + n.x * wiringScale;
-            final cy = oy + n.y * wiringScale;
-            // 纤箱判断（2026-10-09）：typeId 可能是 fiberbox/fdcab/termbox 或其他；
-            // 兜底：箱体形状且非分光器/光交/ONU/机房/基站，一律按槽位箱画
+            final cx = ox + n.x;
+            final cy = oy + n.y;
             final lt = LabelType.fromId(n.device.typeId);
+            // 纤箱判断：typeId 可能是 fiberbox/fdcab/termbox 或其他；
+            // 兜底：箱体形状且非分光器/光交/ONU/机房/基站，一律按槽位箱画
             final isFiberBox = n.device.typeId == 'fiberbox' ||
                 n.device.typeId == 'fdcab' ||
                 n.device.typeId == 'termbox' ||
@@ -655,23 +709,29 @@ class DxfExporter {
                     n.device.typeId != 'onubox' &&
                     n.device.typeId != 'room' &&
                     n.device.typeId != 'bts');
+            double halfH;
             if (isFiberBox) {
+              // 符号与图面同口径：块 10×4.4 按 1:1000 纸面 mm 缩放
               _appendInsert(c, 'PeiXianTu', 'HZ_FIBERBOX', cx, cy,
-                  sx: wiringSymScale, sy: wiringSymScale);
-              final slotText = n.device.name.contains('4槽')
-                  ? '4槽位箱'
-                  : '2槽位箱';
+                  sx: symScale, sy: symScale);
+              halfH = boxHalfH * symScale;
+              final slotText =
+                  n.device.name.contains('4槽') ? '4槽位箱' : '2槽位箱';
               _text(c, 'PeiXianTu',
-                  cx + 5.0 * wiringSymScale + 2, cy, fontM, slotText);
+                  cx + boxHalfW + _mmOf(1.5, routeScale), cy, smallFontM,
+                  slotText);
             } else {
-              final hw = 9.0, hh = 5.0;
+              final hw = _mmOf(4.5, routeScale), hh = _mmOf(2.5, routeScale);
+              halfH = hh;
               _appendRect(c, 'PeiXianTu', cx - hw, cy - hh, cx + hw, cy + hh);
-              _text(c, 'PeiXianTu', cx - hw + 1, cy - fontM / 2, fontM, n.label);
             }
-            // 成端处：无出边的端点加引线标注
+            // 设备名放符号上方居中，避免与右侧槽位文字互压
+            _appendTextCentered(c, 'PeiXianTu', cx,
+                cy + halfH + _mmOf(3.0, routeScale), fontM, n.label);
+            // 成端处：符号下方居中
             if (!hasOut.contains(n.device.id)) {
-              _appendLine(c, 'PeiXianTu', cx + 6, cy - 3, cx + 14, cy - 8);
-              _text(c, 'PeiXianTu', cx + 15, cy - 10, fontM, '成端处');
+              _appendTextCentered(c, 'PeiXianTu', cx,
+                  cy - halfH - _mmOf(5.0, routeScale), smallFontM, '成端处');
             }
             // 分光器标注
             if (n.device.typeId == 'splitterbox') {
@@ -679,35 +739,38 @@ class DxfExporter {
                   ? n.device.note
                   : n.device.name;
               if (splitterInfo.isNotEmpty) {
-                _text(c, 'PeiXianTu', cx - 10, cy - 10,
-                    smallFontM, '分光器:$splitterInfo');
+                _appendTextCentered(
+                    c,
+                    'PeiXianTu',
+                    cx,
+                    cy - halfH - _mmOf(9.0, routeScale),
+                    smallFontM,
+                    '分光器:$splitterInfo');
               }
             }
-            if (cy - 12 < extMinY) extMinY = cy - 12;
-            if (cx + 10 > extMaxX) extMaxX = cx + 10;
           }
-          // 路径分段标光缆型号+长度（按连线）
+
+          // 连线标注：型号在线上方、长度在线下方，随线段方向旋转
           for (final e in layout.edges) {
-            final x1 = ox + e.from.x * wiringScale;
-            final y1 = oy + e.from.y * wiringScale;
-            final x2 = ox + e.to.x * wiringScale;
-            final y2 = oy + e.to.y * wiringScale;
-            final midX = (x1 + x2) / 2;
-            final midY = (y1 + y2) / 2;
-            if (e.link.reno == RenoState.added) {
-              fiberNewLenM += e.link.lengthM;
-            } else if (e.link.reno == RenoState.removed) {
-              fiberRemoveLenM += e.link.lengthM;
-            }
+            final mid = _pathMid(e.path);
+            final mx = ox + mid[0], my = oy + mid[1];
             final spec = e.link.fullSpec;
             if (spec.isNotEmpty) {
-              _text(c, 'PeiXianTu', midX, midY + 3, smallFontM, spec);
+              _text(c, 'PeiXianTu', mx, my + _mmOf(2.0, routeScale),
+                  smallFontM, spec, angle: mid[2]);
             }
             if (e.link.lengthM > 0) {
-              _text(c, 'PeiXianTu', midX, midY - 5, smallFontM,
-                  '长${e.link.lengthM.toStringAsFixed(1)}');
+              _text(c, 'PeiXianTu', mx, my - _mmOf(4.5, routeScale),
+                  smallFontM, '长${e.link.lengthM.toStringAsFixed(1)}',
+                  angle: mid[2]);
             }
           }
+
+          // 配线图整体并入图幅（layout 宽高已含四周留白）
+          if (ox < extMinX) extMinX = ox;
+          if (oy < extMinY) extMinY = oy;
+          if (ox + layout.width > extMaxX) extMaxX = ox + layout.width;
+          if (oy + layout.height > extMaxY) extMaxY = oy + layout.height;
         }
       } catch (e) {
         // 配线图异常不阻塞主图导出（P0-7：失败要进 warnings，不能静默缺图）
@@ -949,6 +1012,76 @@ class DxfExporter {
     _appendTri(c, 'BeiFangZhen', cx, cy - 0.8, 2.4);
     // N 字
     _appendTextCentered(c, 'BeiFangZhen', cx, cy + r + 1.5, 3.5, 'N');
+  }
+
+  /// 配线图落点：在现有图幅（路由 + 底图 + 注记）外侧四个方位里，
+  /// 取「扩幅后面积最小」的位置。四方位都与图幅保持 [gap] 间距，
+  /// 天然不重叠；下置时右移 [legendW]，避开左下角图例。
+  static List<double> _pickWiringOrigin(
+      double minX,
+      double minY,
+      double maxX,
+      double maxY,
+      double w,
+      double h,
+      double gap,
+      double legendW) {
+    final cands = <List<double>>[
+      [maxX + gap, minY], // 右
+      [minX, maxY + gap], // 上
+      [minX + legendW, minY - gap - h], // 下（避开图例）
+      [minX - gap - w, maxY - h], // 左
+    ];
+    var best = cands.first;
+    var bestArea = double.infinity;
+    for (final c in cands) {
+      final x0 = math.min(minX, c[0]);
+      final y0 = math.min(minY, c[1]);
+      final x1 = math.max(maxX, c[0] + w);
+      final y1 = math.max(maxY, c[1] + h);
+      final area = (x1 - x0) * (y1 - y0);
+      if (area < bestArea) {
+        bestArea = area;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  /// 折线按弧长取中点，并给出该处切线方向（度，规范到 -90..90 便于文字正读）。
+  static List<double> _pathMid(List<math.Point<double>> ps) {
+    if (ps.isEmpty) return const [0, 0, 0];
+    var total = 0.0;
+    for (var i = 1; i < ps.length; i++) {
+      total += _segLen(ps[i - 1], ps[i]);
+    }
+    if (total < 1e-9) return [ps.first.x, ps.first.y, 0];
+    final half = total / 2;
+    var acc = 0.0;
+    for (var i = 1; i < ps.length; i++) {
+      final d = _segLen(ps[i - 1], ps[i]);
+      if (d < 1e-9) continue;
+      if (acc + d >= half) {
+        final t = (half - acc) / d;
+        final x = ps[i - 1].x + (ps[i].x - ps[i - 1].x) * t;
+        final y = ps[i - 1].y + (ps[i].y - ps[i - 1].y) * t;
+        var ang =
+            math.atan2(ps[i].y - ps[i - 1].y, ps[i].x - ps[i - 1].x) *
+                180 /
+                math.pi;
+        if (ang > 90) ang -= 180;
+        if (ang < -90) ang += 180;
+        return [x, y, ang];
+      }
+      acc += d;
+    }
+    final a = ps[ps.length - 2], b = ps.last;
+    return [b.x, b.y, math.atan2(b.y - a.y, b.x - a.x) * 180 / math.pi];
+  }
+
+  static double _segLen(math.Point<double> a, math.Point<double> b) {
+    final dx = b.x - a.x, dy = b.y - a.y;
+    return math.sqrt(dx * dx + dy * dy);
   }
 
   /// A3 图框：内容包围盒外加 10m 边距画边框。
