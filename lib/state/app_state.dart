@@ -124,10 +124,12 @@ class AppState extends ChangeNotifier {
 
   // ---- 模式 ----
   AppMode mode = AppMode.view;
-  LabelType curType = LabelType.pipe;
+  // 默认打点符号 = 水泥杆（线路外业 99% 的点是杆，原来默认"管道口"每次都要先切）；
+  // 需要别的点（人孔/分纤盒/管道口）在符号栏点一下即可，模板仍可整体套用覆盖。
+  LabelType curType = LabelType.concrete;
 
   // ---- 工程模板默认值（会话级 + prefs 持久化，仅作新增点默认值，不改字段语义） ----
-  String defTypeId = 'pipe';
+  String defTypeId = 'concrete';
   int defSegKind = 0;
   String defSegCable = '';
   double defSlackM = 0;
@@ -1098,10 +1100,13 @@ class AppState extends ChangeNotifier {
   ///
   /// 把原来分散在「新建工程 / 工程模板 / 采集设置」三处的必填项合并，
   /// 避免用户新建后忘了设模板与编号前缀，打了一半才发现编号不对。
+  ///
+  /// 自动编号默认**关**：多数工程的杆号要按设计图/运维编号手填，
+  /// 默认自动生成 G-1、G-2… 反而要逐点改掉（用户反馈）。
   void beginNewProject({
     required String name,
     ProjectTemplate? template,
-    bool autoNumber = true,
+    bool autoNumber = false,
     String prefix = '',
   }) {
     startNewDraft();

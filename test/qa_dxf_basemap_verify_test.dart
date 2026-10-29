@@ -822,6 +822,61 @@ void main() {
     dir.deleteSync(recursive: true);
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  test('地名半径与矢量范围解耦：250m 外的村名保留，同距离的建筑被裁掉', () async {
+    final dir = Directory.systemTemp.createTempSync('qa_place_r');
+    final cache = BasemapCache(dir);
+    final labels = _poles(30.0, 120.0, span: 0.002);
+    // fetchFor 内部按地名半径（下限 300m）取 bbox，预写缓存必须覆盖它。
+    final bbox = BasemapFetcher.boundsOf(labels, 300);
+    // 线中点在 lon=120.001；正北约 250 米 ≈ 0.00226 度。
+    const dLat = 250 / 110540.0;
+    const midLon = 120.001;
+    await cache.write(
+        'places',
+        bbox,
+        jsonEncode({
+          'elements': [
+            {
+              'type': 'node',
+              'lat': 30.0 + dLat,
+              'lon': midLon,
+              'tags': {'place': 'hamlet', 'name': '李家塆'}
+            }
+          ]
+        }));
+    await cache.write(
+        'buildings',
+        bbox,
+        jsonEncode({
+          'elements': [
+            {
+              'type': 'way',
+              'geometry': [
+                {'lat': 30.0 + dLat, 'lon': midLon},
+                {'lat': 30.0 + dLat, 'lon': midLon + 0.0002},
+                {'lat': 30.0 + dLat + 0.0002, 'lon': midLon + 0.0002},
+                {'lat': 30.0 + dLat, 'lon': midLon},
+              ],
+              'tags': {'building': 'yes'}
+            }
+          ]
+        }));
+
+    final data = await BasemapFetcher.fetchFor(
+      labels,
+      rangeM: 50,
+      cache: cache,
+      useTdt: false,
+      includeExtras: false,
+      useBuildingFallback: false,
+    );
+    expect(data.places.map((p) => p.name), contains('李家塆'),
+        reason: '村名在 250m 处，超过 50m 走廊但在地名半径内，应保留');
+    expect(data.buildings, isEmpty, reason: '建筑仍按 50m 走廊裁剪，不应被地名半径放大');
+
+    dir.deleteSync(recursive: true);
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   // ==========================================================================
   // A6 绘制顺序核查：业务图层须在底图之上（DXF 后写者在上层）
   // ==========================================================================

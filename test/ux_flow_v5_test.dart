@@ -206,6 +206,19 @@ void main() {
       expect(st.numPrefix, 'GK');
       expect(st.mode, AppMode.edit);
     });
+
+    test('默认打点=水泥杆，新建工程默认不自动编号', () async {
+      final st = await makeState();
+      // 全新状态：当前符号就是水泥杆，落点不自动命名。
+      expect(st.curType.id, 'concrete');
+      st.beginNewProject(name: '默认值工程');
+      expect(st.autoNumber, isFalse, reason: '新建工程默认不自动编号（杆号手填）');
+      expect(st.curType.id, 'concrete');
+      final l = st.addLabelAtWgs(32.0, 114.0);
+      expect(l.typeId, 'concrete');
+      expect(l.name, isEmpty, reason: '不自动编号时落点不应带 G-1 之类的名字');
+      await _settle();
+    });
   });
 
   group('未保存草稿判定（切换工程护栏）', () {

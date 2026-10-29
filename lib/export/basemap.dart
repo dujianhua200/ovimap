@@ -420,8 +420,12 @@ class _LoadResult<T> {
 class BasemapFetcher {
   BasemapFetcher._();
 
-  /// 天地图兜底关键词枚举（OSM 地名为空或过少时）。
-  static const List<String> tdtKeywords = ['小区', '村', '社区', '花园', '苑'];
+  /// 地名兜底关键词枚举（OSM 地名为空或过少时，高德优先、天地图回落）。
+  ///
+  /// 除县城/小区名外，补「塆 / 庄」——信阳（及豫南、鄂北）自然村/小队名
+  /// 大量是「李家塆」「王家庄」，只按"村/社区"搜根本搜不到（用户反馈
+  /// "没什么村庄名字或者小队名字"）。
+  static const List<String> tdtKeywords = ['小区', '村', '社区', '花园', '苑', '塆', '庄'];
 
   /// 按线路范围计算外扩 bbox `[minLat, minLon, maxLat, maxLon]`（±[rangeM] 米，纬度自适应）。
   static List<double> boundsOf(List<MapLabel> labels, double rangeM) {
@@ -637,7 +641,11 @@ class BasemapFetcher {
     BasemapCache? cache,
   }) async {
     if (labels.isEmpty) return BasemapData.empty();
-    final bbox = boundsOf(labels, rangeM);
+    // 地名（村名/小队名）搜索半径：与矢量几何解耦，下限 300m。
+    final placeRangeM = math.max(rangeM, placeRadiusMinM);
+    // 抓取 bbox 按地名半径取（否则 50m 走廊连村名的查询范围都不够）；
+    // 道路/建筑/电力水系仍各自按 rangeM 做几何裁剪，矢量范围不受影响。
+    final bbox = boundsOf(labels, placeRangeM);
     final bboxStr = '${bbox[0]},${bbox[1]},${bbox[2]},${bbox[3]}';
     final c = cache ?? await BasemapCache.open();
 
@@ -682,8 +690,11 @@ class BasemapFetcher {
       refresh: refresh,
       endpoints: overpassEps,
       parse: OverpassClient.parsePlaces,
+      // 地名用**独立半径**：村名/小队名是稀疏点要素，按 50m 走廊裁几乎一个都留不下
+      // （用户反馈"没什么村庄名字或者小队名字"）。几何（建筑/道路）仍按 rangeM，
+      // 只有文字注记放宽到 [placeRadiusMinM]，不会把矢量图摊大。
       crop: (items) => items
-          .where((p) => distToRouteM(labels, p.lat, p.lon) <= rangeM)
+          .where((p) => distToRouteM(labels, p.lat, p.lon) <= placeRangeM)
           .toList(),
     );
 
@@ -721,7 +732,7 @@ class BasemapFetcher {
     // 内置道路/地名（信阳市）：OSM 实时抓取为主，内置包交叉互补、去重不重叠。
     // 内置是离线预打包数据（见 bundled_basemap.dart），无网络也能用。
     roads = await _applyBundledRoads(roads, bbox, labels, rangeM);
-    places = await _applyBundledPlaces(places, bbox, labels, rangeM);
+    places = await _applyBundledPlaces(places, bbox, labels, placeRangeM);
 
     var placesReport = places.report;
     // 地名兜底：OSM 地名过少时按关键词枚举补名（仅补点/地名，不参与几何）。
@@ -767,7 +778,7 @@ class BasemapFetcher {
     // （用户复现的"矢量图外侧很远处密密麻麻的名字"）。count 同步修正，口径一致。
     // 出口再按**沿线路缓冲**兜底裁一次（含容差），矩形包围盒不再作为最终口径。
     final finalPlaces = cropPlacesToRoute(
-        places.items, labels, rangeM + placeCropTolM);
+        places.items, labels, math.max(placeRangeM, rangeM + placeCropTolM));
     if (finalPlaces.length != places.items.length) {
       places = _LoadResult(
         DatasetReport(
@@ -907,6 +918,13 @@ bool _inBbox(double lat, double lon, List<double> bbox) =>
   /// 用户复现的「几十公里外」地名与线路相距 3~4 个数量级，必被剔除
   /// （如信阳 bbox 外的息县/光山/罗山/潢川/商城，直线 20~80km）。
   static const double placeCropTolM = 100.0;
+
+  /// 地名（村名/小队名）搜索半径下限（米）。
+  ///
+  /// 村名、小队名是**稀疏点要素**：OSM/内置包里一个村名代表一片居民点，
+  /// 按矢量走廊（默认 50m）裁剪几乎留不下（用户反馈"没什么村庄名字"）。
+  /// 这里只放宽**文字注记**的范围，建筑/道路几何仍按 rangeM 裁剪。
+  static const double placeRadiusMinM = 300.0;
 
   /// 带容差的范围判定（WGS84）。
   ///

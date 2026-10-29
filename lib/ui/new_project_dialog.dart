@@ -19,7 +19,8 @@ Future<bool> showNewProjectDialog(BuildContext context, AppState st) async {
   final defaultTpl = ProjectTemplate.byId(st.templateId);
   var tplId = defaultTpl?.id ?? '';
   final nameCtl = TextEditingController(text: defaultProjectName());
-  var autoNum = true;
+  // 默认不自动编号（杆号按设计图手填更常见）；需要时勾上即可。
+  var autoNum = false;
   var prefixTouched = false;
   final prefixCtl = TextEditingController(text: defaultPrefixFor(tplId));
   var created = false;
@@ -99,9 +100,12 @@ Future<bool> showNewProjectDialog(BuildContext context, AppState st) async {
               decoration: dec('编号前缀（如 G / R / X）'),
             ),
             const SizedBox(height: TokSp.s),
-            const Text(
-              '创建后直接进入打点模式，编号从 1 开始；工程在第一次保存时落盘。',
-              style: TextStyle(color: kTextHint, fontSize: TokFs.caption),
+            Text(
+              autoNum
+                  ? '创建后直接进入打点模式，编号从 1 开始；工程在第一次保存时落盘。'
+                  : '创建后直接进入打点模式，落点默认不编号（可在对话框里手填杆号）；'
+                      '工程在第一次保存时落盘。',
+              style: const TextStyle(color: kTextHint, fontSize: TokFs.caption),
             ),
           ],
         ),
@@ -161,11 +165,11 @@ String _templateHint(ProjectTemplate? t) {
   if (t == null) return '沿用当前符号与敷设方式';
   switch (t.id) {
     case 'aerial':
-      return '默认水泥杆 · 架空 · 编号 G-1、G-2…';
+      return '默认水泥杆 · 架空（勾选自动编号时前缀建议 G）';
     case 'duct':
-      return '默认管道口 · 管道 · 编号 R-1、R-2…';
+      return '默认管道口 · 管道（勾选自动编号时前缀建议 R）';
     case 'box':
-      return '默认分纤盒 · 箱体配线 · 编号 X-1、X-2…';
+      return '默认分纤盒 · 箱体配线（勾选自动编号时前缀建议 X）';
     default:
       return '默认 ${t.name}';
   }
